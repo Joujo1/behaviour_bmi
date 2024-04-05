@@ -1,0 +1,36 @@
+:root {
+  font-family: Futura, Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+
+  /* color-scheme:  dark light; */
+  color-scheme:  light;
+  
+  /* overflow-x: hidden;
+  overflow-y: hidden;  */
+
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  
+  --darkm-bg-color: black;
+  --darkm-bgFaint-color: rgb(26, 26, 26);
+  --darkm-fg-color: white;
+  --darkm-fgFaint-color: rgb(77, 77, 77);
+  
+  --lightm-bg-color: white;
+  --lightm-bgFaint-color: #f0f0f0;
+  --lightm-fg-color: black;
+  --lightm-fgFaint-color: rgb(128, 128, 128);
+ 
+  --bg-color: var(--lightm-bg-color);
+  --bgFaint-color: var(--lightm-bgFaint-color);
+  --fg-color: var(--lightm-fg-color);
+  --fgFaint-color: var(--lightm-fgFaint-color);
+  --accent-color: #ffd000;
+}
+
+body {
+  min-width: 1000px; 
+}
