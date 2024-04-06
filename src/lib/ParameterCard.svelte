@@ -1,9 +1,14 @@
 <script>
   import store from "../../store/store";
   import UploadButton from "./UploadButton.svelte";
+  import Modal from "./Modal.svelte";
+
   export let titleParams = "Card Title";
   export let cardParams = {};
   export let lockedParams = {};
+
+  let showModal = false;
+  let modalMessage = "";
 
   let newInput = false;
   let updatedParams = {};
@@ -18,17 +23,44 @@
   const width = 11 * (maxKeyLength + maxValueLength) + 20;
   const highlightedParams = ["SESSION_NAME_POSTFIX", "LOGGING_LEVEL"];
 
-  function uploadParamters(event) {
+  async function uploadParameters(event) {
     console.log("patching parameters: ", updatedParams);
-    // PATCH request to the server
+    let base_url = "http://0.0.0.0:8000";
 
-    Object.assign(cardParams, updatedParams);
-    updatedParams = {};
-    newInput = false;
+    // Iterate over each updated parameter and send a PATCH request
+    for (let key in updatedParams) {
+      let new_value = updatedParams[key];
+      let response = await fetch(
+        `${base_url}/parameters/${key}?new_value=${new_value}`,
+        {
+          method: "PATCH",
+        }
+      );
+
+      let data = await response.json();
+      if (!response.ok) {
+        modalMessage =
+          `Server: PATCH /parameters/${key} with \`${new_value}\`` +
+          ` failed with status ${response.status}, ${data.detail}`;
+        console.error(modalMessage);
+        showModal = true;
+        continue;
+      }
+      console.log(`Server: PATCH /parameters/${key}:`, data);
+      cardParams[key] = updatedParams[key];
+      delete updatedParams[key];
+      newInput = Object.keys(updatedParams).length === 0 ? false : true;
+    }
+    console.log(updatedParams);
+  }
+
+  function closeModal() {
+    showModal = false;
   }
 
   function handleInput(event) {
     let newValue = event.target.value;
+    // console.log(newValue, cardParams[event.target.id])
     // check if the provided input differs from the default value
     if (newValue != cardParams[event.target.id]) {
       newInput = true;
@@ -40,16 +72,20 @@
       // new input might still be true if other inputs are unqiue from default
       newInput = Object.keys(updatedParams).length === 0 ? false : true;
     }
+    // console.log(updatedParams, newInput)
   }
 </script>
 
+{#if showModal}
+  <Modal message={modalMessage} on:close={closeModal} />
+{/if}
 <div class="parameter-card" style=" min-width: {width}px; max-width:800px">
   <div id="card-header-div">
     <div>
       <h1>{titleParams}</h1>
     </div>
     <div id="upload-btn-div">
-      <UploadButton onClickCallback={uploadParamters} {newInput} />
+      <UploadButton onClickCallback={uploadParameters} {newInput} />
     </div>
   </div>
   <div id="card-content-div">

@@ -29,6 +29,7 @@
   --fg-color: var(--lightm-fg-color);
   --fgFaint-color: var(--lightm-fgFaint-color);
   --accent-color: #ffd000;
+  --error-color: rgb(205, 20, 20);
 }
 
 body {

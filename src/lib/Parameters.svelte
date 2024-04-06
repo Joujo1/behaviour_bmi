@@ -43,8 +43,6 @@
     return lockedParams;
   }
 
-  // onMount(async () => {
-  // });
   async function getAllCardParams() {
     const params = await getParameters();
     console.log(params);
