@@ -15,7 +15,7 @@
 
   
   --darkm-bg-color: black;
-  --darkm-bgFaint-color: rgb(26, 26, 26);
+  --darkm-bgFaint-color: rgb(43, 43, 43);
   --darkm-fg-color: white;
   --darkm-fgFaint-color: rgb(77, 77, 77);
   
@@ -26,12 +26,46 @@
  
   --bg-color: var(--lightm-bg-color);
   --bgFaint-color: var(--lightm-bgFaint-color);
-  --fg-color: var(--lightm-fg-color);
+  --fg-color: var(--lightm-fg-color);#40ca72
   --fgFaint-color: var(--lightm-fgFaint-color);
   --accent-color: #ffd000;
   --error-color: rgb(205, 20, 20);
+  --good-color: rgb(64,202,114);
 }
 
 body {
   min-width: 1000px; 
+}
+
+#parameter-div, #setup-div {
+  display: flex;
+  flex-wrap: wrap;
+  /* justify-content: space-between; */
+  justify-content: start;
+  /* align-items: flex-start; */
+  flex-grow: 1;
+
+  transition: all 0.1s ease-in-out;
+  border-bottom: 1px solid var(--fg-color);
+  margin-left: 15px;
+  margin-right: 15px;
+  padding-top: 15px;
+  padding-bottom: 15px;
+}
+
+/* Initial state */
+#parameter-div, #setup-div{
+  opacity: 1;
+  transform: translateX(0);
+  height: auto;
+  overflow: hidden;
+}
+
+/* State after button is clicked */
+#parameter-div.hide, #setup-div.hide{
+  opacity: 0;
+  transform: translateX(-100%);
+  height: 0;
+  padding: 0;
+  border-bottom: none;
 }
