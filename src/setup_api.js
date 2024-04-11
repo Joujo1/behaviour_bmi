@@ -134,10 +134,6 @@ export async function POSTLaunch_log_portenta() {
   return await handlePOST(`${base_url}/procs/launch_log_portenta`);
 }
 
-export async function POSTLaunch_stream_portenta() {
-  return await handlePOST(`${base_url}/procs/launch_stream_portenta`);
-}
-
 export async function POSTLaunch_facecam2shm() {
   return await handlePOST(`${base_url}/procs/launch_facecam2shm`);
 }
@@ -146,16 +142,12 @@ export async function POSTLaunch_bodycam2shm() {
   return await handlePOST(`${base_url}/procs/launch_bodycam2shm`);
 }
 
-export async function POSTLaunch_stream_facecam() {
-  return await handlePOST(`${base_url}/procs/launch_stream_facecam`);
-}
-
 export async function POSTLaunch_log_facecam() {
   return await handlePOST(`${base_url}/procs/launch_log_facecam`);
 }
 
-export async function POSTLaunch_stream_bodycam() {
-  return await handlePOST(`${base_url}/procs/launch_stream_bodycam`);
+export async function POSTLaunch_log_bodycam() {
+  return await handlePOST(`${base_url}/procs/launch_log_bodycam`);
 }
 
 export async function POSTLaunch_log_unity() {

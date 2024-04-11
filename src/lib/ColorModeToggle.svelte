@@ -10,6 +10,7 @@
       "bgFaint-color",
       "fg-color",
       "fgFaint-color",
+      "button-shadow",
     ];
     const colMode = $store.inDarkMode ? "dark" : "light";
 

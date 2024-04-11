@@ -18,11 +18,14 @@
   --darkm-bgFaint-color: rgb(43, 43, 43);
   --darkm-fg-color: white;
   --darkm-fgFaint-color: rgb(77, 77, 77);
+  --darkm-button-shadow: 3px 3px 3px 3px rgba(15, 15, 15, 0.2);
   
   --lightm-bg-color: white;
   --lightm-bgFaint-color: #f0f0f0;
   --lightm-fg-color: black;
   --lightm-fgFaint-color: rgb(128, 128, 128);
+  --lightm-button-shadow: 1px 1px 1px 1px rgba(128, 128, 128, 0.2);
+
  
   --bg-color: var(--lightm-bg-color);
   --bgFaint-color: var(--lightm-bgFaint-color);
@@ -31,6 +34,7 @@
   --accent-color: #ffd000;
   --error-color: rgb(205, 20, 20);
   --good-color: rgb(64,202,114);
+  --button-shadow: var(--lightm-button-shadow);
 }
 
 body {
