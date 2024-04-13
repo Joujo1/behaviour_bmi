@@ -35,35 +35,12 @@
 
   import SetupUiButton from "./SetupUIButton.svelte";
 
-  async function syncServerState() {
-    const serverState = await GETServerState();
-    console.log("Syncing server state:", serverState);
-
-    const updateState = (key, value) => {
-      if ($store[key] != value) {
-        $store[key] = value;
-        console.log(`State updated - ${key}:${value}`);
-      }
-    };
-
-    Object.entries(serverState).forEach(([key, value]) => {
-      if (key === "shm" || key === "procs") {
-        Object.entries(value).forEach(([subkey, subvalue]) => {
-          updateState(subkey, subvalue);
-        });
-      } else {
-        updateState(key, value);
-      }
-    });
-  }
-
   function handlePOSTResult(result) {
     console.log(result);
     if (result !== true) {
       $store.showModal = true;
       $store.modalMessage = result;
     }
-    syncServerState();
   }
 
   async function initiate() {

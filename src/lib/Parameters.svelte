@@ -10,10 +10,7 @@
 
   async function getAllCardParams() {
     const params = await GETParameters();
-    console.log(params);
     const paramGroups = await GETParameterGroups();
-    console.log(paramGroups);
-    console.log("========");
 
     const allCardParams = Object.entries(paramGroups).reduce(
       (acc, [groupName, group]) => {

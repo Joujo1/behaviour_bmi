@@ -1,4 +1,4 @@
-const base_url = "http://0.0.0.0:8000";
+const BASE_URL = "http://0.0.0.0:8000";
 
 async function handlePOST(endpoint) {
   let response = await fetch(endpoint, { method: "POST" });
@@ -14,7 +14,7 @@ async function handlePOST(endpoint) {
 }
 
 export async function GETParameters() {
-  return fetch(`${base_url}/parameters`)
+  return fetch(`${BASE_URL}/parameters`)
     .then((response) => response.json())
     .then((data) => {
       // console.log('GET /parameters:', data);
@@ -24,7 +24,7 @@ export async function GETParameters() {
 }
 
 export async function GETParameterGroups() {
-  return fetch(`${base_url}/parameters/groups`)
+  return fetch(`${BASE_URL}/parameters/groups`)
     .then((response) => response.json())
     .then((data) => {
       // console.log('GET /parameters/groups:', data);
@@ -34,7 +34,7 @@ export async function GETParameterGroups() {
 }
 
 export async function GETLockedParameters() {
-  return fetch(`${base_url}/parameters/locked`)
+  return fetch(`${BASE_URL}/parameters/locked`)
     .then((response) => response.json())
     .then((data) => {
       // console.log('GET /parameters/locked:', data);
@@ -44,7 +44,7 @@ export async function GETLockedParameters() {
 }
 
 export async function PATCHParameter(key, new_value) {
-  const endpoint = `${base_url}/parameters/${key}?new_value=${new_value}`;
+  const endpoint = `${BASE_URL}/parameters/${key}?new_value=${new_value}`;
   let response = await fetch(endpoint, { method: "PATCH" });
 
   let data = await response.json();
@@ -62,99 +62,101 @@ export async function PATCHParameter(key, new_value) {
 }
 
 export async function GETServerState() {
-  return fetch(`${base_url}/state`)
+  return fetch(`${BASE_URL}/state`)
     .then((response) => response.json())
     .then((data) => {
       return data;
     })
     .catch((error) => console.error("Error:", error));
-}
+  }
+
+export const stateEventSource = new EventSource(`${BASE_URL}/statestream`);
 
 export async function POSTInitiate() {
-  return await handlePOST(`${base_url}/initiate`);
+  return await handlePOST(`${BASE_URL}/initiate`);
 }
 
 export async function POSTTerminate() {
-  return await handlePOST(`${base_url}/raise_term_flag`);
+  return await handlePOST(`${BASE_URL}/raise_term_flag`);
 }
 
 export async function POSTFlashPortentaM7() {
-  return await handlePOST(`${base_url}/flash_portenta/m7`);
+  return await handlePOST(`${BASE_URL}/flash_portenta/m7`);
 }
 
 export async function POSTFlashPortentaM4() {
-  return await handlePOST(`${base_url}/flash_portenta/m4`);
+  return await handlePOST(`${BASE_URL}/flash_portenta/m4`);
 }
 
 export async function POSTCreateTermflag() {
-  return await handlePOST(`${base_url}/shm/create_termflag_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_termflag_shm`);
 }
 
 export async function POSTCreateBallvelocity() {
-  return await handlePOST(`${base_url}/shm/create_ballvelocity_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_ballvelocity_shm`);
 }
 
 export async function POSTCreatePortentaoutput() {
-  return await handlePOST(`${base_url}/shm/create_portentaoutput_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_portentaoutput_shm`);
 }
 
 export async function POSTCreatePortentainput() {
-  return await handlePOST(`${base_url}/shm/create_portentainput_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_portentainput_shm`);
 }
 
 export async function POSTCreateUnityinput() {
-  return await handlePOST(`${base_url}/shm/create_unityinput_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_unityinput_shm`);
 }
 
 export async function POSTCreateUnityoutput() {
-  return await handlePOST(`${base_url}/shm/create_unityoutput_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_unityoutput_shm`);
 }
 
 export async function POSTCreateUnitycam() {
-  return await handlePOST(`${base_url}/shm/create_unitycam_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_unitycam_shm`);
 }
 
 export async function POSTCreateFacecam() {
-  return await handlePOST(`${base_url}/shm/create_facecam_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_facecam_shm`);
 }
 
 export async function POSTCreateBodycam() {
-  return await handlePOST(`${base_url}/shm/create_bodycam_shm`);
+  return await handlePOST(`${BASE_URL}/shm/create_bodycam_shm`);
 }
 
 export async function POSTLaunch_por2shm2por_sim() {
-  return await handlePOST(`${base_url}/procs/launch_por2shm2por_sim`);
+  return await handlePOST(`${BASE_URL}/procs/launch_por2shm2por_sim`);
 }
 
 export async function POSTLaunch_por2shm2por() {
-  return await handlePOST(`${base_url}/procs/launch_por2shm2por`);
+  return await handlePOST(`${BASE_URL}/procs/launch_por2shm2por`);
 }
 
 export async function POSTLaunch_log_portenta() {
-  return await handlePOST(`${base_url}/procs/launch_log_portenta`);
+  return await handlePOST(`${BASE_URL}/procs/launch_log_portenta`);
 }
 
 export async function POSTLaunch_facecam2shm() {
-  return await handlePOST(`${base_url}/procs/launch_facecam2shm`);
+  return await handlePOST(`${BASE_URL}/procs/launch_facecam2shm`);
 }
 
 export async function POSTLaunch_bodycam2shm() {
-  return await handlePOST(`${base_url}/procs/launch_bodycam2shm`);
+  return await handlePOST(`${BASE_URL}/procs/launch_bodycam2shm`);
 }
 
 export async function POSTLaunch_log_facecam() {
-  return await handlePOST(`${base_url}/procs/launch_log_facecam`);
+  return await handlePOST(`${BASE_URL}/procs/launch_log_facecam`);
 }
 
 export async function POSTLaunch_log_bodycam() {
-  return await handlePOST(`${base_url}/procs/launch_log_bodycam`);
+  return await handlePOST(`${BASE_URL}/procs/launch_log_bodycam`);
 }
 
 export async function POSTLaunch_log_unity() {
-  return await handlePOST(`${base_url}/procs/launch_log_unity`);
+  return await handlePOST(`${BASE_URL}/procs/launch_log_unity`);
 }
 
 export async function POSTLaunch_log_unitycam() {
-  return await handlePOST(`${base_url}/procs/launch_log_unitycam`);
+  return await handlePOST(`${BASE_URL}/procs/launch_log_unitycam`);
 }
 
