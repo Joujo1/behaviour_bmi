@@ -37,7 +37,7 @@
 
 <style>
   .setup-ui-button-div {
-    height: 40px; /* Adjust this value to change the button's height */
+    height: 30px; /* Adjust this value to change the button's height */
     margin: 5px;
   }
   .overlap-svg {
@@ -58,7 +58,7 @@
     color: var(--fg-color);
     cursor: pointer;
     font-size: 12pt;
-    height: 40px;
+    height: 35px;
     padding-left: 1em;
   }
 

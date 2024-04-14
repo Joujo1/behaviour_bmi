@@ -4,6 +4,7 @@
     import Header from "./lib/Header.svelte";
     import Parameters from "./lib/Parameters.svelte";
     import Setup from "./lib/Setup.svelte";
+    import Monitor from "./lib/Monitor.svelte";
     import Modal from "./lib/Modal.svelte";
 
     function syncServerState2Store(serverState) {
@@ -40,6 +41,7 @@
     {/if}
     <Parameters />
     <Setup />
+    <Monitor />
 </main>
 
 <style>
