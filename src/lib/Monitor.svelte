@@ -5,9 +5,12 @@
   import SetupUIInput from "./SetupUIInput.svelte";
   import {POSTUnityInput} from "../monitor_api.js";
 
-  let textValueOne = 0;
-  let textValueTwo = 0;
-  let textValueThree = 0;
+  let successLengthTextValue = 100;
+  let successDelayTextValue = 100;
+  let punishmentLengthTextValue = 100;
+  let teleportXTextValue = 0;
+  let teleportZTextValue = 0;
+  let teleportAngleTextValue = 0;
   
   function handlePOSTResult(result) {
     console.log(result);
@@ -33,7 +36,7 @@
     handlePOSTResult(result)
   }
   async function sendSucess() {
-    const unityMsg = `Success,${textValueOne},${textValueTwo}`
+    const unityMsg = `Success,${successLengthTextValue},${successDelayTextValue}`
     const result = await POSTUnityInput(unityMsg)
     handlePOSTResult(result)
   }
@@ -43,12 +46,12 @@
     handlePOSTResult(result)
   }
   async function sendPunishment() {
-    const unityMsg = `Punishment,${textValueOne}`
+    const unityMsg = `Punishment,${punishmentLengthTextValue}`
     const result = await POSTUnityInput(unityMsg)
     handlePOSTResult(result)
   }
   async function sendTeleport() {
-    const unityMsg = `Teleport,${textValueOne},${textValueTwo},${textValueThree}`
+    const unityMsg = `Teleport,${teleportXTextValue},${teleportZTextValue},${teleportAngleTextValue}`
     const result = await POSTUnityInput(unityMsg)
     handlePOSTResult(result)
   }
@@ -76,26 +79,39 @@
         <SetupUIButton
           label="Success"
           onClickCallback={sendSucess}
-        />
-        <SetupUIButton
+          />
+        <SetupUIInput bind:value={successLengthTextValue} tooltip="opened-for [ms]"></SetupUIInput>
+        <SetupUIInput bind:value={successDelayTextValue} tooltip="delay [ms]"></SetupUIInput>
+        
+        
+        <div class="right-aligned">
+
+          <SetupUIButton
           label="Failure"
           onClickCallback={sendFailure}
-        />
-        <SetupUIButton
-          label="Punishment"
-          onClickCallback={sendPunishment}
-        />
+          
+          />
+        </div>
       </div>
+
+
+
+      <div class="button-row-div">
+      <SetupUIButton
+      label="Punishment"
+      onClickCallback={sendPunishment}
+      />
+      <SetupUIInput bind:value={punishmentLengthTextValue} tooltip="length [ms]"></SetupUIInput>
+      </div>
+      
       <div class="button-row-div">
         <SetupUIButton
           label="Teleport"
           onClickCallback={sendTeleport}
         />
-      </div>
-      <div class="button-row-div">
-        <SetupUIInput bind:value={textValueOne}></SetupUIInput>
-        <SetupUIInput bind:value={textValueTwo}></SetupUIInput>
-        <SetupUIInput bind:value={textValueThree}></SetupUIInput>
+        <SetupUIInput bind:value={teleportXTextValue} tooltip="X position"></SetupUIInput>
+        <SetupUIInput bind:value={teleportZTextValue} tooltip="Z position"></SetupUIInput>
+        <SetupUIInput bind:value={teleportAngleTextValue} tooltip="Angle"></SetupUIInput>
       </div>
     </div></SetupUIBlock
   >
@@ -110,5 +126,9 @@
     align-items: end;
     flex-direction: row;
     padding-bottom: 8px;
+  }
+
+  .right-aligned {
+    margin-left: auto;
   }
 </style>

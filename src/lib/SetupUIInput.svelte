@@ -1,15 +1,18 @@
 <script>
   export let value = 0;
+  export let tooltip = "ToolTip";
 </script>
 
 <div class="setup-ui-button-div">
-      <input type="text" bind:value={value} />
+      <input type="text" bind:value={value} title={tooltip}/>
 </div>
 
 <style>
   .setup-ui-button-div {
     height: 30px; /* Adjust this value to change the button's height */
     margin: 5px;
+    display: flex;
+    align-items: center;
   }
 
   input {
@@ -19,14 +22,14 @@
     z-index: 1;
     background-color: var(--bg-color);
     border: 0px solid var(--bg-color);
-    border-radius: 1px;
+    border-radius: 4px;
     box-sizing: border-box;
     color: var(--fg-color);
-    font-size: 12pt;
-    height: 25px;
-    width: 100px;
-    padding-left: 1em;
-    padding-right: 1em;
+    font-size: 10pt;
+    height: 27px;
+    width: 50px;
+    padding-left: .5em;
+    padding-right: .5em;
   }
 
 </style>
