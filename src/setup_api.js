@@ -160,3 +160,11 @@ export async function POSTLaunch_log_unitycam() {
   return await handlePOST(`${BASE_URL}/procs/launch_log_unitycam`);
 }
 
+export async function POSTLaunch_stream_bodycam() {
+  return await handlePOST(`${BASE_URL}/procs/launch_stream_bodycam`);
+}
+
+export async function POSTLaunch_stream_portenta() {
+  return await handlePOST(`${BASE_URL}/procs/launch_stream_portenta`);
+}
+

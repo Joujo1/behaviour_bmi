@@ -32,6 +32,10 @@
     POSTLaunch_log_unitycam,
     POSTLaunch_por2shm2por_sim,
   } from "../setup_api";
+  import {
+    POSTLaunch_stream_bodycam,
+    POSTLaunch_stream_portenta,
+  } from "../setup_api";
 
   import SetupUiButton from "./SetupUIButton.svelte";
 
@@ -162,6 +166,16 @@
 
   async function launch_log_unitycam() {
     const result = await POSTLaunch_log_unitycam();
+    handlePOSTResult(result);
+  }
+  
+  async function launch_stream_bodycam() {
+    const result = await POSTLaunch_stream_bodycam();
+    handlePOSTResult(result);
+  }
+  
+  async function launch_stream_portenta() {
+    const result = await POSTLaunch_stream_portenta();
     handlePOSTResult(result);
   }
 </script>
@@ -304,6 +318,14 @@
           label="por2shm2por_sim"
           onClickCallback={launch_por2shm2por_sim}
           stateDependancy={$store.por2shm2por_sim}
+        />
+        <SetupUiButton
+          label="stream_portenta"
+          onClickCallback={launch_stream_portenta}
+        />
+        <SetupUiButton
+          label="stream_bodycam"
+          onClickCallback={launch_stream_bodycam}
         />
       </div>
     </div></SetupUIBlock
