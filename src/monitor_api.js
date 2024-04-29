@@ -21,3 +21,29 @@ async function handlePOST(endpoint) {
 export async function POSTUnityInput(msg) {
     return await handlePOST(`${BASE_URL}/unityinput/${msg}`)
 }
+
+export async function GETParadigms() {
+  return fetch(`${BASE_URL}/paradigms`)
+    .then((response) => response.json())
+    .then((data) => {
+      return data;
+    })
+    .catch((error) => console.error("Error:", error));
+}
+
+export async function GETAnimals() {
+  return fetch(`${BASE_URL}/animals`)
+    .then((response) => response.json())
+    .then((data) => {
+      return data;
+    })
+    .catch((error) => console.error("Error:", error));
+}
+
+export async function POSTAnimal(msg) {
+  return await handlePOST(`${BASE_URL}/session/animal/${msg}`)
+}
+
+export async function POSTAnimalWeight(msg) {
+  return await handlePOST(`${BASE_URL}/session/animalweight/${msg}`)
+}

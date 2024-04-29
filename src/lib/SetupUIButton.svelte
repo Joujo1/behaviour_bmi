@@ -2,11 +2,13 @@
   export let label = "";
   export let onClickCallback = {};
   export let stateDependancy = null;
+  export let isEnabled = true;
 </script>
 
 <div class="setup-ui-button-div">
   <button
     on:click={onClickCallback}
+    disabled={!isEnabled}
     class={stateDependancy !== null ? "state-button" : "no-state-button"}
   >
     {label}
@@ -60,6 +62,11 @@
     font-size: 12pt;
     height: 35px;
     padding-left: 1em;
+  }
+  button:disabled {
+    /* background-color: var(--bgFaint-color); */
+    color: gray;
+    cursor: default;
   }
 
   .state-button {

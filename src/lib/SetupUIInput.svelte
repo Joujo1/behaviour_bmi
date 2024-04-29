@@ -1,10 +1,11 @@
 <script>
   export let value = 0;
   export let tooltip = "ToolTip";
+  export let isEnabled = true;
 </script>
 
 <div class="setup-ui-button-div">
-      <input type="text" bind:value={value} title={tooltip}/>
+      <input type="text" bind:value={value} disabled={!isEnabled} title={tooltip}/>
 </div>
 
 <style>
@@ -15,6 +16,10 @@
     align-items: center;
   }
 
+  input:disabled {
+    color: gray;
+  }
+  
   input {
     display: flex;
     justify-content: center;

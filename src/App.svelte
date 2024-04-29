@@ -4,7 +4,8 @@
     import Header from "./lib/Header.svelte";
     import Parameters from "./lib/Parameters.svelte";
     import Setup from "./lib/Setup.svelte";
-    import Monitor from "./lib/Monitor.svelte";
+    import SessionInterference from "./lib/SessionInterference.svelte";
+    import SessionInitiation from "./lib/SessionInitiation.svelte";
     import Modal from "./lib/Modal.svelte";
 
     function syncServerState2Store(serverState) {
@@ -41,7 +42,9 @@
     {/if}
     <Parameters />
     <Setup />
-    <Monitor />
+    <!-- <Monitor /> -->
+    <SessionInitiation/>
+    <SessionInterference />
 </main>
 
 <style>

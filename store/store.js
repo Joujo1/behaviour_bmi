@@ -12,6 +12,7 @@ const store = writable({
 
     // server state
     initiated: false,
+    unitySessionRunning: false,
     // shm interfaces
     termflag_shm_interface: false,
     unityinput_shm_interface: false,
