@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from "svelte";
   import store from "../../store/store";
   import ToggleSwitch from "./ToggleSwitch.svelte";
 
@@ -27,6 +28,12 @@
     );
     console.log("Switching color mode");
   }
+
+  onMount(() => {
+    // things are buggy if we don't switch in the beginning (to black and back to white)
+    switchColorMode();
+    switchColorMode();
+  });
 </script>
 
 <ToggleSwitch onSwitchCallback={switchColorMode} />

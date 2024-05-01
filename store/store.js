@@ -36,6 +36,7 @@ const store = writable({
     log_bodycam: 0,
     log_unity: 0,
     log_unitycam: 0,
+    unity: 0,
 });
 
 export default store;

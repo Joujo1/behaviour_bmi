@@ -4,12 +4,12 @@
   export let isEnabled = true;
 </script>
 
-<div class="setup-ui-button-div">
+<div class="setup-ui-input-div">
       <input type="text" bind:value={value} disabled={!isEnabled} title={tooltip}/>
 </div>
 
 <style>
-  .setup-ui-button-div {
+  .setup-ui-input-div {
     height: 30px; /* Adjust this value to change the button's height */
     margin: 5px;
     display: flex;
@@ -30,7 +30,7 @@
     border-radius: 4px;
     box-sizing: border-box;
     color: var(--fg-color);
-    font-size: 10pt;
+    font-size: 12pt;
     height: 27px;
     width: 50px;
     padding-left: .5em;

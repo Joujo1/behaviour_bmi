@@ -4,12 +4,12 @@
     import Header from "./lib/Header.svelte";
     import Parameters from "./lib/Parameters.svelte";
     import Setup from "./lib/Setup.svelte";
-    import SessionInterference from "./lib/SessionInterference.svelte";
-    import SessionInitiation from "./lib/SessionInitiation.svelte";
+    import Monitor from "./lib/Monitor.svelte";
     import Modal from "./lib/Modal.svelte";
 
     function syncServerState2Store(serverState) {
-        console.log("Syncing server state to store:", serverState);
+        // console.log("Syncing server state to store:", serverState);
+        console.log("Syncing server state to store");
 
         const updateState = (key, value) => {
         if ($store[key] != value) {
@@ -42,9 +42,7 @@
     {/if}
     <Parameters />
     <Setup />
-    <!-- <Monitor /> -->
-    <SessionInitiation/>
-    <SessionInterference />
+    <Monitor />
 </main>
 
 <style>

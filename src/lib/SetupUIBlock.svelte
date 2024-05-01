@@ -13,9 +13,10 @@
     .setup-ui-block-div {
       background-color: var(--bgFaint-color);
       padding: 15px;
-      padding-bottom: 0px;
+      padding-bottom: 10px;
       border-radius: 7px;
       margin: 15px;
+      min-width: 400px;
     }
     .setup-ui-header-div {
       border-bottom: 1px solid var(--fg-color);

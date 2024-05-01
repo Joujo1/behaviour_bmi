@@ -43,7 +43,7 @@
     margin: 5px;
   }
   .overlap-svg {
-    height: 40px;
+    height: 35px;
     border-radius: 5px;
   }
 

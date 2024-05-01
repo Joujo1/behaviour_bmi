@@ -36,6 +36,9 @@
     POSTLaunch_stream_bodycam,
     POSTLaunch_stream_portenta,
   } from "../setup_api";
+  import {
+    POSTLaunch_unity,
+  } from "../setup_api";
 
   import SetupUiButton from "./SetupUIButton.svelte";
 
@@ -178,6 +181,11 @@
     const result = await POSTLaunch_stream_portenta();
     handlePOSTResult(result);
   }
+  
+  async function launch_unity() {
+    const result = await POSTLaunch_unity();
+    handlePOSTResult(result);
+  }
 </script>
 
 <div id="setup-div" class={$store.showSetup ? "" : "hide"}>
@@ -274,18 +282,6 @@
           stateDependancy={$store.por2shm2por}
         />
         <SetupUiButton
-          label="log_portenta"
-          onClickCallback={launch_log_portenta}
-          stateDependancy={$store.log_portenta}
-        />
-        <SetupUiButton
-          label="log_unity"
-          onClickCallback={launch_log_unity}
-          stateDependancy={$store.log_unity}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUiButton
           label="facecam2shm"
           onClickCallback={launch_facecam2shm}
           stateDependancy={$store.facecam2shm}
@@ -295,6 +291,34 @@
           onClickCallback={launch_bodycam2shm}
           stateDependancy={$store.bodycam2shm}
         />
+      </div>
+      
+      <div class="button-row-div">
+        <SetupUiButton
+          label="unity"
+          onClickCallback={launch_unity}
+          stateDependancy={$store.unity}
+        />
+      </div>
+
+      <div class="button-row-div">
+        <SetupUiButton
+          label="log_portenta"
+          onClickCallback={launch_log_portenta}
+          stateDependancy={$store.log_portenta}
+        />
+        <SetupUiButton
+          label="log_unity"
+          onClickCallback={launch_log_unity}
+          stateDependancy={$store.log_unity}
+        />
+        <SetupUiButton
+          label="log_unitycam"
+          onClickCallback={launch_log_unitycam}
+          stateDependancy={$store.log_unitycam}
+        />
+      </div>
+      <div class="button-row-div">
         <SetupUiButton
           label="log_facecam"
           onClickCallback={launch_log_facecam}
@@ -304,13 +328,6 @@
           label="log_bodycam"
           onClickCallback={launch_log_bodycam}
           stateDependancy={$store.log_bodycam}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUiButton
-          label="log_unitycam"
-          onClickCallback={launch_log_unitycam}
-          stateDependancy={$store.log_unitycam}
         />
       </div>
       <div class="button-row-div">

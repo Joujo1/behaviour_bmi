@@ -168,3 +168,6 @@ export async function POSTLaunch_stream_portenta() {
   return await handlePOST(`${BASE_URL}/procs/launch_stream_portenta`);
 }
 
+export async function POSTLaunch_unity() {
+  return await handlePOST(`${BASE_URL}/procs/launch_unity`);
+}

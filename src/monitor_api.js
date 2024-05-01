@@ -47,3 +47,7 @@ export async function POSTAnimal(msg) {
 export async function POSTAnimalWeight(msg) {
   return await handlePOST(`${BASE_URL}/session/animalweight/${msg}`)
 }
+
+export async function POSTSessionNotes(msg) {
+  return await handlePOST(`${BASE_URL}/session/notes/${msg}`)
+}

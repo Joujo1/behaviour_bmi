@@ -6,7 +6,7 @@
 </script>
 
 <div class="input-label-div">
-  <div class="dropdown-ui-label-div">
+  <div class="input-ui-label-div">
     <p>{label}</p>
   </div>
 
@@ -21,7 +21,7 @@
     margin: 5px;
     display: flex;
   }
-  .dropdown-ui-label-div {
+  .input-ui-label-div {
     min-width: 100px;
     margin-top: 3px;
     margin-bottom: 3px;
@@ -46,9 +46,9 @@
     border-radius: 4px;
     box-sizing: border-box;
     color: var(--fg-color);
-    font-size: 10pt;
+    font-size: 12pt;
     height: 27px;
-    width: 50px;
+    width: 60px;
     padding-left: 0.5em;
     padding-right: 0.5em;
   }

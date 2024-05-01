@@ -4,11 +4,13 @@
   import SetupUIButton from "./SetupUIButton.svelte";
   import MonitorDropdown from "./MonitorDropdown.svelte";
   import MonitorInputField from "./MonitorInputField.svelte";
+  import BigTextInput from "./BigTextInput.svelte";
   import { POSTUnityInput } from "../monitor_api.js";
   import { GETParadigms } from "../monitor_api.js";
   import { GETAnimals } from "../monitor_api.js";
   import { POSTAnimal } from "../monitor_api.js";
   import { POSTAnimalWeight } from "../monitor_api.js";
+  import { POSTSessionNotes } from "../monitor_api.js";
   import { onMount } from "svelte";
 
   let paradigms = [];
@@ -16,6 +18,7 @@
   let animals = [];
   let animalSelection;
   let animalWeight;
+  let freeNotes = "Free notes here";
 
   function handlePOSTResult(result) {
     console.log(result);
@@ -66,8 +69,11 @@
   }
 
   async function stopSession() {
+    let result = await POSTSessionNotes(freeNotes);
+    handlePOSTResult(result);
+
     const unityMsg = "Stop";
-    const result = await POSTUnityInput(unityMsg);
+    result = await POSTUnityInput(unityMsg);
     handlePOSTResult(result);
   }
   async function sendAirvalve() {
@@ -77,60 +83,79 @@
   }
 </script>
 
-<div id="setup-div" class={$store.showMonitor ? "" : "hide"}>
-  <SetupUIBlock>
-    <div slot="header">Session Initiation</div>
-    <div slot="setupui">
-      <div class="button-row-div">
-        <MonitorDropdown
-          label="Paradigm"
-          bind:value={paradigmSelection}
-          isEnabled={!$store.unitySessionRunning}
-          options={paradigms}
-          getOptions={getParadigms}
-        />
+<SetupUIBlock>
+  <div slot="header">Session Initiation</div>
+  <div slot="setupui">
+    <div class="columns-div">
+      <div class="button-column-div">
+        <div class="button-row-div">
+          <MonitorDropdown
+            label="Paradigm"
+            bind:value={paradigmSelection}
+            isEnabled={!$store.unitySessionRunning}
+            options={paradigms}
+            getOptions={getParadigms}
+          />
+        </div>
+        <div class="button-row-div">
+          <MonitorDropdown
+            label="Animal"
+            bind:value={animalSelection}
+            isEnabled={!$store.unitySessionRunning}
+            options={animals}
+            getOptions={getAnimals}
+          />
+        </div>
+        <div class="button-row-div">
+          <MonitorInputField
+            label="Weight [g]"
+            isEnabled={!$store.unitySessionRunning}
+            tooltip="Animal weight in grams"
+            bind:value={animalWeight}
+          />
+        </div>
       </div>
-      <div class="button-row-div">
-        <MonitorDropdown
-          label="Animal"
-          bind:value={animalSelection}
-          isEnabled={!$store.unitySessionRunning}
-          options={animals}
-          getOptions={getAnimals}
-        />
+      <div class="button-column-div">
+        <BigTextInput bind:value={freeNotes} isEnabled={true} />
       </div>
-      <div class="button-row-div">
-        <MonitorInputField
-          label="Weight [g]"
-          isEnabled={!$store.unitySessionRunning}
-          tooltip="Animal weight in grams"
-          bind:value={animalWeight}
-        />
-      </div>
-
-      <div class="button-row-div">
-        <SetupUIButton label="Airvalve" onClickCallback={sendAirvalve} />
+    </div>
+    <div class="button-row-div">
+      <SetupUIButton
+        label="Airvalve"
+        onClickCallback={sendAirvalve}
+        isEnabled={!$store.unitySessionRunning && $store.unity != 0}
+      />
+      <SetupUIButton
+        label="StartSession"
+        onClickCallback={startSession}
+        isEnabled={!$store.unitySessionRunning && $store.unity != 0}
+      />
+      <div class="right-aligned">
         <SetupUIButton
-          label="Start Session"
-          onClickCallback={startSession}
-          isEnabled={!$store.unitySessionRunning}
-        />
-        <SetupUIButton
-          label="Stop Session"
+          label="StopSession"
           onClickCallback={stopSession}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.unitySessionRunning && $store.unity != 0}
         />
       </div>
-  </div></SetupUIBlock>
-</div>
+    </div>
+  </div></SetupUIBlock
+>
 
 <style>
+  .columns-div {
+    display: flex;
+  }
   .button-row-div {
     display: flex;
     justify-content: start;
     align-items: end;
     flex-direction: row;
-    padding-bottom: 8px;
+    padding-bottom: 3px;
+  }
+
+  .button-column-div {
+    display: flex;
+    flex-direction: column;
   }
 
   .right-aligned {

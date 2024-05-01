@@ -41,7 +41,7 @@ body {
   min-width: 1000px; 
 }
 
-#parameter-div, #setup-div {
+#parameter-div, #setup-div, #monitor-div{
   display: flex;
   flex-wrap: wrap;
   /* justify-content: space-between; */
@@ -58,7 +58,7 @@ body {
 }
 
 /* Initial state */
-#parameter-div, #setup-div{
+#parameter-div, #setup-div, #monitor-div{
   opacity: 1;
   transform: translateX(0);
   height: auto;
@@ -66,7 +66,7 @@ body {
 }
 
 /* State after button is clicked */
-#parameter-div.hide, #setup-div.hide{
+#parameter-div.hide, #setup-div.hide, #monitor-div.hide{
   opacity: 0;
   transform: translateX(-100%);
   height: 0;

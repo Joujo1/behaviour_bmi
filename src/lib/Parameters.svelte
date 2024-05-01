@@ -22,7 +22,7 @@
       },
       {}
     );
-    console.log(allCardParams);
+    // console.log(allCardParams);
     return allCardParams;
   }
 

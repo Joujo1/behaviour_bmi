@@ -48,6 +48,7 @@
     border: 1px solid var(--bg-color);
     background-color: var(--bg-color);
     color: var(--fg-color);
-    max-width: 100px;
+    width: 120px;
+    /* width: 84px; */
   }
 </style>

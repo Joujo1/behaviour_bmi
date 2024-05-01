@@ -71,7 +71,7 @@
   }
 </script>
 
-<div id="setup-div" class={$store.showMonitor ? "" : "hide"}>
+<!-- <div id="setup-div" class={$store.showMonitor ? "" : "hide"}> -->
   <SetupUIBlock>
     <div slot="header">Session Interference</div>
     <div slot="setupui">
@@ -160,7 +160,7 @@
       </div>
     </div></SetupUIBlock
   >
-</div>
+<!-- </div> -->
 
 <style>
   .button-row-div {
