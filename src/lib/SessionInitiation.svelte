@@ -123,18 +123,18 @@
       <SetupUIButton
         label="Airvalve"
         onClickCallback={sendAirvalve}
-        isEnabled={!$store.unitySessionRunning && $store.unity != 0}
+        isEnabled={!$store.unitySessionRunning}
       />
       <SetupUIButton
         label="StartSession"
         onClickCallback={startSession}
-        isEnabled={!$store.unitySessionRunning && $store.unity != 0}
+        isEnabled={!$store.unitySessionRunning}
       />
       <div class="right-aligned">
         <SetupUIButton
           label="StopSession"
           onClickCallback={stopSession}
-          isEnabled={$store.unitySessionRunning && $store.unity != 0}
+          isEnabled={$store.unitySessionRunning}
         />
       </div>
     </div>
