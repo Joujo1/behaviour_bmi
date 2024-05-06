@@ -1,4 +1,5 @@
-const BASE_URL = "http://0.0.0.0:8000";
+const BASE_URL = "http://0.0.0.0:8001";
+const WS_BASE_URL = "ws://0.0.0.0:8001/stream";
 
 async function handlePOST(endpoint) {
     let response = await fetch(endpoint, { method: "POST" });
@@ -12,7 +13,6 @@ async function handlePOST(endpoint) {
     console.log(`Success - ${endpoint}`);
     return true;
   }
-
 
   export async function POSTTerminate() {
     return await handlePOST(`${BASE_URL}/raise_term_flag`);
@@ -50,4 +50,19 @@ export async function POSTAnimalWeight(msg) {
 
 export async function POSTSessionNotes(msg) {
   return await handlePOST(`${BASE_URL}/session/notes/${msg}`)
+}
+
+export function openWebsocket(wsName, onMessageCallback = () => {},
+                              onErrorCallback = (event) => {console.error(event)}) {
+  var url = `${WS_BASE_URL}/${wsName}`
+  var ws = new WebSocket(url)
+  ws.onerror = onErrorCallback
+  ws.onmessage = onMessageCallback
+  console.debug("WebSocket opened:", ws)
+
+  let closeCallback = () => {
+    console.debug("WebSocket closed:", ws)
+    ws.close()
+  }
+  return closeCallback
 }

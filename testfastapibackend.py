@@ -18,4 +18,4 @@ async def root():
 # # Mount the 'dist' directory at the root of your app
 app.mount("/", StaticFiles(directory="./../dist"), name="dist")
 
-uvicorn.run(app, host="0.0.0.0", port=8000)
+uvicorn.run(app, host="0.0.0.0", port=8001)
