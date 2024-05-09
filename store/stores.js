@@ -1,6 +1,7 @@
-import { writable } from "svelte/store";
+import { derived, readable, writable } from "svelte/store";
+import { extent } from "d3";
 
-const store = writable({
+export const store = writable({
     //ui state
     inDarkMode: false,
     showParameters: true,
@@ -39,4 +40,4 @@ const store = writable({
     unity: 0,
 });
 
-export default store;
+export const ballvelocityData = writable([]);

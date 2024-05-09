@@ -1,6 +1,6 @@
 <script>
   // import { createEventDispatcher } from 'svelte';
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
 
   // const dispatch = createEventDispatcher();
 

@@ -1,5 +1,5 @@
 <script>
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
 
   function switchMenuItem(event) {
     console.log("menuclick", event.target.id);

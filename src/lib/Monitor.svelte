@@ -1,5 +1,5 @@
 <script>
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
   import BallVelocityStreamer from "./BallVelocityStreamer.svelte";
   import SessionInitiation from "./SessionInitiation.svelte";
   import SessionInterference from "./SessionInterference.svelte";

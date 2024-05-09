@@ -1,5 +1,5 @@
 <script>
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
   import UploadButton from "./UploadButton.svelte";
   import {PATCHParameter} from "../setup_api.js";
 

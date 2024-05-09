@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
   import ToggleSwitch from "./ToggleSwitch.svelte";
 
   function switchColorMode() {

@@ -1,5 +1,5 @@
 <script>
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
 
   // export let lblLeft = ""
   // export let lblRight = ""

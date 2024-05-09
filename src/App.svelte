@@ -1,5 +1,5 @@
 <script>
-    import store from "../store/store";
+    import { store } from "../store/stores";
     import {stateEventSource} from "./setup_api";
     import Header from "./lib/Header.svelte";
     import Parameters from "./lib/Parameters.svelte";

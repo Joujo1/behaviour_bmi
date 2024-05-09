@@ -1,5 +1,5 @@
 <script>
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
   import ParameterCard from "./ParameterCard.svelte";
   import {GETParameters, GETParameterGroups, GETLockedParameters} from "../setup_api.js"
 

@@ -1,5 +1,5 @@
 <script>
-  import store from "../../store/store";
+  import { store } from "../../store/stores";
   import SetupUIBlock from "./SetupUIBlock.svelte";
   import SetupUIButton from "./SetupUIButton.svelte";
   import MonitorDropdown from "./MonitorDropdown.svelte";
