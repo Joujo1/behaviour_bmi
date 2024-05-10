@@ -164,6 +164,10 @@ export async function POSTLaunch_stream_bodycam() {
   return await handlePOST(`${BASE_URL}/procs/launch_stream_bodycam`);
 }
 
+export async function POSTLaunch_face_bodycam() {
+  return await handlePOST(`${BASE_URL}/procs/launch_stream_facecam`);
+}
+
 export async function POSTLaunch_stream_portenta() {
   return await handlePOST(`${BASE_URL}/procs/launch_stream_portenta`);
 }

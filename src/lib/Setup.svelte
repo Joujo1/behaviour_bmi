@@ -34,6 +34,7 @@
   } from "../setup_api";
   import {
     POSTLaunch_stream_bodycam,
+    POSTLaunch_face_bodycam,
     POSTLaunch_stream_portenta,
   } from "../setup_api";
   import {
@@ -174,6 +175,11 @@
   
   async function launch_stream_bodycam() {
     const result = await POSTLaunch_stream_bodycam();
+    handlePOSTResult(result);
+  }
+  
+  async function launch_face_bodycam() {
+    const result = await POSTLaunch_face_bodycam();
     handlePOSTResult(result);
   }
   
@@ -332,11 +338,6 @@
       </div>
       <div class="button-row-div">
         <SetupUiButton
-          label="por2shm2por_sim"
-          onClickCallback={launch_por2shm2por_sim}
-          stateDependancy={$store.por2shm2por_sim}
-        />
-        <SetupUiButton
           label="stream_portenta"
           onClickCallback={launch_stream_portenta}
         />
@@ -344,6 +345,17 @@
           label="stream_bodycam"
           onClickCallback={launch_stream_bodycam}
         />
+        <SetupUiButton
+          label="stream_facecam"
+          onClickCallback={launch_face_bodycam}
+        />
+      </div>
+      <div class="button-row-div">
+        <SetupUiButton
+        label="por2shm2por_sim"
+        onClickCallback={launch_por2shm2por_sim}
+        stateDependancy={$store.por2shm2por_sim}
+      />
       </div>
     </div></SetupUIBlock
   >
