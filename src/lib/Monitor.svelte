@@ -1,6 +1,7 @@
 <script>
   import { store } from "../../store/stores";
   import BallVelocityStreamer from "./BallVelocityStreamer.svelte";
+  import LickStreamer from "./LickStreamer.svelte";
   import SessionInitiation from "./SessionInitiation.svelte";
   import SessionInterference from "./SessionInterference.svelte";
 
@@ -10,4 +11,5 @@
     <SessionInitiation />
     <SessionInterference />
     <BallVelocityStreamer />
+    <LickStreamer />
 </div>

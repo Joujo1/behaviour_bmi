@@ -41,3 +41,5 @@ export const store = writable({
 });
 
 export const ballvelocityData = writable([]);
+
+export const portentaData = writable([]);
