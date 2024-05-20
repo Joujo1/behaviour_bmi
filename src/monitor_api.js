@@ -2,17 +2,17 @@ const BASE_URL = "http://0.0.0.0:8001";
 const WS_BASE_URL = "ws://0.0.0.0:8001/stream";
 
 async function handlePOST(endpoint) {
-    let response = await fetch(endpoint, { method: "POST" });
-    let data = await response.json();
-    if (!response.ok) {
-      const modalMessage = `Error - ${endpoint}: failed with status `+
-                           `${response.status}, ${data.detail}`;
-      console.error(modalMessage);
-      return modalMessage;
-    }
-    console.log(`Success - ${endpoint}`);
-    return true;
+  let response = await fetch(endpoint, { method: "POST" });
+  let data = await response.json();
+  if (!response.ok) {
+    const modalMessage = `Error - ${endpoint}: failed with status `+
+                          `${response.status}, ${data.detail}`;
+    console.error(modalMessage);
+    return modalMessage;
   }
+  console.log(`Success - ${endpoint}`);
+  return true;
+}
 
   export async function POSTTerminate() {
     return await handlePOST(`${BASE_URL}/raise_term_flag`);
@@ -65,4 +65,28 @@ export function openWebsocket(wsName, onMessageCallback = () => {},
     ws.close()
   }
   return closeCallback
+}
+
+// export async function GETParadigmsFSMs() {
+//   return fetch(`${BASE_URL}/paradigm_fsm`)
+//     .then((response) => response.json())
+//     .then((data) => {
+//       return data;
+//     })
+//     .catch((error) => console.error("Error:", error))
+//     .then((data) => {
+//       data.response = 400;
+//       return data;
+//     });
+
+export async function GETParadigmsFSMs() {
+  let endpoint = `${BASE_URL}/paradigm_fsm`;
+  let response = await fetch(endpoint, { method: "GET" });
+  let data = await response.json();
+  if (!response.ok) {
+    const modalMessage = `Error - ${data.detail}`;
+    console.error(modalMessage);
+    return modalMessage;
+  }
+  return data;
 }

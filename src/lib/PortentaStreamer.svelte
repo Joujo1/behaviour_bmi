@@ -248,9 +248,6 @@
 </div>
 
 <style>
-  svg {
-    /* background: white; */
-  }
   .plot-div {
     padding: 5px;
     /* max-width: max-content; */
