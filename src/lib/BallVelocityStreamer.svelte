@@ -4,12 +4,17 @@
 </script>
 
 <PortentaStreamer
-  title={"Ball Velocity"}
-  dataStore={ballvelocityData}
-  wsEndpointName={"ballvelocity"}
-  minYData={-20}
-  maxYData={20}
+
+wsEndpointName={"ballvelocity"}
+dataStore={ballvelocityData}
+minYData={-30}
+maxYData={30}
+height={200}
+title={"Ball Velocity"}
+  
+nYTicks={3}
+yTopOffsetPx={50}
+xLeftOffsetPx={70}
 >
-  <div slot="plotarea">
-  </div>
+
 </PortentaStreamer>

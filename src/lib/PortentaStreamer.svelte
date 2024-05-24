@@ -1,6 +1,7 @@
 <script>
   import ShowHideCardButton from "./ShowHideCardButton.svelte";
   import { store } from "../../store/stores";
+  import { PortentaStreamerTRange } from "../../store/stores";
   import { openWebsocket } from "../monitor_api.js";
   import { scaleLinear } from "d3";
 
@@ -10,6 +11,48 @@
   export let maxYData;
   export let height = 300;
   export let title = "placeholder title";
+
+  export let nYTicks = 3;
+  export let yTickLabels = null;
+  export let yTopOffsetPx = 50;
+  export let xLeftOffsetPx = 70;
+
+  let isActive = false;
+  let closeCallback = () => {};
+  let width = 0;
+  let DOMRect = { width: width };
+
+  const recentDataLength = 100;
+  const olderDataSubsampling = 5;
+  const xRangeSeconds = 5;
+  let recentData = [];
+  let olderData = [];
+
+  const tickLength = 8;
+  const xRightOffsetPx = 20;
+  const yBottomOffsetPx = 20;
+  const yAxisOffsetPx = 20;
+  
+  $: if (DOMRect) {
+      width = DOMRect.width;
+    }
+
+  $: xScale = scaleLinear()
+    .domain([$PortentaStreamerTRange.max, $PortentaStreamerTRange.min])
+    .range([xLeftOffsetPx, width - xRightOffsetPx]);
+
+  $: yScale = scaleLinear()
+    .domain([minYData, maxYData])
+    .range([height - yBottomOffsetPx, yTopOffsetPx]);
+
+  $: xTicks = xScale
+    .ticks(5)
+    .map((tick) => ({ value: tick, position: xScale(tick) }));
+  $: yTicks = yScale
+    .ticks(nYTicks)
+    // .map((tick, i) => ({ value: tick, position: yScale(tick) }));
+    .map((tick, i) => ({ value: yTickLabels == null ? tick : yTickLabels[i], position: yScale(tick) }));
+
 
   function handleWSHandshakeError(result) {
     console.log("in handleWSHandshakeError");
@@ -22,11 +65,19 @@
   // update dataStore with new websocket data 
   function wsOnMessageCallback(msg) {
     let newData = JSON.parse(msg.data);
-    minXData = newData[newData.length - 1].T;
-    maxXData = minXData - xRangeSeconds*1000000;
+    $PortentaStreamerTRange.min = newData[newData.length - 1].T;
+    $PortentaStreamerTRange.max = $PortentaStreamerTRange.min - xRangeSeconds*1000000;
 
     // update recentData with new websocket data
     recentData = recentData.concat(newData);
+    // find index of first element in olderData that is greater than maxXData
+    for (var i = 0; i < recentData.length; i++) {
+      if (recentData[i].T > $PortentaStreamerTRange.max) {
+        break;
+      }
+    }
+    recentData = recentData.slice(i);
+
     if (recentData.length > recentDataLength) {
       var nSurplus = recentData.length - recentDataLength;
       var surplusData = recentData.slice(0, nSurplus);
@@ -39,14 +90,14 @@
 
       // find index of first element in olderData that is greater than maxXData
       for (var i = 0; i < olderData.length; i++) {
-        if (olderData[i].T > maxXData) {
+        if (olderData[i].T > $PortentaStreamerTRange.max) {
           break;
         }
       }
       // slice olderData to only include data that is greater than maxXData
       olderData = olderData.slice(i);
-      $dataStore = olderData.concat(recentData);
     }
+    $dataStore = olderData.concat(recentData);
   }
 
   function switchCardOnOff(event) {
@@ -62,47 +113,6 @@
       dataStore.set([]);
     }
   }
-
-  $: if (DOMRect) {
-    width = DOMRect.width;
-  }
-
-  let isActive = false;
-  let closeCallback = () => {};
-  let width = 0;
-  let DOMRect = { width: width };
-
-  const recentDataLength = 100;
-  const olderDataSubsampling = 5;
-  const xRangeSeconds = 5;
-  let recentData = [];
-  let olderData = [];
-
-  let minXData = -1;
-  let maxXData = -1;
-  
-  const tickLength = 8;
-  const xLeftOffsetPx = 70;
-  const xRightOffsetPx = 20;
-  const yTopOffsetPx = 50;
-  const yBottomOffsetPx = 20;
-  const yAxisOffsetPx = 20;
-
-  $: xScale = scaleLinear()
-    .domain([maxXData, minXData])
-    .range([xLeftOffsetPx, width - xRightOffsetPx]);
-
-  $: yScale = scaleLinear()
-    .domain([minYData, maxYData])
-    .range([height - yBottomOffsetPx, yTopOffsetPx]);
-
-  $: xTicks = xScale
-    .ticks(5)
-    .map((tick) => ({ value: tick, position: xScale(tick) }));
-
-  $: yTicks = yScale
-    .ticks(5)
-    .map((tick) => ({ value: tick, position: yScale(tick) }));
 </script>
 
 <div class="portenta-stream-card">
@@ -118,11 +128,11 @@
     </div>
   </div>
   <div class="plot-div" bind:contentRect={DOMRect}>
-    <slot name="plotarea"></slot>
     {#if isActive}
+
       <svg {width} {height} overflow="visible">
         {#each $dataStore as point, i}
-          {#if title === "Ball Velocity"}
+          {#if wsEndpointName === "ballvelocity"}
             <circle
               cx={xScale(point.T)}
               cy={yScale(point.pitch)}
@@ -143,14 +153,50 @@
               r="3"
               fill="#888888"
             />
+            <!-- fresh package or not -->
+            {#if (point.F)}
+              <circle
+                cx={xScale(point.T)}
+                cy={yScale(maxYData)}
+                r="5"
+                fill="var(--accent-color)"
+              />
+            {/if}
           {/if}
-          {#if title === "Lick Sensor"}
-            <circle
-              cx={xScale(point.T)}
-              cy={yScale(point.V)}
-              r="3"
-              fill="var(--fg-color)"
-            />
+
+          {#if wsEndpointName === "portentaoutput"}
+            {#if point.N === "L"}
+              <circle
+                cx={xScale(point.T)}
+                cy={yScale(1)}
+                r="3"
+                fill="var(--fg-color)"
+              />
+            {/if}
+            {#if point.N === "R"}
+              <circle
+                cx={xScale(point.T)}
+                cy={yScale(2)}
+                r="3"
+                fill="var(--fg-color)"
+              />
+            {/if}
+            {#if point.N === "S"}
+              <circle
+                cx={xScale(point.T)}
+                cy={yScale(3)}
+                r="3"
+                fill="var(--fg-color)"
+              />
+            {/if}
+            {#if point.N === "A"}
+              <circle
+                cx={xScale(point.T)}
+                cy={yScale(4)}
+                r="3"
+                fill="var(--fg-color)"
+              />
+            {/if}
           {/if}
         {/each}
 
@@ -204,16 +250,18 @@
 
         <!-- Y Axis -->
         <!-- Y label: [a.u.] -->
-        <text
-          x={xLeftOffsetPx - tickLength - yAxisOffsetPx - 7}
-          y={yTopOffsetPx - 30}
-          font-size={18}
-          text-anchor="end"
-          fill="var(--fg-color)"
-          dominant-baseline="middle"
-        >
-          {"[a.u.]"}</text
-        >
+        {#if title == "Ball Velocity"}
+          <text
+            x={xLeftOffsetPx - tickLength - yAxisOffsetPx - 7}
+            y={yTopOffsetPx - 30}
+            font-size={18}
+            text-anchor="end"
+            fill="var(--fg-color)"
+            dominant-baseline="middle"
+          >
+            {"[a.u.]"}</text
+          >
+        {/if}
         <!-- x axis line -->
         <line
           x1={xLeftOffsetPx - yAxisOffsetPx}
@@ -243,6 +291,7 @@
           >
         {/each}
       </svg>
+
     {/if}
   </div>
 </div>
@@ -250,12 +299,6 @@
 <style>
   .plot-div {
     padding: 5px;
-    /* max-width: max-content; */
-    /* min-width: 400px; */
-
-    /* display: flex;
-    justify-content: center;
-    flex-shrink: 1; */
   }
   .portenta-stream-card {
     border: 1px solid var(--bgFaint-color);
@@ -263,7 +306,7 @@
     border-radius: 7px;
     margin: 15px;
     flex-grow: 1;
-    max-width: 900px;
+    /* max-width: 900px; */
     min-width: 500px;
   }
   #card-header-div {

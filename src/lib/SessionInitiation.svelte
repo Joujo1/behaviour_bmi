@@ -122,8 +122,8 @@
     <div class="button-row-div">
       <SetupUIButton
         label="Airvalve"
-        onClickCallback={sendAirvalve}
-        isEnabled={!$store.unitySessionRunning}
+        onClickCallback={sendAirvalve} 
+        
       />
       <SetupUIButton
         label="StartSession"

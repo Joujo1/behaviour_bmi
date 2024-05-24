@@ -4,34 +4,45 @@
   import { select, drag, line, transition, easeBounce } from "d3";
   import ShowHideCardButton from "./ShowHideCardButton.svelte";
   import { GETParadigmsFSMs } from "../monitor_api.js";
+  import { openWebsocket } from "../monitor_api.js";
 
-  export let currentState;
+  // websocket stuff
+  let closeCallback = () => {};
+  const wsEndpointName = "unityoutput";
+
+  // reactive elements (circles is a d3.selection)
   let svg;
   let circles;
 
+  // visual properties
   let isActive = false;
   let title = "Experiment";
-
   let width = 0;
   let height = 0;
-  let DOMRect = { width: width };
+  let DOMRect = { width: width, height: height};
+  const nodeRadius = 50;
 
-  var stateData = [];
+  // nodes and edges
+  var stateData = []; 
   var transitionData = [];
 
-  const nodeRadius = 50;
+  // unity state at current frame
+  let currentState;
+
 
   $: if (DOMRect) {
     width = DOMRect.width;
-    height = width;
+    height = DOMRect.width;
   }
 
   $: if (circles) {
     circles
-      .style("stroke", (d, i) =>
-        i === currentState ? "var(--accent-color)" : "var(--fg-color)"
+      .style("stroke", (d) =>
+        d.stateID === currentState ? "var(--accent-color)" : "var(--fg-color)"
       )
-      .style("stroke-width", (d, i) => (i === currentState ? 4 : 1));
+      .style("stroke-width", (d) =>
+        d.stateID === currentState ? 4 : 1
+      );
   }
 
   function nodeLocations2Cache() {
@@ -48,6 +59,20 @@
     );
   }
 
+  function handleWSHandshakeError(result) {
+    console.log("in handleWSHandshakeError");
+    closeCallback();
+    isActive = false;
+    $store.showModal = true;
+    $store.modalMessage = "Websocket failed to open. Check server for deatils.";
+  }
+
+  function wsOnMessageCallback(msg) {
+    let newData = JSON.parse(msg.data);
+    console.log(newData);
+    currentState = newData[0].S;
+  }
+
   async function switchCardOnOff(event) {
     if (!isActive) {
       let data = await GETParadigmsFSMs();
@@ -56,11 +81,17 @@
       if (typeof data === "string") {
         $store.showModal = true;
         $store.modalMessage = data;
+        closeCallback();
         return;
       } else {
         isActive = !isActive;
         loadStateTransitionData(data);
         setupExperimtentStateStreamer();
+        closeCallback = openWebsocket(
+          wsEndpointName,
+          wsOnMessageCallback,
+          handleWSHandshakeError
+        );
       }
     } else {
       isActive = !isActive;
@@ -73,6 +104,8 @@
     }
   }
 
+  // loads the static setup of nodes and edges 
+  // populates stateData and transitionData
   function loadStateTransitionData(data) {
     const numStates = Object.entries(data.states).length;
 
@@ -112,6 +145,7 @@
       return {
         cx: cx,
         cy: cy,
+        stateID: value.stateID,
         label: value.name.split("_")[1],
         paradigmID: value.paradigm,
         guid: key,
@@ -123,7 +157,6 @@
     });
     console.log("stateData: ", stateData);
 
-    
     // ====== LOAD TRANSITIONS AS EDGES ======
     Object.entries(data.states).map(([stateGUID, value], i) => {
       var sourceState = stateData.filter((d) => d.guid == stateGUID)[0];
@@ -187,6 +220,7 @@
       .attr("cy", (d) => d.cy)
       .attr("r", (d) => d.r)
       .attr("class", "draggable")
+      .attr("stateID", (d) => d.stateID)
       .style("fill", "var(--bg-color)")
       .style("stroke", "var(--fg-color)");
     // on hover
@@ -206,8 +240,6 @@
       .style("fill", "var(--fg-color)")
       .style("pointer-events", "none")
       .style("user-select", "none");
-
-
 
     // define the arrowhead
     select(svg)
@@ -320,8 +352,8 @@
     border-radius: 7px;
     margin: 15px;
     flex-grow: 1;
-    max-width: 600px;
-    min-width: 300px;
+    max-width: 600px; 
+    min-width: 300px; 
   }
   #card-header-div {
     border-bottom: 1px solid var(--fgFaint-color);
