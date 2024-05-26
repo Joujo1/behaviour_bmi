@@ -90,3 +90,15 @@ export async function GETParadigmsFSMs() {
   }
   return data;
 }
+
+export async function GETParadigmsEnvironement() {
+  let endpoint = `${BASE_URL}/paradigm_env`;
+  let response = await fetch(endpoint, { method: "GET" });
+  let data = await response.json();
+  if (!response.ok) {
+    const modalMessage = `Error - ${data.detail}`;
+    console.error(modalMessage);
+    return modalMessage;
+  }
+  return data;
+}

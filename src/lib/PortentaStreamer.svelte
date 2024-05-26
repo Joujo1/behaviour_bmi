@@ -127,7 +127,8 @@
       />
     </div>
   </div>
-  <div class="plot-div" bind:contentRect={DOMRect}>
+  <div class="plot-div" bind:contentRect={DOMRect}
+  style="height: {isActive ? height : 0}px">
     {#if isActive}
 
       <svg {width} {height} overflow="visible">
@@ -298,7 +299,7 @@
 
 <style>
   .plot-div {
-    padding: 5px;
+    transition: height 0.2s ease-in-out;
   }
   .portenta-stream-card {
     border: 1px solid var(--bgFaint-color);
@@ -313,6 +314,7 @@
     border-bottom: 1px solid var(--fgFaint-color);
     padding-bottom: 6px;
     display: flex;
+    margin-bottom: 20px;
   }
   #card-header-div h1 {
     font-weight: bold;

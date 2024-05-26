@@ -41,10 +41,16 @@ export const store = writable({
 });
 
 export const ballvelocityData = writable([]);
-
 export const portentaData = writable([]);
-
 export const PortentaStreamerTRange = writable({
     min: -1,
     max: -1,
 });
+
+export const unityData = writable([]);
+export const unityStreamerTRange = writable({
+    min: -1,
+    max: -1,
+});
+export const unityXRangeSeconds = writable(5);
+

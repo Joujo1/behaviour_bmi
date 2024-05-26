@@ -1,19 +1,17 @@
 <script>
-  import { onMount } from "svelte";
-  import { store } from "../../store/stores";
-  import { select, drag, line, transition, easeBounce } from "d3";
+  import { store, unityData } from "../../store/stores";
+  import { unityWSOnMessageCallback, setupUnityWS } from "../MonitorHelpers.js";
+  import { select, drag, line, easeBounce } from "d3";
   import ShowHideCardButton from "./ShowHideCardButton.svelte";
   import { GETParadigmsFSMs } from "../monitor_api.js";
-  import { openWebsocket } from "../monitor_api.js";
 
-  // websocket stuff
+  // websocket 
   let closeCallback = () => {};
-  const wsEndpointName = "unityoutput";
 
   // reactive elements (circles is a d3.selection)
   let svg;
   let circles;
-
+  
   // visual properties
   let isActive = false;
   let title = "Experiment";
@@ -28,7 +26,11 @@
 
   // unity state at current frame
   let currentState;
-
+  $: if ($unityData.length > 0)  {
+    currentState = $unityData[$unityData.length-1].S;
+  }
+  // $: console.log($unityData)
+  // $: console.log($store)
 
   $: if (DOMRect) {
     width = DOMRect.width;
@@ -59,39 +61,22 @@
     );
   }
 
-  function handleWSHandshakeError(result) {
-    console.log("in handleWSHandshakeError");
-    closeCallback();
-    isActive = false;
-    $store.showModal = true;
-    $store.modalMessage = "Websocket failed to open. Check server for deatils.";
-  }
-
-  function wsOnMessageCallback(msg) {
-    let newData = JSON.parse(msg.data);
-    console.log(newData);
-    currentState = newData[0].S;
-  }
-
   async function switchCardOnOff(event) {
     if (!isActive) {
       let data = await GETParadigmsFSMs();
       console.log(data);
+
       // check if data is a string (implecitly means an error message)
       if (typeof data === "string") {
         $store.showModal = true;
         $store.modalMessage = data;
-        closeCallback();
         return;
       } else {
         isActive = !isActive;
         loadStateTransitionData(data);
         setupExperimtentStateStreamer();
-        closeCallback = openWebsocket(
-          wsEndpointName,
-          wsOnMessageCallback,
-          handleWSHandshakeError
-        );
+        
+        closeCallback = setupUnityWS();
       }
     } else {
       isActive = !isActive;
@@ -101,6 +86,7 @@
       select(svg).selectAll("*").remove();
       stateData = [];
       transitionData = [];
+      closeCallback();
     }
   }
 
@@ -346,6 +332,10 @@
 </div>
 
 <style>
+  .experiment-fsm-div {
+    transition: height 0.2s ease-in-out;
+  } 
+
   .portenta-stream-card {
     border: 1px solid var(--bgFaint-color);
     padding: 15px;
@@ -359,6 +349,8 @@
     border-bottom: 1px solid var(--fgFaint-color);
     padding-bottom: 6px;
     display: flex;
+    margin-bottom: 20px;
+
   }
   #card-header-div h1 {
     font-weight: bold;
