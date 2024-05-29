@@ -1,7 +1,8 @@
 import { unityStreamerTRange, unityData, unityXRangeSeconds, store } from "../store/stores";
 import { openWebsocket } from "./monitor_api.js";
 
-let unityWScloseCallback = null;
+let wsReaders = 0;
+let unityWScloseCallback;
 
 export function unityWSOnMessageCallback(msg) {
     let newData = JSON.parse(msg.data);
@@ -26,13 +27,32 @@ export function unityWSOnMessageCallback(msg) {
     // Filter unityData based on min and max
     unityData.update(data => [...data, ...newData]);
     unityData.update(data => data.filter(d => {
-        // console.log(d.PCT/1000000)
-        return d.PCT/1000000 <= min && d.PCT/1000000 >= max
+        return d.PCT/1000000 >= max
     }));
 }
 
 export function setupUnityWS() {
-    if (unityWScloseCallback == null) {
+    console.log("counter start: " + wsReaders);
+    let unityWScloseCallbackWrapper = () => {
+        console.log("counter close callback: " + wsReaders);
+        wsReaders--;
+        if (wsReaders == 0) {
+            unityWScloseCallback();
+        }
+    }
+
+    let handleWSHandshakeError = (result) => {
+        unityWScloseCallbackWrapper();
+        store.update(value => {
+            return {
+                ...value,
+                showModal: true,
+                modalMessage: "Websocket failed to open. Check server for details."
+            };
+        });
+      }
+
+    if (wsReaders == 0) {
         console.log("setupUnityWS");
         unityWScloseCallback = openWebsocket(
             "unityoutput",
@@ -40,17 +60,7 @@ export function setupUnityWS() {
             handleWSHandshakeError
         );
     }
-    return unityWScloseCallback;
+    wsReaders++;
+    console.log("counter end: " + wsReaders);
+    return unityWScloseCallbackWrapper;
 }
-
-function handleWSHandshakeError(result) {
-    unityWScloseCallback();
-    unityWScloseCallback = null;
-    store.update(value => {
-        return {
-            ...value,
-            showModal: true,
-            modalMessage: "Websocket failed to open. Check server for details."
-        };
-    });
-  }

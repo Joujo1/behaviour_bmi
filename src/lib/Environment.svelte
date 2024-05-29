@@ -38,14 +38,10 @@
         return;
       } else {
         isActive = !isActive;
-        // loadStateTransitionData(data);
-        // setupExperimtentStateStreamer();
-
         closeCallback = setupUnityWS();
       }
     } else {
       isActive = !isActive;
-      // save the node locaions (cx,cy) to locatStorga
       closeCallback();
     }
   }

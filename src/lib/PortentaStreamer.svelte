@@ -85,7 +85,10 @@
 
       // subsample surplus data
       olderData = olderData.concat(
-        surplusData.filter((_, i) => i % olderDataSubsampling === 0)
+        surplusData.filter((d, i) => {
+          console.log(d.F);
+          return (i % olderDataSubsampling === 0) || (d.F === 0)
+        })
       );
 
       // find index of first element in olderData that is greater than maxXData
@@ -155,12 +158,12 @@
               fill="#888888"
             />
             <!-- fresh package or not -->
-            {#if (point.F)}
+            {#if (point.F) == 0}
               <circle
                 cx={xScale(point.T)}
                 cy={yScale(maxYData)}
                 r="5"
-                fill="var(--accent-color)"
+                fill="var(--error-color)"
               />
             {/if}
           {/if}
