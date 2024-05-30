@@ -23,8 +23,8 @@
   let DOMRect = { width: width };
 
   const recentDataLength = 100;
-  const olderDataSubsampling = 5;
-  const xRangeSeconds = 5;
+  const olderDataSubsampling = 10;
+  const xRangeSeconds = 3;
   let recentData = [];
   let olderData = [];
 
@@ -53,6 +53,8 @@
     // .map((tick, i) => ({ value: tick, position: yScale(tick) }));
     .map((tick, i) => ({ value: yTickLabels == null ? tick : yTickLabels[i], position: yScale(tick) }));
 
+  // $: console.log($dataStore);
+  // $: console.log($dataStore.length);
 
   function handleWSHandshakeError(result) {
     console.log("in handleWSHandshakeError");
@@ -155,12 +157,12 @@
               fill="#888888"
             />
             <!-- fresh package or not -->
-            {#if (point.F)}
+            {#if (point.F) == 0}
               <circle
                 cx={xScale(point.T)}
                 cy={yScale(maxYData)}
-                r="5"
-                fill="var(--accent-color)"
+                r="3"
+                style="fill:var(--accent-color);fill-opacity:.5"
               />
             {/if}
           {/if}
@@ -173,6 +175,14 @@
                 r="3"
                 fill="var(--fg-color)"
               />
+              <line
+                x1={xScale(point.T)}
+                y1={yScale(1)}
+                x2={xScale(point.T + point.V)}
+                y2={yScale(1)}
+                stroke="var(--fg-color)"
+                stroke-width="2"
+              />
             {/if}
             {#if point.N === "R"}
               <circle
@@ -181,13 +191,45 @@
                 r="3"
                 fill="var(--fg-color)"
               />
+              <line
+                x1={xScale(point.T)}
+                y1={yScale(2)}
+                x2={xScale(point.T + point.V * 1000)}
+                y2={yScale(2)}
+                stroke="var(--fg-color)"
+                stroke-width="2"
+              />
             {/if}
             {#if point.N === "S"}
               <circle
                 cx={xScale(point.T)}
                 cy={yScale(3)}
                 r="3"
-                fill="var(--fg-color)"
+                fill="var(--good-color)"
+              />
+              <line
+                x1={xScale(point.T)}
+                y1={yScale(3)}
+                x2={xScale(point.T + point.V * 1000)}
+                y2={yScale(3)}
+                stroke="var(--good-color)"
+                stroke-width="2"
+              />
+            {/if}
+            {#if point.N === "F"}
+              <circle
+                cx={xScale(point.T)}
+                cy={yScale(3)}
+                r="3"
+                fill="var(--error-color)"
+              />
+              <line
+                x1={xScale(point.T)}
+                y1={yScale(3)}
+                x2={xScale(point.T + point.V * 1000)}
+                y2={yScale(3)}
+                stroke="var(--error-color)"
+                stroke-width="2"
               />
             {/if}
             {#if point.N === "A"}

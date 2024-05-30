@@ -154,6 +154,10 @@
         var trTrueState = transition.truestate;
         // console.log("trTrueState: ", trTrueState);
         var decision = data.decisions[transition.decision];
+        if (decision == undefined) {
+          console.log("No decision found for transition: ", transition);
+          decision = {name: "No decision", switchDescription: "No switch description"};
+        }
         // console.log("decision: ", decision);
 
         var edge = {
