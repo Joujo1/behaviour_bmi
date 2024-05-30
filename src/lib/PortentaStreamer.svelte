@@ -164,7 +164,7 @@
               <circle
                 cx={xScale(point.T)}
                 cy={yScale(maxYData)}
-                r="5"
+                r="3"
                 fill="var(--error-color)"
               />
             {/if}

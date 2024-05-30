@@ -26,15 +26,8 @@ export function unityWSOnMessageCallback(msg) {
 
     // Filter unityData based on min and max
     unityData.update(data => [...data, ...newData]);
-<<<<<<< HEAD
-    unityData.update(data => data.filter((d, i) => {
-        // console.log(d.PCT/1000000)
-        return d.PCT/1000000 <= min && d.PCT/1000000 >= max
-        // return true;
-=======
     unityData.update(data => data.filter(d => {
         return d.PCT/1000000 >= max
->>>>>>> 608c1fc8270ed114323303cab915279c2ac41705
     }));
 }
 

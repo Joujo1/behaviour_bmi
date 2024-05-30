@@ -24,7 +24,9 @@
     height = DOMRect.width;
   }
   let paradigm_env;
-    $: console.log($unityData);
+  $: if ($unityData.length) {
+    // console.log($unityData[$unityData.length - 1].A);
+  } 
 
   async function switchCardOnOff(event) {
     if (!isActive) {
