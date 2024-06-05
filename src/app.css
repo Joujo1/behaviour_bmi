@@ -41,7 +41,7 @@ body {
   min-width: 1000px; 
 }
 
-#parameter-div, #setup-div, #monitor-div{
+#parameter-div, #setup-div{
   display: flex;
   flex-wrap: wrap;
   /* justify-content: space-between; */

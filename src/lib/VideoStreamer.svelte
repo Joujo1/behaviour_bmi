@@ -25,6 +25,7 @@
   }
 
   function processFrame(wsFrameMessage) {
+    // console.log(wsFrameMessage.data)
     imageUrl = URL.createObjectURL(wsFrameMessage.data);
   }
 
@@ -48,7 +49,9 @@
   }
 </script>
 
-<div class="monitor-dropdown-card">
+<div class="monitor-dropdown-card"
+     style="width:{imageWidth}px"
+>
   <div id="card-header-div">
     <div>
       <h1>{title}</h1>
@@ -78,6 +81,7 @@
     margin: 15px;
     /* flex-grow: 1; */
     min-width: 300px;
+    max-width: 900px;
   }
   .content-div {
     transition: height 0.2s ease-in-out;

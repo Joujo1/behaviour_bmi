@@ -122,20 +122,20 @@
           <rect
             style="fill:var(--bgFaint-color);fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:0.106;stroke-linecap:round;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
             id="mainfloor"
-            x={paradigm_env.wallzone_size*60}
-            y={paradigm_env.wallzone_size*60}
-            width={paradigm_env.envX_size - paradigm_env.wallzone_size*60 * 2}
-            height={paradigm_env.envY_size - paradigm_env.wallzone_size*60 * 2}
+            x={paradigm_env.wallzone_size}
+            y={paradigm_env.wallzone_size}
+            width={paradigm_env.envX_size - paradigm_env.wallzone_size * 2}
+            height={paradigm_env.envY_size - paradigm_env.wallzone_size * 2}
           >
             <!-- <title>PillarID</title> -->
           </rect>
           <rect
             style="fill:none;stroke:var(--fg-color);stroke-width:1;stroke-linecap:butt;stroke-dasharray:2, 4;stroke-dashoffset:0;stroke-opacity:.5"
             id="wallcollider"
-            width={paradigm_env.envX_size - paradigm_env.wallzone_size*60}
-            height={paradigm_env.envY_size - paradigm_env.wallzone_size*60}
-            x={paradigm_env.wallzone_size*60 / 2}
-            y={paradigm_env.wallzone_size*60 / 2}
+            width={paradigm_env.envX_size - paradigm_env.wallzone_size}
+            height={paradigm_env.envY_size - paradigm_env.wallzone_size}
+            x={paradigm_env.wallzone_size / 2}
+            y={paradigm_env.wallzone_size / 2}
           />
 
           <path

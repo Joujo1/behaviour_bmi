@@ -9,7 +9,7 @@ wsEndpointName={"portentaoutput"}
 dataStore={portentaData}
 minYData={0.5}
 maxYData={4}
-height={200}
+height={150}
 title={"Portenta Output"}
   
 nYTicks={4}

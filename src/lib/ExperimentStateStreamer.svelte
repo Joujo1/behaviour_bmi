@@ -154,17 +154,20 @@
         var trTrueState = transition.truestate;
         // console.log("trTrueState: ", trTrueState);
         var decision = data.decisions[transition.decision];
-        // console.log("decision: ", decision);
+        console.log("decision: ", decision);
 
+        var tooltip = "";
+        if (decision) {
+          tooltip = `${transition.name} from ${decision.path}\n` +
+            `${decision.name}\n${decision.switchDescription}`;
+        }
         var edge = {
           source: sourceState,
           target: stateData.filter((d) => d.guid == transition.truestate)[0],
           // transitionName: transition.name,
           // decisionDirection: true,
           // decisionName: decision.name,
-          tooltip:
-            `${transition.name} from ${decision.path}\n` +
-            `${decision.name}\n${decision.switchDescription}`,
+          tooltip: tooltip,
         };
         // console.log("edge: ", edge);
         transitionData.push(edge);
