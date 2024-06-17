@@ -76,8 +76,8 @@ export async function POSTInitiate() {
   return await handlePOST(`${BASE_URL}/initiate`);
 }
 
-export async function POSTTerminate() {
-  return await handlePOST(`${BASE_URL}/raise_term_flag`);
+export async function POSTTerminate(post_term_action) {
+  return await handlePOST(`${BASE_URL}/raise_term_flag/${post_term_action}`);
 }
 
 export async function POSTFlashPortentaM7() {

@@ -14,10 +14,6 @@ async function handlePOST(endpoint) {
   return true;
 }
 
-  export async function POSTTerminate() {
-    return await handlePOST(`${BASE_URL}/raise_term_flag`);
-  }
-  
 export async function POSTUnityInput(msg) {
     return await handlePOST(`${BASE_URL}/unityinput/${msg}`)
 }

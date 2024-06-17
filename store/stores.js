@@ -38,6 +38,7 @@ export const store = writable({
     log_unity: 0,
     log_unitycam: 0,
     unity: 0,
+    process_session: 0,
 });
 
 export const ballvelocityData = writable([]);

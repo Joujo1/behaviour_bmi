@@ -37,9 +37,7 @@
     POSTLaunch_face_bodycam,
     POSTLaunch_stream_portenta,
   } from "../setup_api";
-  import {
-    POSTLaunch_unity,
-  } from "../setup_api";
+  import { POSTLaunch_unity } from "../setup_api";
 
   import SetupUiButton from "./SetupUIButton.svelte";
 
@@ -56,8 +54,8 @@
     handlePOSTResult(result);
   }
 
-  async function terminate() {
-    const result = await POSTTerminate();
+  async function terminate(post_term_action = "none") {
+    const result = await POSTTerminate(post_term_action);
     handlePOSTResult(result);
   }
 
@@ -172,22 +170,22 @@
     const result = await POSTLaunch_log_unitycam();
     handlePOSTResult(result);
   }
-  
+
   async function launch_stream_bodycam() {
     const result = await POSTLaunch_stream_bodycam();
     handlePOSTResult(result);
   }
-  
+
   async function launch_face_bodycam() {
     const result = await POSTLaunch_face_bodycam();
     handlePOSTResult(result);
   }
-  
+
   async function launch_stream_portenta() {
     const result = await POSTLaunch_stream_portenta();
     handlePOSTResult(result);
   }
-  
+
   async function launch_unity() {
     const result = await POSTLaunch_unity();
     handlePOSTResult(result);
@@ -214,6 +212,17 @@
         <SetupUIButton
           label="Flash Portenta M4"
           onClickCallback={flashPortentaM4}
+        />
+      </div>
+      <div class="button-row-div">
+        <SetupUIButton
+          label="Terminate & Post-process"
+          onClickCallback={() => terminate("post-process")}
+          stateDependancy={$store.process_session}
+        />
+        <SetupUIButton
+          label="Terminate & Delete"
+          onClickCallback={() => terminate("delete")}
         />
       </div>
     </div></SetupUIBlock
@@ -298,7 +307,7 @@
           stateDependancy={$store.bodycam2shm}
         />
       </div>
-      
+
       <div class="button-row-div">
         <SetupUiButton
           label="unity"
@@ -352,10 +361,10 @@
       </div>
       <div class="button-row-div">
         <SetupUiButton
-        label="por2shm2por_sim"
-        onClickCallback={launch_por2shm2por_sim}
-        stateDependancy={$store.por2shm2por_sim}
-      />
+          label="por2shm2por_sim"
+          onClickCallback={launch_por2shm2por_sim}
+          stateDependancy={$store.por2shm2por_sim}
+        />
       </div>
     </div></SetupUIBlock
   >
