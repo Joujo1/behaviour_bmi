@@ -1,4 +1,4 @@
-const BASE_URL = "http://0.0.0.0:8001";
+const BASE_URL = "http://0.0.0.0:8000";
 
 async function handlePOST(endpoint) {
   let response = await fetch(endpoint, { method: "POST" });

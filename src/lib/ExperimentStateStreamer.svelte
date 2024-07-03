@@ -26,11 +26,16 @@
 
   // unity state at current frame
   let currentState;
-  $: if ($unityData.length > 0)  {
-    currentState = $unityData[$unityData.length-1].S;
-  }
-  // $: console.log($unityData)
-  // $: console.log($store)
+  let prvState
+$: if ($unityData.length > 0 && $unityData[$unityData.length-1] !== undefined) {
+    const lastUnityData = $unityData[$unityData.length-1];
+    if (lastUnityData && lastUnityData.S !== currentState) {
+        console.log("currentState: ", currentState);
+        prvState = currentState;
+        currentState = lastUnityData.S;
+        console.log("currentState update to: ", currentState, " from prvState: ", prvState);
+    }
+}
 
   $: if (DOMRect) {
     width = DOMRect.width;
@@ -39,13 +44,25 @@
 
   $: if (circles) {
     circles
-      .style("stroke", (d) =>
-        d.stateID === currentState ? "var(--accent-color)" : "var(--fg-color)"
-      )
-      .style("stroke-width", (d) =>
-        d.stateID === currentState ? 4 : 1
-      );
-  }
+      .style("stroke", (d) => {
+        if (d.stateID === currentState) {
+          return "var(--accent-color)"; // Accent color for current state
+        } else if (d.stateID === prvState) {
+          return "var(--accent-color)"; // Accent color for previous state
+        } else {
+          return "var(--fg-color)"; // Default color
+        }
+      })
+      .style("stroke-width", (d) => {
+        if (d.stateID === currentState) {
+          return 4; // Increased stroke width for current state
+        } else if (d.stateID === prvState) {
+          return 1.5; // Reduced stroke width for previous state
+        } else {
+          return 1; // Default stroke width
+        }
+      });
+}
 
   function nodeLocations2Cache() {
     var nodeLocations = {};
@@ -96,22 +113,21 @@
     const numStates = Object.entries(data.states).length;
 
     const assignInitalNodeLocation = (guid, paradigm, i) => {
-      const cachedLocsKey = "P" + paradigm + "_nodeLocs";
+    const cachedLocsKey = "P" + paradigm + "_nodeLocs";
       if (cachedLocsKey in localStorage) {
-        var nodeLocs = JSON.parse(
-          localStorage.getItem("P" + paradigm + "_nodeLocs")
-        );
+        var nodeLocs = JSON.parse(localStorage.getItem(cachedLocsKey));
         if (guid in nodeLocs) {
           return [nodeLocs[guid].cx, nodeLocs[guid].cy];
         }
       } else {
         console.log("No cached locations found for paradigm: ", paradigm);
-        const angle = (i / numStates) * 2 * Math.PI;
-        const initialLocationRadius = 200;
-        const cx = width / 2 + initialLocationRadius * Math.cos(angle);
-        const cy = height / 2 + initialLocationRadius * Math.sin(angle);
-        return [cx, cy];
       }
+      // This block is executed if the guid is not found in nodeLocs or if cachedLocsKey is not in localStorage
+      const angle = (i / numStates) * 2 * Math.PI;
+      const initialLocationRadius = 200;
+      const cx = width / 2 + initialLocationRadius * Math.cos(angle);
+      const cy = height / 2 + initialLocationRadius * Math.sin(angle);
+      return [cx, cy];
     };
     
     // ====== LOAD STATES AS NODES ======

@@ -49,11 +49,11 @@
       $store.modalMessage = "Please select an animal";
       return;
     }
-    if (!animalWeight) {
-      $store.showModal = true;
-      $store.modalMessage = "Please enter the animal weight";
-      return;
-    }
+    // if (!animalWeight) {
+    //   $store.showModal = true;
+    //   $store.modalMessage = "Please enter the animal weight";
+    //   return;
+    // }
     let unityMsg = `Paradigm,${paradigmSelection}`.slice(0, -5);
     let result = await POSTUnityInput(unityMsg);
     handlePOSTResult(result);

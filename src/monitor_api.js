@@ -1,5 +1,5 @@
-const BASE_URL = "http://0.0.0.0:8001";
-const WS_BASE_URL = "ws://0.0.0.0:8001/stream";
+const BASE_URL = "http://0.0.0.0:8000";
+const WS_BASE_URL = "ws://0.0.0.0:8000/stream";
 
 async function handlePOST(endpoint) {
   let response = await fetch(endpoint, { method: "POST" });
