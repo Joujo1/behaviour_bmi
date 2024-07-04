@@ -30,10 +30,10 @@
 $: if ($unityData.length > 0 && $unityData[$unityData.length-1] !== undefined) {
     const lastUnityData = $unityData[$unityData.length-1];
     if (lastUnityData && lastUnityData.S !== currentState) {
-        console.log("currentState: ", currentState);
+        // console.log("currentState: ", currentState);
         prvState = currentState;
         currentState = lastUnityData.S;
-        console.log("currentState update to: ", currentState, " from prvState: ", prvState);
+        // console.log("currentState update to: ", currentState, " from prvState: ", prvState);
     }
 }
 

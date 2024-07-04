@@ -30,6 +30,8 @@
     height: 25px;
     margin: 5px;
     display: flex;
+    /* max-width: 200px; */
+
   }
   .dropdown-ui-label-div {
     min-width: 100px;

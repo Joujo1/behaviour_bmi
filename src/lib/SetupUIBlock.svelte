@@ -16,7 +16,7 @@
       padding-bottom: 10px;
       border-radius: 7px;
       margin: 15px;
-      min-width: 400px;
+      min-width: 450px;
     }
     .setup-ui-header-div {
       border-bottom: 1px solid var(--fg-color);

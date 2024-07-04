@@ -34,8 +34,26 @@ export async function GETAnimals() {
       return data;
     })
     .catch((error) => console.error("Error:", error));
+  }
+  
+export async function GETTrialVarialbeNames() {
+  return fetch(`${BASE_URL}/trial_variable_names`)
+    .then((response) => response.json())
+    .then((data) => {
+      return data;
+    })
+    .catch((error) => console.error("Error:", error));
 }
-
+    
+export async function GETTrialVarialbeDefaultValues() {
+  return fetch(`${BASE_URL}/trial_variable_default_values`)
+  .then((response) => response.json())
+  .then((data) => {
+    return data;
+  })
+  .catch((error) => console.error("Error:", error));
+}
+      
 export async function POSTAnimal(msg) {
   return await handlePOST(`${BASE_URL}/session/animal/${msg}`)
 }

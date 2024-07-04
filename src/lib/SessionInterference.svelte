@@ -6,7 +6,8 @@
   import MonitorDropdown from "./MonitorDropdown.svelte";
   import MonitorInputField from "./MonitorInputField.svelte";
   import { POSTUnityInput } from "../monitor_api.js";
-  import { GETParadigms } from "../monitor_api.js";
+  import { GETTrialVarialbeNames } from "../monitor_api.js";
+  import { GETTrialVarialbeDefaultValues } from "../monitor_api.js";
   import { GETAnimals } from "../monitor_api.js";
   import { POSTAnimal } from "../monitor_api.js";
   import { POSTAnimalWeight } from "../monitor_api.js";
@@ -20,6 +21,10 @@
   let teleportAngleTextValue = 0;
   let distanceDelta = 1;
   let angleDelta = 5;
+
+  let paradigmVariableValues = [];
+  let paradigmVariables = [];
+  let paradigmVariableSelection;
 
   function handlePOSTResult(result) {
     console.log(result);
@@ -69,6 +74,55 @@
     const result = await POSTUnityInput(unityMsg);
     handlePOSTResult(result);
   }
+  
+  // Function to send updated paradigm variables
+  async function sendUpdatedParadigmVariables() {
+    // Construct an object from the keys and values
+    const variablesObject = paradigmVariables.reduce((obj, key, index) => {
+      obj[key] = paradigmVariableValues[index];
+      return obj;
+    }, {});
+    // Convert the object into a string format for Unity
+    const value = JSON.stringify(variablesObject);
+    
+    const unityMsg = `TrialVariables,${value}`;
+    const result = await POSTUnityInput(unityMsg);
+    handlePOSTResult(result);
+  }
+
+  async function getParadigmVarialbeNames() {
+    paradigmVariables = await GETTrialVarialbeNames();
+  }
+
+  async function getParadigmVarialbeDefaultValues() {
+    paradigmVariableValues = await GETTrialVarialbeDefaultValues();
+  }
+
+  let previousUnitySessionRunning = $store.unitySessionRunning;
+
+  $: if ($store.unitySessionRunning !== previousUnitySessionRunning) {
+    console.log("ParadigmVariable UI updating...");
+    if ($store.unitySessionRunning) {
+      (async () => {
+        console.log("Waiting for 4s...");
+        await new Promise((r) => setTimeout(r, 1000))
+        console.log("Done waiting...");
+        
+        getParadigmVarialbeNames();
+        getParadigmVarialbeDefaultValues();
+      })();
+    } else {
+      paradigmVariables = [];
+      paradigmVariableValues = [];
+    }
+    console.log(paradigmVariableValues);
+    console.log(paradigmVariables);
+
+    // Update the previous value to the current one for the next check
+    previousUnitySessionRunning = $store.unitySessionRunning;
+  }
+
+
 </script>
 
 <!-- <div id="setup-div" class={$store.showMonitor ? "" : "hide"}> -->
@@ -136,7 +190,7 @@
         ></SetupUIInput>
       </div>
 
-      <div class="button-row-div">
+      <!-- <div class="button-row-div">
         <SetupUIButton
           label="DistanceDelta"
           onClickCallback={sendDistanceDelta}
@@ -157,6 +211,23 @@
           isEnabled={$store.unitySessionRunning}
           tooltip="Delta pillar angle for next trials"
         ></SetupUIInput>
+      </div> -->
+
+      <div class="button-row-div">
+      <MonitorDropdown
+        label="Variable"
+        bind:value={paradigmVariableSelection}
+        options={paradigmVariables}
+        getOptions={getParadigmVarialbeNames}
+        />
+        <SetupUIInput
+          bind:value={paradigmVariableValues[paradigmVariables.indexOf(paradigmVariableSelection)]}
+          tooltip="The updated value of the paradigm variable"
+        ></SetupUIInput>
+        <SetupUIButton
+          label="Update"
+          onClickCallback={sendUpdatedParadigmVariables}
+        />
       </div>
     </div></SetupUIBlock
   >

@@ -190,7 +190,7 @@
 
               <circle
                 cx={unityFrame.X + paradigm_env.envX_size / 2}
-                cy={unityFrame.Z + paradigm_env.envY_size / 2}
+                cy={-unityFrame.Z + paradigm_env.envY_size / 2}
                 r="2"
                 style="fill:var(--fg-color);fill-opacity:{(i * 1) /
                   $unityData.length};fill-rule:evenodd;stroke:#ffffff;stroke-width:0.0187512;stroke-linecap:butt;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
@@ -201,12 +201,10 @@
           {#if $unityData.length > 0 && $unityData[$unityData.length - 1].N === "U"}
             <g
               id="rat"
-              transform="translate({$unityData[$unityData.length - 1].X +
-                paradigm_env.envX_size / 2}, {$unityData[$unityData.length - 1]
-                .Z +
-                paradigm_env.envY_size / 2}) rotate({$unityData[
-                $unityData.length - 1
-              ].A})"
+              transform="translate(
+                {paradigm_env.envX_size / 2 + $unityData[$unityData.length - 1].X}, 
+                {paradigm_env.envY_size / 2 - $unityData[$unityData.length - 1].Z}) 
+                rotate({$unityData[$unityData.length - 1].A + 90})"
             >
               <path
                 style="fill:none;stroke:var(--fg-color);stroke-width:6;stroke-linecap:butt;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;marker-start:url(#marker253);marker-end:url(#CapRibbon1)"
