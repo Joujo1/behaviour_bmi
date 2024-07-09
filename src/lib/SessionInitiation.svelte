@@ -10,6 +10,9 @@
   import { GETAnimals } from "../monitor_api.js";
   import { POSTAnimal } from "../monitor_api.js";
   import { POSTAnimalWeight } from "../monitor_api.js";
+  import { POSTStartParadigm } from "../monitor_api.js";
+  
+  import { POSTStopParadigm } from "../monitor_api.js";
   import { POSTSessionNotes } from "../monitor_api.js";
   import { onMount } from "svelte";
 
@@ -38,7 +41,7 @@
   }
   onMount(getAnimals);
 
-  async function startSession() {
+  async function startParadigm() {
     if (!paradigmSelection) {
       $store.showModal = true;
       $store.modalMessage = "Please select a paradigm";
@@ -49,11 +52,7 @@
       $store.modalMessage = "Please select an animal";
       return;
     }
-    // if (!animalWeight) {
-    //   $store.showModal = true;
-    //   $store.modalMessage = "Please enter the animal weight";
-    //   return;
-    // }
+
     let unityMsg = `Paradigm,${paradigmSelection}`.slice(0, -5);
     let result = await POSTUnityInput(unityMsg);
     handlePOSTResult(result);
@@ -66,14 +65,18 @@
     unityMsg = "Start";
     result = await POSTUnityInput(unityMsg);
     handlePOSTResult(result);
+    result = await POSTStartParadigm();
+    handlePOSTResult(result);
   }
 
-  async function stopSession() {
+  async function stopParadigm() {
     let result = await POSTSessionNotes(freeNotes);
     handlePOSTResult(result);
 
     const unityMsg = "Stop";
     result = await POSTUnityInput(unityMsg);
+    handlePOSTResult(result);
+    result = await POSTStopParadigm();
     handlePOSTResult(result);
   }
   async function sendAirvalve() {
@@ -92,7 +95,7 @@
           <MonitorDropdown
             label="Paradigm"
             bind:value={paradigmSelection}
-            isEnabled={!$store.unitySessionRunning}
+            isEnabled={!$store.paradigmRunning}
             options={paradigms}
             getOptions={getParadigms}
           />
@@ -101,7 +104,7 @@
           <MonitorDropdown
             label="Animal"
             bind:value={animalSelection}
-            isEnabled={!$store.unitySessionRunning}
+            isEnabled={!$store.paradigmRunning}
             options={animals}
             getOptions={getAnimals}
           />
@@ -109,7 +112,7 @@
         <div class="button-row-div">
           <MonitorInputField
             label="Weight [g]"
-            isEnabled={!$store.unitySessionRunning}
+            isEnabled={!$store.paradigmRunning}
             tooltip="Animal weight in grams"
             bind:value={animalWeight}
           />
@@ -126,15 +129,15 @@
         
       />
       <SetupUIButton
-        label="StartSession"
-        onClickCallback={startSession}
-        isEnabled={!$store.unitySessionRunning}
+        label="Start Paradigm"
+        onClickCallback={startParadigm}
+        isEnabled={!$store.paradigmRunning}
       />
       <div class="right-aligned">
         <SetupUIButton
-          label="StopSession"
-          onClickCallback={stopSession}
-          isEnabled={$store.unitySessionRunning}
+          label="Stop Paradigm"
+          onClickCallback={stopParadigm}
+          isEnabled={$store.paradigmRunning}
         />
       </div>
     </div>

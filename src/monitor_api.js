@@ -62,6 +62,14 @@ export async function POSTAnimalWeight(msg) {
   return await handlePOST(`${BASE_URL}/session/animalweight/${msg}`)
 }
 
+export async function POSTStartParadigm() {
+  return await handlePOST(`${BASE_URL}/start_paradigm`)
+}
+
+export async function POSTStopParadigm() {
+  return await handlePOST(`${BASE_URL}/stop_paradigm`)
+}
+
 export async function POSTSessionNotes(msg) {
   return await handlePOST(`${BASE_URL}/session/notes/${msg}`)
 }

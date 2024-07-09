@@ -92,6 +92,10 @@ export async function POSTCreateTermflag() {
   return await handlePOST(`${BASE_URL}/shm/create_termflag_shm`);
 }
 
+export async function POSTCreateParadigmRunningFlag() {
+  return await handlePOST(`${BASE_URL}/shm/create_paradigm_running_shm`);
+}
+
 export async function POSTCreateBallvelocity() {
   return await handlePOST(`${BASE_URL}/shm/create_ballvelocity_shm`);
 }

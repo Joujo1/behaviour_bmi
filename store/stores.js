@@ -13,12 +13,14 @@ export const store = writable({
 
     // server state
     initiated: false,
-    unitySessionRunning: false,
+    paradigmRunning: false,
     // shm interfaces
     termflag_shm_interface: false,
     unityinput_shm_interface: false,
+    paradigm_running_shm_interface: false,
     // shm created
     termflag: false,
+    paradigmflag: false,
     ballvelocity: false,
     portentaoutput: false,
     portentainput: false,

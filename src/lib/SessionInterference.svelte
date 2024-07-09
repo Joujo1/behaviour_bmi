@@ -98,11 +98,11 @@
     paradigmVariableValues = await GETTrialVarialbeDefaultValues();
   }
 
-  let previousUnitySessionRunning = $store.unitySessionRunning;
+  let previousparadigmRunning = $store.paradigmRunning;
 
-  $: if ($store.unitySessionRunning !== previousUnitySessionRunning) {
+  $: if ($store.paradigmRunning !== previousparadigmRunning) {
     console.log("ParadigmVariable UI updating...");
-    if ($store.unitySessionRunning) {
+    if ($store.paradigmRunning) {
       (async () => {
         console.log("Waiting for 4s...");
         await new Promise((r) => setTimeout(r, 1000))
@@ -119,7 +119,7 @@
     console.log(paradigmVariables);
 
     // Update the previous value to the current one for the next check
-    previousUnitySessionRunning = $store.unitySessionRunning;
+    previousparadigmRunning = $store.paradigmRunning;
   }
 
 
@@ -133,23 +133,23 @@
         <SetupUIButton
           label="Success"
           onClickCallback={sendSucess}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
         />
         <SetupUIInput
           bind:value={successLengthTextValue}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="opened-for [ms]"
         ></SetupUIInput>
         <SetupUIInput
           bind:value={successDelayTextValue}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="delay [ms]"
         ></SetupUIInput>
         <div class="right-aligned">
           <SetupUIButton
             label="Failure"
             onClickCallback={sendFailure}
-            isEnabled={$store.unitySessionRunning}
+            isEnabled={$store.paradigmRunning}
           />
         </div>
       </div>
@@ -158,11 +158,11 @@
         <SetupUIButton
           label="Punishment"
           onClickCallback={sendPunishment}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
         />
         <SetupUIInput
           bind:value={punishmentLengthTextValue}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="length [ms]"
         ></SetupUIInput>
       </div>
@@ -171,21 +171,21 @@
         <SetupUIButton
           label="Teleport"
           onClickCallback={sendTeleport}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
         />
         <SetupUIInput
           bind:value={teleportXTextValue}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="X position"
         ></SetupUIInput>
         <SetupUIInput
           bind:value={teleportZTextValue}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="Z position"
         ></SetupUIInput>
         <SetupUIInput
           bind:value={teleportAngleTextValue}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="Angle"
         ></SetupUIInput>
       </div>
@@ -194,21 +194,21 @@
         <SetupUIButton
           label="DistanceDelta"
           onClickCallback={sendDistanceDelta}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
         />
         <SetupUIInput
           bind:value={distanceDelta}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="Delta pillar distance for next trials"
         ></SetupUIInput>
         <SetupUIButton
           label="AngleDelta"
           onClickCallback={sendAngleDelta}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
         />
         <SetupUIInput
           bind:value={angleDelta}
-          isEnabled={$store.unitySessionRunning}
+          isEnabled={$store.paradigmRunning}
           tooltip="Delta pillar angle for next trials"
         ></SetupUIInput>
       </div> -->

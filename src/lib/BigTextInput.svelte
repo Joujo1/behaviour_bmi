@@ -23,7 +23,7 @@
   
   textarea {
     height: 100px; /* Adjust this value to change the button's height */
-    width: 118px; /* Adjust this value to change the button's height */
+    width: 140px; /* Adjust this value to change the button's height */
     display: flex;
     justify-content: center;
     align-items: center;

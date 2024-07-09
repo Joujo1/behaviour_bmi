@@ -4,7 +4,9 @@
   import SetupUIButton from "./SetupUIButton.svelte";
   import { GETServerState, POSTInitiate, POSTTerminate } from "../setup_api";
   import { POSTFlashPortentaM4, POSTFlashPortentaM7 } from "../setup_api";
-  import { POSTCreateTermflag } from "../setup_api";
+  import { POSTCreateTermflag,
+           POSTCreateParadigmRunningFlag,
+   } from "../setup_api";
   import {
     POSTCreateBallvelocity,
     POSTCreatePortentaoutput,
@@ -73,6 +75,11 @@
     const result = await POSTCreateTermflag();
     handlePOSTResult(result);
   }
+  
+  async function createParadigmRunningFlag() {
+    const result = await POSTCreateParadigmRunningFlag();
+    handlePOSTResult(result);
+  }
 
   async function createBallvelocity() {
     const result = await POSTCreateBallvelocity();
@@ -116,6 +123,7 @@
 
   async function createAll() {
     createTermflag();
+    createParadigmRunningFlag();
     createBallvelocity();
     createPortentaoutput();
     createPortentainput();
@@ -236,6 +244,11 @@
           label="termflag"
           onClickCallback={createTermflag}
           stateDependancy={$store.termflag}
+        />
+        <SetupUIButton
+          label="paradigmrunningflag"
+          onClickCallback={createParadigmRunningFlag}
+          stateDependancy={$store.paradigmflag}
         />
       </div>
       <div class="button-row-div">
