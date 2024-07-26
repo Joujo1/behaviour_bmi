@@ -8,6 +8,7 @@
   import Environment from "./Environment.svelte";
   import VideoStreamer from "./VideoStreamer.svelte";
   import { style } from "d3";
+  import SessionOverview from "./SessionOverview.svelte";
 
   let testBool = true;
   let currentState = 6;
@@ -28,15 +29,17 @@
         <SessionInterference />
         <BallVelocityStreamer />
     </div>
-    <div class="row-div">
-        <ExperimentStateStreamer currentState={currentState}/>
+    
+    
+    <div id="monitor-flex-div">
+        <VideoStreamer websocketName="bodycam" title="Overview Camera"/>
         <Environment/>
         <VideoStreamer websocketName="unitycam" title="Unity View"/>
-    </div>
-    
-    <div class="row-div">
-        <VideoStreamer websocketName="bodycam" title="Overview Camera"/>
+
+        <ExperimentStateStreamer/>
         <VideoStreamer websocketName="facecam" title="Face Camera"/>
+
+        <SessionOverview />
     </div>
 </div>
 
@@ -51,10 +54,16 @@
       align-items: flex-start;
 
     }
-
     #monitor-div {
         display: flex;
         flex-direction: column;
+    }
+    #monitor-flex-div {
+        display: flex;
+        flex-wrap: wrap;
+        /* justify-content: space-between; */
+        justify-content: start;
+        align-items: flex-start;
     }
 
 </style>

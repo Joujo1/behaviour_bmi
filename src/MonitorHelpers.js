@@ -1,4 +1,4 @@
-import { unityStreamerTRange, unityData, unityXRangeSeconds, store } from "../store/stores";
+import { unityStreamerTRange, unityData, unityXRangeSeconds, store , unityTrialData} from "../store/stores";
 import { openWebsocket } from "./monitor_api.js";
 
 let wsReaders = 0;
@@ -29,6 +29,15 @@ export function unityWSOnMessageCallback(msg) {
     unityData.update(data => data.filter(d => {
         return d.PCT/1000000 >= max
     }));
+
+    unityTrialData.update(data => [...data, ...newData.filter(d => {
+        return d.N == "T"
+    })]);
+
+    // unsubscribe = unityTrialData.subscribe(value => {
+    //     console.log(value)
+    // });
+    // unsubscribe();
 }
 
 export function setupUnityWS() {

@@ -53,6 +53,15 @@ export async function GETTrialVarialbeDefaultValues() {
   })
   .catch((error) => console.error("Error:", error));
 }
+
+export async function GETSessionStartTime() {
+  return fetch(`${BASE_URL}/session_start_time`)
+  .then((response) => response.json())
+  .then((data) => {
+    return data;
+  })
+  .catch((error) => console.error("Error:", error));
+}
       
 export async function POSTAnimal(msg) {
   return await handlePOST(`${BASE_URL}/session/animal/${msg}`)

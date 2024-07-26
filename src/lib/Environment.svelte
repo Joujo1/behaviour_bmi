@@ -66,7 +66,7 @@
     bind:contentRect={DOMRect}
     style="height: {isActive ? height : 0}px"
   >
-    {#if isActive}
+    {#if (isActive && paradigm_env.pillar_details.length > 0)}
       <svg
         bind:this={svg}
         {width}
@@ -210,6 +210,7 @@
                 style="fill:none;stroke:var(--fg-color);stroke-width:6;stroke-linecap:butt;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;marker-start:url(#marker253);marker-end:url(#CapRibbon1)"
                 d="m 0,0 2,0"
                 id="vector"
+                transform="scale(1.5)"
               />
               <circle
                 id="center"
@@ -235,7 +236,7 @@
     border-radius: 7px;
     margin: 15px;
     flex-grow: 1;
-    max-width: 600px;
+    max-width: 480px;
     min-width: 300px;
   }
   #card-header-div {

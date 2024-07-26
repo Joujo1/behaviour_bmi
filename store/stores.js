@@ -55,5 +55,6 @@ export const unityStreamerTRange = writable({
     min: -1,
     max: -1,
 });
+export const unityTrialData = writable([]);
 export const unityXRangeSeconds = writable(5);
 

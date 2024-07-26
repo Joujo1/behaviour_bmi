@@ -4,6 +4,7 @@
   export let isEnabled = true;
   export let options = [];
   export let getOptions = () => {};
+  export let title = null;
 </script>
 
 <div class="dropdown-ui-div">
@@ -15,7 +16,7 @@
     bind:value
     on:click={getOptions}
     disabled={!isEnabled}
-    title={value}
+    title={title?title:value}
     style="color: {isEnabled ? 'var(--fg-color)' : 'gray'}"
   >
     <option value="">Select</option>

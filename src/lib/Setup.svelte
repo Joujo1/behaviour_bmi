@@ -178,6 +178,36 @@
     const result = await POSTLaunch_log_unitycam();
     handlePOSTResult(result);
   }
+  
+  async function launch_all_processes() {
+  let result;
+  result = await POSTLaunch_por2shm2por();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_facecam2shm();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_bodycam2shm();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_unity();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_log_portenta();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_log_unity();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_log_unitycam();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_log_facecam();
+  handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_log_bodycam();
+  handlePOSTResult(result);
+  }
 
   async function launch_stream_bodycam() {
     const result = await POSTLaunch_stream_bodycam();
@@ -202,7 +232,7 @@
 
 <div id="setup-div" class={$store.showSetup ? "" : "hide"}>
   <SetupUIBlock>
-    <div slot="header">General control</div>
+    <div slot="header">Base Control</div>
     <div slot="setupui">
       <div class="button-row-div">
         <SetupUIButton
@@ -357,6 +387,10 @@
           onClickCallback={launch_log_bodycam}
           stateDependancy={$store.log_bodycam}
         />
+        <SetupUiButton
+          label="/all"
+          onClickCallback={launch_all_processes}
+        />
       </div>
       <div class="button-row-div">
         <SetupUiButton
@@ -366,10 +400,12 @@
         <SetupUiButton
           label="stream_bodycam"
           onClickCallback={launch_stream_bodycam}
+          isEnabled={false}
         />
         <SetupUiButton
           label="stream_facecam"
           onClickCallback={launch_face_bodycam}
+          isEnabled={false}
         />
       </div>
       <div class="button-row-div">

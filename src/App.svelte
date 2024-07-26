@@ -15,6 +15,7 @@
         if ($store[key] != value) {
             $store[key] = value;
             console.log(`State updated - ${key}:${value}`);
+            // console.log($store);
         }
         };
 

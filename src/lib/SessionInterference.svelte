@@ -24,6 +24,7 @@
 
   let paradigmVariableValues = [];
   let paradigmVariables = [];
+  let paradigmVariablesFullNames = {};
   let paradigmVariableSelection;
 
   function handlePOSTResult(result) {
@@ -91,7 +92,11 @@
   }
 
   async function getParadigmVarialbeNames() {
-    paradigmVariables = await GETTrialVarialbeNames();
+    paradigmVariablesFullNames = await GETTrialVarialbeNames();
+    paradigmVariables = Object.keys(paradigmVariablesFullNames)
+    console.log("GET:", paradigmVariables);
+    console.log("GET:", paradigmVariablesFullNames);
+
   }
 
   async function getParadigmVarialbeDefaultValues() {
@@ -219,6 +224,7 @@
         bind:value={paradigmVariableSelection}
         options={paradigmVariables}
         getOptions={getParadigmVarialbeNames}
+        title={paradigmVariablesFullNames[paradigmVariableSelection]}
         />
         <SetupUIInput
           bind:value={paradigmVariableValues[paradigmVariables.indexOf(paradigmVariableSelection)]}
