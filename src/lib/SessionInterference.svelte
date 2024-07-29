@@ -195,29 +195,6 @@
         ></SetupUIInput>
       </div>
 
-      <!-- <div class="button-row-div">
-        <SetupUIButton
-          label="DistanceDelta"
-          onClickCallback={sendDistanceDelta}
-          isEnabled={$store.paradigmRunning}
-        />
-        <SetupUIInput
-          bind:value={distanceDelta}
-          isEnabled={$store.paradigmRunning}
-          tooltip="Delta pillar distance for next trials"
-        ></SetupUIInput>
-        <SetupUIButton
-          label="AngleDelta"
-          onClickCallback={sendAngleDelta}
-          isEnabled={$store.paradigmRunning}
-        />
-        <SetupUIInput
-          bind:value={angleDelta}
-          isEnabled={$store.paradigmRunning}
-          tooltip="Delta pillar angle for next trials"
-        ></SetupUIInput>
-      </div> -->
-
       <div class="button-row-div">
       <MonitorDropdown
         label="Variable"
@@ -249,6 +226,6 @@
   }
 
   .right-aligned {
-    margin-left: auto;
+    margin-left: 110px;
   }
 </style>

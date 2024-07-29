@@ -10,11 +10,11 @@
 <style>
   .big-text-input-div {
     height: 100px; /* Adjust this value to change the button's height */
-    width: 118px; /* Adjust this value to change the button's height */
+    width: 128px; 
     margin: 5px;
     display: flex;
     align-items: center;
-    margin-left: 10px
+    margin-left: 40px
   }
 
   textarea:disabled {
@@ -22,11 +22,11 @@
   }
   
   textarea {
-    height: 100px; /* Adjust this value to change the button's height */
-    width: 140px; /* Adjust this value to change the button's height */
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    height: 100px; 
+    /* width: 180px; Adjust this value to change the button's height */
+    /* display: flex; */
+    /* justify-content: center; */
+    /* align-items: center; */
     z-index: 1;
     background-color: var(--bg-color);
     border: 0px solid var(--bg-color);

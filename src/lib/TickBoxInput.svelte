@@ -12,7 +12,7 @@
   </div>
 
   <div class="input-field-div">
-    <input type="text" bind:value disabled={!isEnabled} title={tooltip} style="width: {width}px;" />
+    <input type="checkbox" bind:checked={value} disabled={!isEnabled} title={tooltip} style="width: {width}px;" />
   </div>
 </div>
 

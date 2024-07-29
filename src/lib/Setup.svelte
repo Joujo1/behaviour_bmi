@@ -2,7 +2,8 @@
   import { store } from "../../store/stores";
   import SetupUIBlock from "./SetupUIBlock.svelte";
   import SetupUIButton from "./SetupUIButton.svelte";
-  import { GETServerState, POSTInitiate, POSTTerminate } from "../setup_api";
+  import ProcessSessionCard from "./ProcessSessionCard.svelte";
+  import { GETServerState, POSTInitiate } from "../setup_api";
   import { POSTFlashPortentaM4, POSTFlashPortentaM7 } from "../setup_api";
   import { POSTCreateTermflag,
            POSTCreateParadigmRunningFlag,
@@ -56,10 +57,10 @@
     handlePOSTResult(result);
   }
 
-  async function terminate(post_term_action = "none") {
-    const result = await POSTTerminate(post_term_action);
-    handlePOSTResult(result);
-  }
+  // async function terminate(post_term_action = "none") {
+  //   const result = await POSTTerminate(post_term_action);
+  //   handlePOSTResult(result);
+  // }
 
   async function flashPortentaM7() {
     const result = await POSTFlashPortentaM7();
@@ -231,192 +232,192 @@
 </script>
 
 <div id="setup-div" class={$store.showSetup ? "" : "hide"}>
-  <SetupUIBlock>
-    <div slot="header">Base Control</div>
-    <div slot="setupui">
-      <div class="button-row-div">
-        <SetupUIButton
-          label="Initiate"
-          onClickCallback={initiate}
-          stateDependancy={$store.initiated}
-        />
-        <SetupUIButton label="Terminate" onClickCallback={terminate} />
-      </div>
-      <div class="button-row-div">
-        <SetupUIButton
-          label="Flash Portenta M7"
-          onClickCallback={flashPortentaM7}
-        />
-        <SetupUIButton
-          label="Flash Portenta M4"
-          onClickCallback={flashPortentaM4}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUIButton
-          label="Terminate & Post-process"
-          onClickCallback={() => terminate("post-process")}
-          stateDependancy={$store.process_session}
-        />
-        <SetupUIButton
-          label="Terminate & Delete"
-          onClickCallback={() => terminate("delete")}
-        />
-      </div>
-    </div></SetupUIBlock
-  >
+  <div class=left-column>
+    <SetupUIBlock>
+      <div slot="header">Base Control</div>
+      <div slot="setupui">
+        <div class="button-row-div">
+          <SetupUIButton
+            label="Initiate"
+            onClickCallback={initiate}
+            stateDependancy={$store.initiated}
+          />
+          <SetupUIButton
+            label="Flash Portenta M7"
+            onClickCallback={flashPortentaM7}
+          />
+          <SetupUIButton
+            label="Flash Portenta M4"
+            onClickCallback={flashPortentaM4}
+          />
+        </div>
+        <div class="button-row-div">
+          
+        </div>
+      </div></SetupUIBlock>
 
-  <SetupUIBlock>
-    <div slot="header">Create shared memory</div>
-    <div slot="setupui">
-      <div class="button-row-div">
-        <SetupUIButton
-          label="termflag"
-          onClickCallback={createTermflag}
-          stateDependancy={$store.termflag}
+      <SetupUIBlock>
+      <div slot="header">Post-Process</div>
+      <div slot="setupui">
+        <ProcessSessionCard isEnabled={$store.initiated && !$store.paradigmRunning}
         />
-        <SetupUIButton
-          label="paradigmrunningflag"
-          onClickCallback={createParadigmRunningFlag}
-          stateDependancy={$store.paradigmflag}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUIButton
-          label="ballvelocity"
-          onClickCallback={createBallvelocity}
-          stateDependancy={$store.ballvelocity}
-        />
-        <SetupUIButton
-          label="portentaoutput"
-          onClickCallback={createPortentaoutput}
-          stateDependancy={$store.portentaoutput}
-        />
-        <SetupUIButton
-          label="portentainput"
-          onClickCallback={createPortentainput}
-          stateDependancy={$store.portentainput}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUIButton
-          label="unityinput"
-          onClickCallback={createUnityinput}
-          stateDependancy={$store.unityinput}
-        />
-        <SetupUIButton
-          label="unityoutput"
-          onClickCallback={createUnityoutput}
-          stateDependancy={$store.unityoutput}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUIButton
-          label="unitycam"
-          onClickCallback={createUnitycam}
-          stateDependancy={$store.unitycam}
-        />
-        <SetupUIButton
-          label="facecam"
-          onClickCallback={createFacecam}
-          stateDependancy={$store.facecam}
-        />
-        <SetupUIButton
-          label="bodycam"
-          onClickCallback={createBodycam}
-          stateDependancy={$store.bodycam}
-        />
-        <SetupUIButton label="/all" onClickCallback={createAll} />
-      </div>
-    </div></SetupUIBlock
-  >
-  <SetupUIBlock>
-    <div slot="header">Launch Processes</div>
-    <div slot="setupui">
-      <div class="button-row-div">
-        <SetupUiButton
-          label="por2shm2por"
-          onClickCallback={launch_por2shm2por}
-          stateDependancy={$store.por2shm2por}
-        />
-        <SetupUiButton
-          label="facecam2shm"
-          onClickCallback={launch_facecam2shm}
-          stateDependancy={$store.facecam2shm}
-        />
-        <SetupUiButton
-          label="bodycam2shm"
-          onClickCallback={launch_bodycam2shm}
-          stateDependancy={$store.bodycam2shm}
-        />
-      </div>
+        
+      </div></SetupUIBlock>
+    </div>
 
-      <div class="button-row-div">
-        <SetupUiButton
-          label="unity"
-          onClickCallback={launch_unity}
-          stateDependancy={$store.unity}
-        />
-      </div>
 
-      <div class="button-row-div">
-        <SetupUiButton
-          label="log_portenta"
-          onClickCallback={launch_log_portenta}
-          stateDependancy={$store.log_portenta}
-        />
-        <SetupUiButton
-          label="log_unity"
-          onClickCallback={launch_log_unity}
-          stateDependancy={$store.log_unity}
-        />
-        <SetupUiButton
-          label="log_unitycam"
-          onClickCallback={launch_log_unitycam}
-          stateDependancy={$store.log_unitycam}
-        />
+  <div class=right-column>
+    <SetupUIBlock>
+      <div slot="header">Create shared memory</div>
+      <div slot="setupui">
+        <div class="button-row-div">
+          <SetupUIButton
+            label="termflag"
+            onClickCallback={createTermflag}
+            stateDependancy={$store.termflag}
+          />
+          <SetupUIButton
+            label="paradigmrunningflag"
+            onClickCallback={createParadigmRunningFlag}
+            stateDependancy={$store.paradigmflag}
+          />
+        </div>
+        <div class="button-row-div">
+          <SetupUIButton
+            label="ballvelocity"
+            onClickCallback={createBallvelocity}
+            stateDependancy={$store.ballvelocity}
+          />
+          <SetupUIButton
+            label="portentaoutput"
+            onClickCallback={createPortentaoutput}
+            stateDependancy={$store.portentaoutput}
+          />
+          <SetupUIButton
+            label="portentainput"
+            onClickCallback={createPortentainput}
+            stateDependancy={$store.portentainput}
+          />
+        </div>
+        <div class="button-row-div">
+          <SetupUIButton
+            label="unityinput"
+            onClickCallback={createUnityinput}
+            stateDependancy={$store.unityinput}
+          />
+          <SetupUIButton
+            label="unityoutput"
+            onClickCallback={createUnityoutput}
+            stateDependancy={$store.unityoutput}
+          />
+        </div>
+        <div class="button-row-div">
+          <SetupUIButton
+            label="unitycam"
+            onClickCallback={createUnitycam}
+            stateDependancy={$store.unitycam}
+          />
+          <SetupUIButton
+            label="facecam"
+            onClickCallback={createFacecam}
+            stateDependancy={$store.facecam}
+          />
+          <SetupUIButton
+            label="bodycam"
+            onClickCallback={createBodycam}
+            stateDependancy={$store.bodycam}
+          />
+          <SetupUIButton label="/all" onClickCallback={createAll} />
+        </div>
+      </div></SetupUIBlock
+    >
+    <SetupUIBlock>
+      <div slot="header">Launch Processes</div>
+      <div slot="setupui">
+        <div class="button-row-div">
+          <SetupUiButton
+            label="por2shm2por"
+            onClickCallback={launch_por2shm2por}
+            stateDependancy={$store.por2shm2por}
+          />
+          <SetupUiButton
+            label="facecam2shm"
+            onClickCallback={launch_facecam2shm}
+            stateDependancy={$store.facecam2shm}
+          />
+          <SetupUiButton
+            label="bodycam2shm"
+            onClickCallback={launch_bodycam2shm}
+            stateDependancy={$store.bodycam2shm}
+          />
+        </div>
+
+        <div class="button-row-div">
+          <SetupUiButton
+            label="unity"
+            onClickCallback={launch_unity}
+            stateDependancy={$store.unity}
+          />
+        </div>
+
+        <div class="button-row-div">
+          <SetupUiButton
+            label="log_portenta"
+            onClickCallback={launch_log_portenta}
+            stateDependancy={$store.log_portenta}
+          />
+          <SetupUiButton
+            label="log_unity"
+            onClickCallback={launch_log_unity}
+            stateDependancy={$store.log_unity}
+          />
+          <SetupUiButton
+            label="log_unitycam"
+            onClickCallback={launch_log_unitycam}
+            stateDependancy={$store.log_unitycam}
+          />
+        </div>
+        <div class="button-row-div">
+          <SetupUiButton
+            label="log_facecam"
+            onClickCallback={launch_log_facecam}
+            stateDependancy={$store.log_facecam}
+          />
+          <SetupUiButton
+            label="log_bodycam"
+            onClickCallback={launch_log_bodycam}
+            stateDependancy={$store.log_bodycam}
+          />
+          <SetupUiButton
+            label="/all"
+            onClickCallback={launch_all_processes}
+          />
+        </div>
+        <div class="button-row-div">
+          <SetupUiButton
+            label="stream_portenta"
+            onClickCallback={launch_stream_portenta}
+          />
+          <SetupUiButton
+            label="stream_bodycam"
+            onClickCallback={launch_stream_bodycam}
+            isEnabled={false}
+          />
+          <SetupUiButton
+            label="stream_facecam"
+            onClickCallback={launch_face_bodycam}
+            isEnabled={false}
+          />
+        </div>
+        <div class="button-row-div">
+          <SetupUiButton
+            label="por2shm2por_sim"
+            onClickCallback={launch_por2shm2por_sim}
+            stateDependancy={$store.por2shm2por_sim}
+          />
       </div>
-      <div class="button-row-div">
-        <SetupUiButton
-          label="log_facecam"
-          onClickCallback={launch_log_facecam}
-          stateDependancy={$store.log_facecam}
-        />
-        <SetupUiButton
-          label="log_bodycam"
-          onClickCallback={launch_log_bodycam}
-          stateDependancy={$store.log_bodycam}
-        />
-        <SetupUiButton
-          label="/all"
-          onClickCallback={launch_all_processes}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUiButton
-          label="stream_portenta"
-          onClickCallback={launch_stream_portenta}
-        />
-        <SetupUiButton
-          label="stream_bodycam"
-          onClickCallback={launch_stream_bodycam}
-          isEnabled={false}
-        />
-        <SetupUiButton
-          label="stream_facecam"
-          onClickCallback={launch_face_bodycam}
-          isEnabled={false}
-        />
-      </div>
-      <div class="button-row-div">
-        <SetupUiButton
-          label="por2shm2por_sim"
-          onClickCallback={launch_por2shm2por_sim}
-          stateDependancy={$store.por2shm2por_sim}
-        />
-      </div>
-    </div></SetupUIBlock
-  >
+    </div></SetupUIBlock>
+  </div>
 </div>
 
 <style>
@@ -426,5 +427,23 @@
     align-items: end;
     flex-direction: row;
     padding-bottom: 8px;
+  }
+
+  .left-column, .right-column {
+    display: flex;
+    justify-content: start;
+    align-items: end;
+    align-items: start;
+
+  }
+
+  .left-column {
+    flex-direction: column;
+    width: 500px;
+  }
+  .right-column {
+    flex-direction: row;
+
+    /* width: 430px; */
   }
 </style>

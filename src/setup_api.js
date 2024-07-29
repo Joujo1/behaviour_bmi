@@ -1,10 +1,15 @@
 const BASE_URL = "http://0.0.0.0:8000";
 
-async function handlePOST(endpoint) {
-  let response = await fetch(endpoint, { method: "POST" });
+async function handlePOST(endpoint, body = null) {
+  let options = { method: "POST" };
+  if (body) {
+    options.headers = { "Content-Type": "application/json" };
+    options.body = JSON.stringify(body);
+  }
+  let response = await fetch(endpoint, options);
   let data = await response.json();
   if (!response.ok) {
-    const modalMessage = `Error - ${endpoint}: failed with status `+
+    const modalMessage = `Error - ${endpoint}: failed with status ` +
                          `${response.status}, ${data.detail}`;
     console.error(modalMessage);
     return modalMessage;
@@ -76,9 +81,13 @@ export async function POSTInitiate() {
   return await handlePOST(`${BASE_URL}/initiate`);
 }
 
-export async function POSTTerminate(post_term_action) {
-  return await handlePOST(`${BASE_URL}/raise_term_flag/${post_term_action}`);
+export async function POSTProcessSession(body) {
+  return await handlePOST(`${BASE_URL}/raise_term_flag`, body);
 }
+
+// export async function POSTTerminate(post_term_action) {
+//   return await handlePOST(`${BASE_URL}/raise_term_flag/${post_term_action}`);
+// }
 
 export async function POSTFlashPortentaM7() {
   return await handlePOST(`${BASE_URL}/flash_portenta/m7`);
