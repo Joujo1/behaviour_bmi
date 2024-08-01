@@ -6,6 +6,7 @@
     import Setup from "./lib/Setup.svelte";
     import Monitor from "./lib/Monitor.svelte";
     import Modal from "./lib/Modal.svelte";
+  import LogViewer from "./lib/LogViewer.svelte";
 
     function syncServerState2Store(serverState) {
         // console.log("Syncing server state to store:", serverState);
@@ -41,6 +42,7 @@
     {#if $store.showModal}
         <Modal/>
     {/if}
+    <LogViewer/>
     <Parameters />
     <Setup />
     <Monitor />

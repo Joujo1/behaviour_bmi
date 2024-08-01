@@ -15,7 +15,7 @@
   // visual properties
   let isActive = false;
   let title = "Environment";
-  let width = 0;
+  let width = 240;
   let height = 0;
   let DOMRect = { width: width, height: height };
 
@@ -66,7 +66,7 @@
     bind:contentRect={DOMRect}
     style="height: {isActive ? height : 0}px"
   >
-    {#if (isActive && paradigm_env.pillar_details.length > 0)}
+    {#if (isActive && paradigm_env  )}
       <svg
         bind:this={svg}
         {width}
@@ -236,7 +236,7 @@
     border-radius: 7px;
     margin: 15px;
     flex-grow: 1;
-    max-width: 480px;
+    max-width: 680px;
     min-width: 300px;
   }
   #card-header-div {

@@ -2,6 +2,8 @@
   export let label = "";
   export let onClickCallback = {};
   export let stateDependancy = null;
+  export let warningsStateDependancy = null;
+  export let errorsStateDependancy = null;
   export let isEnabled = true;
 </script>
 
@@ -32,6 +34,27 @@
           fill={stateDependancy ? "var(--good-color)" : "var(--bgFaint-color)"}
           stroke="var(--bgFaint-color)"
         />
+        <rect
+          x="0"
+          y="20"
+          width="60"
+          height="20"
+          fill={warningsStateDependancy ? "var(--accent-color)" : "none"}
+          />
+        {#if warningsStateDependancy}
+          <title>{warningsStateDependancy} Warnings</title>
+        {/if}
+
+        <rect
+          x="0"
+          y="40"
+          width="60"
+          height="20"
+          fill={errorsStateDependancy ? "var(--error-color)" : "none"}
+        />
+        {#if errorsStateDependancy}
+          <title>{errorsStateDependancy} Errors</title>
+        {/if}
       </svg>
     {/if}
   </button>

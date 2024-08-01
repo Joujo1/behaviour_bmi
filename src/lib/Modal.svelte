@@ -63,10 +63,11 @@
   }
 
   .close-button {
-    color: var(--fg-color);
+    /* color: var(--fg-color); */
     float: right;
-    font-size: 28px;
-    font-weight: bold;
+    /* font-size: 28px; */
+    /* font-weight: bold; */
+    border: none;
   }
 
   .close-button:hover,

@@ -1,5 +1,6 @@
 <script>
   import ColorModeToggle from "./ColorModeToggle.svelte";
+  import LogViewerButton from "./LogViewerButton.svelte";
   import MenuBar from "./MenuBar.svelte";
 </script>
 
@@ -13,6 +14,9 @@
         <MenuBar />
       </ul>
     </nav>
+  </div>
+  <div id="showlog-div">
+    <LogViewerButton />
   </div>
   <div id="colormode-div">
     <ColorModeToggle />
@@ -55,8 +59,13 @@
     display: flex;
   }
 
+  #showlog-div {
+    padding-left: 5rem;
+    flex-grow: 0;
+    align-self: flex-end;
+  }
   #colormode-div {
-    padding-left: 4rem;
+    padding-left: 1rem;
     flex-grow: 0;
     align-self: flex-end;
   }

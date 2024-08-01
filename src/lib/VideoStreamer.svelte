@@ -12,21 +12,27 @@
   let isActive = false;
 
   // video properties
-  let imageWidth = 640;
+  let imageWidth = 240;
   let imageHeight = 0;
   let imageUrl;
+  let previousImageUrl;
 
   function handleWSHandshakeError(result) {
     console.log("in handleWSHandshakeError");
     closeCallback();
     isActive = false;
     $store.showModal = true;
-    $store.modalMessage = "Websocket failed to open. Check server for deatils.";
+    $store.modalMessage = "Websocket failed to open. Check server for details.";
   }
 
   function processFrame(wsFrameMessage) {
-    // console.log(wsFrameMessage.data)
+    // Revoke the previous object URL to free up memory
+    if (previousImageUrl) {
+      URL.revokeObjectURL(previousImageUrl);
+    }
+    // Create a new object URL and store it
     imageUrl = URL.createObjectURL(wsFrameMessage.data);
+    previousImageUrl = imageUrl;
   }
 
   function updateDimensions(event) {
@@ -45,6 +51,7 @@
     } else {
       isActive = !isActive;
       closeCallback();
+      imageWidth = 240;
     }
   }
 </script>

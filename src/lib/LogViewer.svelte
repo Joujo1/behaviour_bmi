@@ -1,0 +1,209 @@
+<script>
+  import { store } from "../../store/stores";
+  import { openWebsocket } from "../monitor_api";
+  import { AnsiUp } from 'ansi_up';
+
+  let initiatedState = false;
+  let closeCallback = () => {};
+  let activeTab = null;
+  let logs = {};
+
+  const ansi_up = new AnsiUp();
+
+  function onMessageCallback(message) {
+    const data = JSON.parse(message.data);
+    // console.log(Object.keys(data));
+    logs = data;
+    
+    // should only send updates in the future 
+    // logs += data;
+
+    for (const [key, value] of Object.entries(data)) {
+    // count the number of "WARNING" and "ERROR" in the log
+    const warningCount = (value.match(/WARNING/g) || []).length;
+    const errorCount = (value.match(/ERROR/g) || []).length;
+    // console.log(key, warningCount, errorCount);
+    switch (key) {
+      case "portenta2shm2portenta.log":
+        $store.por2shm2por_warnings = warningCount;
+        $store.por2shm2por_errors = errorCount;
+        break;
+      case "facecam2shm.log":
+        $store.facecam2shm_warnings = warningCount;
+        $store.facecam2shm_errors = errorCount;
+        break;
+      case "bodycam2shm.log":
+        $store.bodycam2shm_warnings = warningCount;
+        $store.bodycam2shm_errors = errorCount;
+        break;
+      case "unity.log":
+        $store.unity_warnings = warningCount;
+        $store.unity_errors = errorCount;
+        break;
+      case "log_portenta.log":
+        $store.log_portenta_warnings = warningCount;
+        $store.log_portenta_errors = errorCount;
+        break;
+      case "log_facecam.log":
+        $store.log_facecam_warnings = warningCount;
+        $store.log_facecam_errors = errorCount;
+        break;
+      case "log_bodycam.log":
+        $store.log_bodycam_warnings = warningCount;
+        $store.log_bodycam_errors = errorCount;
+        break;
+      case "log_unity.log":
+        $store.log_unity_warnings = warningCount;
+        $store.log_unity_errors = errorCount;
+        break;
+      case "log_unitycam.log":
+        $store.log_unitycam_warnings = warningCount;
+        $store.log_unitycam_errors = errorCount;
+        break;
+      case "process_session.log":
+        $store.process_session_warnings = warningCount;
+        $store.process_session_errors = errorCount;
+        break;
+      case "por2shm2por_sim.log":
+        $store.por2shm2por_sim_warnings = warningCount;
+        $store.por2shm2por_sim_errors = errorCount;
+        break;
+      }
+    }
+  }
+
+  function switchTab(tab) {
+    activeTab = tab;
+  }
+
+  $: if ($store.initiated != initiatedState) {
+    if ($store.initiated) {
+      initiatedState = true;
+      console.log("LogViewer initiated");
+      closeCallback = openWebsocket('logfiles', onMessageCallback);
+    } else {
+      initiatedState = false;
+      console.log("LogViewer closed");
+      closeCallback();
+    }
+  }
+
+  function close() {
+    $store.showLogfiles = false;
+    // closeCallback();
+  }
+</script>
+
+{#if $store.showLogfiles}
+  <div class="modal">
+    <div class="modal-content">
+      <button
+        class="close-button"
+        on:click={close}
+        aria-label="Close"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="feather feather-x"
+        >
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+      <div class="tabs">
+        {#each Object.keys(logs) as tab}
+          <button on:click={() => switchTab(tab)} class:active={activeTab === tab}>{tab}</button>
+        {/each}
+      </div>
+      <div class="log-content">
+        <pre>{@html ansi_up.ansi_to_html(logs[activeTab])}</pre>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .modal {
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: var(--bg-color);
+  }
+
+  .modal-content {
+    background-color: var(--bgFaint-color);
+    margin: 5% auto;
+    padding: 20px;
+    width: 50%; /* Reduced width */
+    border-radius: 10px;
+    font-size: larger;
+    display: flex;
+    flex-direction: column;
+    height: 90%; /* Ensure it fills most of the screen height */
+  }
+
+  .close-button {
+    color: var(--fg-color);
+    align-self: flex-end;
+    font-size: 28px;
+    font-weight: bold;
+    border: none;
+  }
+
+  .close-button:hover,
+  .close-button:focus {
+    color: var(--fg-color);
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  
+  .tabs button {
+    margin-right: 2em;
+    background-color: var(--faintbg-color);
+    padding: 10px 20px;
+    border: 2px solid var(--bgFaint-color);
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    color: var(--fg-color);
+  }
+
+  .tabs button:hover {
+    border: 2px solid var(--fgFaint-color);
+  }
+
+  .tabs button.active {
+    border-bottom: 4px solid var(--accent-color);
+  }
+
+  .log-content {
+    background-color: var(--bg-color);
+    padding: 10px;
+    border-radius: 5px;
+    flex-grow: 1; /* Ensure it takes up remaining space */
+    overflow-y: auto;
+    font-family: monospace;
+  }
+
+  pre {
+    margin: 0;
+  }
+</style>

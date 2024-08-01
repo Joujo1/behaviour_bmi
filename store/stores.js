@@ -9,6 +9,7 @@ export const store = writable({
     showMonitor: false,
     showAnalyze: false,
     showModal: false,
+    showLogfiles: false,
     modalMessage: "",
 
     // server state
@@ -30,17 +31,43 @@ export const store = writable({
     facecam: false,
     bodycam: false, 
     // processes running (PID)
-    por2shm2por_sim: 0,
     por2shm2por: 0,
-    log_portenta: 0,
     facecam2shm: 0,
     bodycam2shm: 0,
+    unity: 0,
+    log_portenta: 0,
     log_facecam: 0,
     log_bodycam: 0,
     log_unity: 0,
     log_unitycam: 0,
-    unity: 0,
     process_session: 0,
+    por2shm2por_sim: 0,
+    
+    // each process' warnings and errors counters
+    por2shm2por_warnings: 0,
+    facecam2shm_warnings: 0,
+    bodycam2shm_warnings: 0,
+    unity_warnings: 0,
+    log_portenta_warnings: 0,
+    log_facecam_warnings: 0,
+    log_bodycam_warnings: 0,
+    log_unity_warnings: 0,
+    log_unitycam_warnings: 0,
+    process_session_warnings: 0,
+    por2shm2por_sim_warnings: 0,
+    
+    por2shm2por_errors: 0,
+    facecam2shm_errors: 0,
+    bodycam2shm_errors: 0,
+    unity_errors: 0,
+    log_portenta_errors: 0,
+    log_facecam_errors: 0,
+    log_bodycam_errors: 0,
+    log_unity_errors: 0,
+    log_unitycam_errors: 0,
+    process_session_errors: 0,
+    por2shm2por_sim_errors: 0,
+    
 });
 
 export const ballvelocityData = writable([]);

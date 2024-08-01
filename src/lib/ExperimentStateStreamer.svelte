@@ -15,7 +15,7 @@
   // visual properties
   let isActive = false;
   let title = "Experiment";
-  let width = 0;
+  let width = 240;
   let height = 0;
   let DOMRect = { width: width, height: height};
   const nodeRadius = 50;

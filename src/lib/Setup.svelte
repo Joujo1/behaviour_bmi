@@ -339,16 +339,22 @@
             label="por2shm2por"
             onClickCallback={launch_por2shm2por}
             stateDependancy={$store.por2shm2por}
+            warningsStateDependancy={$store.por2shm2por_warnings}
+            errorsStateDependancy={$store.por2shm2por_errors}
           />
           <SetupUiButton
             label="facecam2shm"
             onClickCallback={launch_facecam2shm}
             stateDependancy={$store.facecam2shm}
+            warningsStateDependancy={$store.facecam2shm_warnings}
+            errorsStateDependancy={$store.facecam2shm_errors}
           />
           <SetupUiButton
             label="bodycam2shm"
             onClickCallback={launch_bodycam2shm}
             stateDependancy={$store.bodycam2shm}
+            warningsStateDependancy={$store.bodycam2shm_warnings}
+            errorsStateDependancy={$store.bodycam2shm_errors}
           />
         </div>
 
@@ -357,6 +363,8 @@
             label="unity"
             onClickCallback={launch_unity}
             stateDependancy={$store.unity}
+            warningsStateDependancy={$store.unity_warnings}
+            errorsStateDependancy={$store.unity_errors}
           />
         </div>
 
@@ -365,16 +373,22 @@
             label="log_portenta"
             onClickCallback={launch_log_portenta}
             stateDependancy={$store.log_portenta}
+            warningsStateDependancy={$store.log_portenta_warnings}
+            errorsStateDependancy={$store.log_portenta_errors}
           />
           <SetupUiButton
             label="log_unity"
             onClickCallback={launch_log_unity}
             stateDependancy={$store.log_unity}
+            warningsStateDependancy={$store.log_unity_warnings}
+            errorsStateDependancy={$store.log_unity_errors}
           />
           <SetupUiButton
             label="log_unitycam"
             onClickCallback={launch_log_unitycam}
             stateDependancy={$store.log_unitycam}
+            warningsStateDependancy={$store.log_unitycam_warnings}
+            errorsStateDependancy={$store.log_unitycam_errors}
           />
         </div>
         <div class="button-row-div">
@@ -382,11 +396,15 @@
             label="log_facecam"
             onClickCallback={launch_log_facecam}
             stateDependancy={$store.log_facecam}
+            warningsStateDependancy={$store.log_facecam_warnings}
+            errorsStateDependancy={$store.log_facecam_errors}
           />
           <SetupUiButton
             label="log_bodycam"
             onClickCallback={launch_log_bodycam}
             stateDependancy={$store.log_bodycam}
+            warningsStateDependancy={$store.log_bodycam_warnings}
+            errorsStateDependancy={$store.log_bodycam_errors}
           />
           <SetupUiButton
             label="/all"
