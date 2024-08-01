@@ -76,7 +76,10 @@ import { store } from "../../store/stores";
                 label="Terminate / Process"
                 onClickCallback={() => processSession()}
                 isEnabled={isEnabled}
-                stateDependancy={$store.process_session} />
+                stateDependancy={$store.process_session} 
+                errorsStateDependancy={$store.process_session_errors}
+                warningsStateDependancy={$store.process_session_warnings}
+                />
         </div>
 
 

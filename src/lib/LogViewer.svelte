@@ -4,6 +4,7 @@
   import { AnsiUp } from 'ansi_up';
 
   let initiatedState = false;
+  let proccessSessionProcState = 0;
   let closeCallback = () => {};
   let activeTab = null;
   let logs = {};
@@ -22,7 +23,7 @@
     // count the number of "WARNING" and "ERROR" in the log
     const warningCount = (value.match(/WARNING/g) || []).length;
     const errorCount = (value.match(/ERROR/g) || []).length;
-    // console.log(key, warningCount, errorCount);
+    console.log(key, warningCount, errorCount);
     switch (key) {
       case "portenta2shm2portenta.log":
         $store.por2shm2por_warnings = warningCount;
@@ -84,19 +85,96 @@
     } else {
       initiatedState = false;
       console.log("LogViewer closed");
-      closeCallback();
+      // closeCallback();
     }
   }
 
+  // when process_session termiantes close the websocket
+  $: if ($store.process_session != proccessSessionProcState) {
+    if ($store.process_session == 0) {
+      console.log("Process session terminated, closing logfiles websocket");
+      setTimeout(() => {
+        closeCallback();
+      }, 2000);
+    } else {
+
+    }
+    console.log("Process session state changed");
+    console.log($store.process_session);
+    proccessSessionProcState = $store.process_session;
+  }
+
+
   function close() {
     $store.showLogfiles = false;
-    // closeCallback();
+  }
+
+  function resetLogViewer() {
+    logs = {};
+    closeCallback();
+    $store.por2shm2por_warnings = 0;
+    $store.por2shm2por_errors = 0;
+    $store.facecam2shm_warnings = 0;
+    $store.facecam2shm_errors = 0;
+    $store.bodycam2shm_warnings = 0;
+    $store.bodycam2shm_errors = 0;
+    $store.unity_warnings = 0;
+    $store.unity_errors = 0;
+    $store.log_portenta_warnings = 0;
+    $store.log_portenta_errors = 0;
+    $store.log_facecam_warnings = 0;
+    $store.log_facecam_errors = 0;
+    $store.log_bodycam_warnings = 0;
+    $store.log_bodycam_errors = 0;
+    $store.log_unity_warnings = 0;
+    $store.log_unity_errors = 0;
+    $store.log_unitycam_warnings = 0;
+    $store.log_unitycam_errors = 0;
+    $store.process_session_warnings = 0;
+    $store.process_session_errors = 0;
+    $store.por2shm2por_sim_warnings = 0;
+    $store.por2shm2por_sim_errors = 0;
+
+    if ($store.initiated ) {
+      closeCallback = openWebsocket('logfiles', onMessageCallback);
+    }
   }
 </script>
 
 {#if $store.showLogfiles}
   <div class="modal">
     <div class="modal-content">
+      <div id="button-div">
+
+        <button
+        title="Reset the log viewer"
+        class="close-button"
+        on:click={resetLogViewer}
+        aria-label="Refresh"
+      >
+      <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class="feather feather-refresh-cw"
+    >
+      <g transform="translate(4, 0)">
+        <line x1="6" y1="19" x2="6" y2="5"></line>
+        <!-- <polyline points="3 13 6 10 9 13"></polyline> -->
+        <polyline points="3 10 6 7 9 10"></polyline>
+      </g>
+      <g transform="translate(12, 0)">
+        <line x1="6" y1="5" x2="6" y2="20"></line>
+        <polyline points="3 14 6 17 9 14"></polyline>
+      </g>
+    </svg>
+      </button>
       <button
         class="close-button"
         on:click={close}
@@ -118,6 +196,8 @@
           <line x1="6" y1="6" x2="18" y2="18"></line>
         </svg>
       </button>
+    </div>
+
       <div class="tabs">
         {#each Object.keys(logs) as tab}
           <button on:click={() => switchTab(tab)} class:active={activeTab === tab}>{tab}</button>
@@ -152,6 +232,11 @@
     display: flex;
     flex-direction: column;
     height: 90%; /* Ensure it fills most of the screen height */
+  }
+
+  #button-div {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .close-button {
