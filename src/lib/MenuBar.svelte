@@ -2,7 +2,7 @@
   import { store } from "../../store/stores";
 
   function switchMenuItem(event) {
-    console.log("menuclick", event.target.id);
+    // console.log("menuclick", event.target.id);
     switch (event.target.id) {
       case "parameters-btn":
         $store.showParameters = !$store.showParameters;

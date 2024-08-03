@@ -50,6 +50,10 @@ import { store } from "../../store/stores";
         };
         loadSessionDir();
         initiatedState = true;
+    // when initiated is flipped to False, reset the session directory
+    } else if (initiatedState && !$store.initiated) {
+        sessionDir = "";
+        initiatedState = false;
     }
 
 

@@ -55,7 +55,6 @@
   $: xTicks = xScale
     .ticks(5)
     .map((tick) => ({ value: tick, position: xScale(tick) }));
-  $: console.log(xTicks);
 
   $: yTicks = yScale
     .ticks(nYTicks)

@@ -1,5 +1,10 @@
+import { store } from "../store/stores";
+
 const BASE_URL = "http://0.0.0.0:8000";
 const WS_BASE_URL = "ws://0.0.0.0:8000/stream";
+
+let wsReaderCounters = {};
+let wsCloseCallbacks = {};
 
 async function handlePOST(endpoint) {
   let response = await fetch(endpoint, { method: "POST" });
@@ -98,17 +103,44 @@ export function openWebsocket(wsName, onMessageCallback = () => {},
   return closeCallback
 }
 
-// export async function GETParadigmsFSMs() {
-//   return fetch(`${BASE_URL}/paradigm_fsm`)
-//     .then((response) => response.json())
-//     .then((data) => {
-//       return data;
-//     })
-//     .catch((error) => console.error("Error:", error))
-//     .then((data) => {
-//       data.response = 400;
-//       return data;
-//     });
+// handle multiple readers of the same websocket, only close when all readers are done
+export function openCountedWebsocket(wsName, onMessageCallback) {
+  if (wsReaderCounters[wsName] == undefined) {
+    wsReaderCounters[wsName] = 0;
+  }
+
+  console.log("counter " +wsName+ "WS start: " + wsReaderCounters[wsName]);
+  let wsCloseCallbackWrapper = () => {
+      console.log("counter within close callback for "+wsName+"WS: " + wsReaderCounters[wsName]);
+      wsReaderCounters[wsName]--;
+      if (wsReaderCounters[wsName] == 0) {
+        wsCloseCallbacks[wsName]();
+      }
+  }
+
+  let handleWSHandshakeError = (result) => {
+      console.log("counter within handshake error for "+wsName+"WS: " + wsReaderCounters[wsName]);
+      wsCloseCallbackWrapper();
+      store.update(value => {
+          return {
+              ...value,
+              showModal: true,
+              modalMessage: "Websocket "+wsName+" failed to open. Check server for details."
+          };
+      });
+    }
+
+  if (wsReaderCounters[wsName] == 0) {
+      wsCloseCallbacks[wsName] = openWebsocket(
+          wsName,
+          onMessageCallback,
+          handleWSHandshakeError
+      );
+  }
+  wsReaderCounters[wsName]++;
+  console.log("counter "+wsName+" end: " + wsReaderCounters[wsName]);
+  return wsCloseCallbackWrapper;
+}
 
 export async function GETParadigmsFSMs() {
   let endpoint = `${BASE_URL}/paradigm_fsm`;

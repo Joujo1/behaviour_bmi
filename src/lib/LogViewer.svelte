@@ -23,7 +23,7 @@
     // count the number of "WARNING" and "ERROR" in the log
     const warningCount = (value.match(/WARNING/g) || []).length;
     const errorCount = (value.match(/ERROR/g) || []).length;
-    console.log(key, warningCount, errorCount);
+    // console.log(key, warningCount, errorCount);
     switch (key) {
       case "portenta2shm2portenta.log":
         $store.por2shm2por_warnings = warningCount;
@@ -84,8 +84,11 @@
       closeCallback = openWebsocket('logfiles', onMessageCallback);
     } else {
       initiatedState = false;
-      console.log("LogViewer closed");
-      // closeCallback();
+
+      if ($store.process_session == 0) {
+        console.log("LogViewer closed");
+        closeCallback();
+      }
     }
   }
 

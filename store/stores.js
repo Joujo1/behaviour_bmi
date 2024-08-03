@@ -13,7 +13,7 @@ export const store = writable({
     modalMessage: "",
 
     // server state
-    initiated: false,
+    initiated: true,
     paradigmRunning: false,
     // shm interfaces
     termflag_shm_interface: false,
