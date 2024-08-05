@@ -40,6 +40,7 @@ export const store = writable({
     log_bodycam: 0,
     log_unity: 0,
     log_unitycam: 0,
+    log_ephys: 0,
     process_session: 0,
     por2shm2por_sim: 0,
     
@@ -53,6 +54,7 @@ export const store = writable({
     log_bodycam_warnings: 0,
     log_unity_warnings: 0,
     log_unitycam_warnings: 0,
+    log_ephys_warnings: 0,
     process_session_warnings: 0,
     por2shm2por_sim_warnings: 0,
     
@@ -65,6 +67,7 @@ export const store = writable({
     log_bodycam_errors: 0,
     log_unity_errors: 0,
     log_unitycam_errors: 0,
+    log_ephys_errors: 0,
     process_session_errors: 0,
     por2shm2por_sim_errors: 0,
     

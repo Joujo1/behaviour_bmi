@@ -30,6 +30,7 @@
     POSTLaunch_bodycam2shm,
     POSTLaunch_log_facecam,
     POSTLaunch_log_bodycam,
+    POSTLaunch_log_ephys,
   } from "../setup_api";
   import {
     POSTLaunch_log_unitycam,
@@ -177,6 +178,11 @@
 
   async function launch_log_unitycam() {
     const result = await POSTLaunch_log_unitycam();
+    handlePOSTResult(result);
+  }
+  
+  async function launch_log_ephys() {
+    const result = await POSTLaunch_log_ephys();
     handlePOSTResult(result);
   }
   
@@ -405,6 +411,13 @@
             stateDependancy={$store.log_bodycam}
             warningsStateDependancy={$store.log_bodycam_warnings}
             errorsStateDependancy={$store.log_bodycam_errors}
+          />
+          <SetupUiButton
+            label="log_ephys"
+            onClickCallback={launch_log_ephys}
+            stateDependancy={$store.log_ephys}
+            warningsStateDependancy={$store.log_ephys_warnings}
+            errorsStateDependancy={$store.log_ephys_errors}
           />
           <SetupUiButton
             label="/all"
