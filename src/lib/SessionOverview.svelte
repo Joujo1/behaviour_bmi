@@ -95,7 +95,7 @@
     minXData = Math.min(...$unityTrialData.map((trial) => trial.ID)) - 2;
     maxXData = Math.max(...$unityTrialData.map((trial) => trial.ID)) + 2;
 
-    console.log($unityTrialData);
+    // console.log($unityTrialData);
     maxYData = Math.max(...$unityTrialData.map((trial) => trial.TD)) / 1e6;
   }
 
@@ -130,8 +130,10 @@
     const values = rest.join("");
     if (firstChar == "S") {
       const rewards = values.split(",");
-      rewardsMl += parseFloat(rewards[0]) / 1000;
+      const valveOpenTime = parseFloat(rewards[0]);
+      rewardsMl += (valveOpenTime*0.295 -10) / 1000;
       rewardsMl = parseFloat(rewardsMl.toFixed(3)); // Adjust the number of decimal places as needed
+
       rewardsN += 1;
     }
   }
@@ -177,8 +179,8 @@
           <circle
             cx={xScale(trialObj.ID)}
             cy={yScale(trialObj.TD / 1e6)}
-            r={(trialObj.O + 2) * 2 * (10 / Math.sqrt($unityTrialData.length))}
-            fill={trialObj.O + 2 > 0
+            r={(trialObj.O + 1) *  (20 / Math.sqrt($unityTrialData.length))}
+            fill={trialObj.O > 0
               ? "var(--good-color)"
               : "var(--error-color)"}
           />
