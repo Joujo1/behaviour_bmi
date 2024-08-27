@@ -9,12 +9,14 @@
   import { GETParadigms } from "../monitor_api.js";
   import { GETAnimals } from "../monitor_api.js";
   import { POSTAnimal } from "../monitor_api.js";
+  import { POSTParadigm } from "../monitor_api.js";
   import { POSTAnimalWeight } from "../monitor_api.js";
   import { POSTStartParadigm } from "../monitor_api.js";
   
   import { POSTStopParadigm } from "../monitor_api.js";
   import { POSTSessionNotes } from "../monitor_api.js";
   import { onMount } from "svelte";
+  // import { onMount } from "svelte";
 
   let paradigms = [];
   let paradigmSelection;
@@ -34,12 +36,13 @@
   async function getParadigms() {
     paradigms = await GETParadigms();
   }
-  onMount(getParadigms);
-
   async function getAnimals() {
     animals = await GETAnimals();
   }
-  onMount(getAnimals);
+  onMount(() => {
+    getParadigms();
+    getAnimals();
+  });
 
   async function startParadigm() {
     if (!paradigmSelection) {
@@ -57,14 +60,17 @@
     let result = await POSTUnityInput(unityMsg);
     handlePOSTResult(result);
 
+    result = await POSTParadigm(paradigmSelection);
+    handlePOSTResult(result);
     result = await POSTAnimal(animalSelection);
     handlePOSTResult(result);
     result = await POSTAnimalWeight(animalWeight);
     handlePOSTResult(result);
 
-    unityMsg = "Start";
-    result = await POSTUnityInput(unityMsg);
-    handlePOSTResult(result);
+    // deprecated, uss shm flag now
+    // unityMsg = "Start";
+    // result = await POSTUnityInput(unityMsg);
+    // handlePOSTResult(result);
     result = await POSTStartParadigm();
     handlePOSTResult(result);
   }

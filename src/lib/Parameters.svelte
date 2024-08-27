@@ -30,7 +30,7 @@
   let allCardParams;
   let lockedParamsPromise = getLockedParams();
   let lockedParams;
-  $: if (allCardParamsPromise && lockedParamsPromise) {
+  $: if ((allCardParamsPromise && lockedParamsPromise) || $store.initiated){
     allCardParamsPromise.then((result) => {
       allCardParams = result;
     });

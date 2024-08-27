@@ -22,11 +22,15 @@
 
 <div id="monitor-div" class={$store.showMonitor ? "" : "hide"}>
     <div class="row-div">
-        <SessionInitiation />
+        {#if !$store.initiatedInspect}
+            <SessionInitiation />
+        {/if}
         <PortentaOutputStreamer />
     </div>
     <div class="row-div">
-        <SessionInterference />
+        {#if !$store.initiatedInspect}
+            <SessionInterference />
+        {/if}
         <BallVelocityStreamer />
     </div>
     

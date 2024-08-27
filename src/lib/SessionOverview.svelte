@@ -2,7 +2,7 @@
   import { store, unityData, unityTrialData } from "../../store/stores";
   import { openWebsocket, GETSessionStartTime } from "../monitor_api.js";
   import ShowHideCardButton from "./ShowHideCardButton.svelte";
-  import { setupUnityWS } from "../MonitorHelpers.js";
+  import { setupUnityWS } from "../unityoutputWS.js";
 
   import { unityStreamerTRange } from "../../store/stores";
   import { scaleLinear } from "d3";
@@ -157,6 +157,8 @@
       <ShowHideCardButton
         onClickCallback={switchCardOnOff}
         showCross={isActive}
+        disabled={!$store.initiated}
+        
       />
     </div>
   </div>

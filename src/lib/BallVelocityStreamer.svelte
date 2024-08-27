@@ -14,7 +14,7 @@ title={"Ball Velocity"}
   
 nYTicks={3}
 yTopOffsetPx={50}
-xLeftOffsetPx={70}
+xLeftOffsetPx={90}
 >
 
 </PortentaStreamer>

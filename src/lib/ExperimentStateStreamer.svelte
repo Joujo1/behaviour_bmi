@@ -1,12 +1,12 @@
 <script>
   import { store, unityData } from "../../store/stores";
-  import { unityWSOnMessageCallback, setupUnityWS } from "../MonitorHelpers.js";
+  import { unityWSOnMessageCallback, setupUnityWS } from "../unityoutputWS.js";
   import { select, drag, line, easeBounce } from "d3";
   import ShowHideCardButton from "./ShowHideCardButton.svelte";
   import { GETParadigmsFSMs } from "../monitor_api.js";
 
   // websocket 
-  let closeCallback = () => {};
+  let closeCallback = (msg) => {"Calling empty closeCallback!"};
 
   // reactive elements (circles is a d3.selection)
   let svg;
@@ -93,7 +93,7 @@ $: if ($unityData.length > 0 && $unityData[$unityData.length-1] !== undefined) {
         loadStateTransitionData(data);
         setupExperimtentStateStreamer();
         
-        closeCallback = setupUnityWS();
+        closeCallback = setupUnityWS($store.initiated);
       }
     } else {
       isActive = !isActive;

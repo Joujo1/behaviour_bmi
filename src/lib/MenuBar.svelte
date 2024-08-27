@@ -9,12 +9,14 @@
         break;
       case "setup-btn":
         $store.showSetup = !$store.showSetup;
+        if ($store.showInspect) $store.showInspect = false;
+        break;
+      case "analyze-btn":
+        $store.showInspect = !$store.showInspect;
+        if ($store.showSetup) $store.showSetup = false;
         break;
       case "monitor-btn":
         $store.showMonitor = !$store.showMonitor;
-        break;
-      case "analyze-btn":
-        $store.showAnalyze = !$store.showAnalyze;
         break;
     }
   }
@@ -28,7 +30,7 @@
   $: monitorBtnCol = $store.showMonitor
     ? "var(--fg-color)"
     : "var(--fgFaint-color)";
-  $: analyzeBtnCol = $store.showAnalyze
+  $: analyzeBtnCol = $store.showInspect
     ? "var(--fg-color)"
     : "var(--fgFaint-color)";
 </script>
@@ -41,20 +43,13 @@
     style="color: {parametersBtnCol};">Parameters</a
   >
 </li>
+  <!-- not references as acquire, but 'monitor' everywh≈ere  -->
 <li>
   <a
     id="setup-btn"
     href="#"
     on:click={switchMenuItem}
-    style="color: {setupBtnCol};">Setup</a
-  >
-</li>
-<li>
-  <a
-    id="monitor-btn"
-    href="#"
-    on:click={switchMenuItem}
-    style="color: {monitorBtnCol};">Monitor</a
+    style="color: {setupBtnCol};">Acquire</a
   >
 </li>
 <li>
@@ -62,8 +57,17 @@
     id="analyze-btn"
     href="#"
     on:click={switchMenuItem}
-    style="color: {analyzeBtnCol};">Analyze</a
+    style="color: {analyzeBtnCol};">Inspect</a
   >
+</li>
+  <!-- not references as Session, but 'setup' everywh≈ere  -->
+<li>
+  <a
+    id="monitor-btn"
+    href="#"
+    on:click={switchMenuItem}
+    style="color: {monitorBtnCol};">Session</a
+  > 
 </li>
 
 <style>

@@ -26,22 +26,29 @@
   --lightm-fgFaint-color: rgb(128, 128, 128);
   --lightm-button-shadow: 1px 1px 1px 1px rgba(128, 128, 128, 0.2);
 
- 
+  /* init */
   --bg-color: var(--lightm-bg-color);
   --bgFaint-color: var(--lightm-bgFaint-color);
-  --fg-color: var(--lightm-fg-color);#40ca72
+  --fg-color: var(--lightm-fg-color);
   --fgFaint-color: var(--lightm-fgFaint-color);
+  --button-shadow: var(--lightm-button-shadow);
+  
   --accent-color: #ffd000;
   --error-color: rgb(205, 20, 20);
   --good-color: rgb(64,202,114);
-  --button-shadow: var(--lightm-button-shadow);
+  --outcome-0-color: var(--error-color);
+  --outcome-1-color: var(--good-color);
+  --outcome-2-color: #2cde6eff;
+  --outcome-3-color: #19ed6bff;
+  --outcome-4-color: #00ff4fff;
+  --outcome-5-color: #62ff00ff;
 }
 
 body {
   min-width: 1000px; 
 }
 
-#parameter-div, #setup-div{
+#parameter-div, #setup-div #inspect-div{
   display: flex;
   flex-wrap: wrap;
   /* justify-content: space-between; */
@@ -57,7 +64,7 @@ body {
 }
 
 /* Initial state */
-#parameter-div, #setup-div, #monitor-div{
+#parameter-div, #setup-div, #monitor-div, #inspect-div{
   opacity: 1;
   transform: translateX(0);
   height: auto;
@@ -65,7 +72,7 @@ body {
 }
 
 /* State after button is clicked */
-#parameter-div.hide, #setup-div.hide, #monitor-div.hide{
+#parameter-div.hide, #setup-div.hide, #monitor-div.hide, #inspect-div.hide{
   opacity: 0;
   transform: translateX(-100%);
   height: 0;

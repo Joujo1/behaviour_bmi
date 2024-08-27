@@ -67,6 +67,10 @@ export async function GETSessionStartTime() {
   })
   .catch((error) => console.error("Error:", error));
 }
+
+export async function POSTParadigm(msg) {
+  return await handlePOST(`${BASE_URL}/session/paradigm/${msg}`)
+}
       
 export async function POSTAnimal(msg) {
   return await handlePOST(`${BASE_URL}/session/animal/${msg}`)
@@ -89,18 +93,39 @@ export async function POSTSessionNotes(msg) {
 }
 
 export function openWebsocket(wsName, onMessageCallback = () => {},
-                              onErrorCallback = (event) => {console.error(event)}) {
-  var url = `${WS_BASE_URL}/${wsName}`
+                              onErrorCallback = (event) => {console.error(event)},
+                              oneWay = true,
+) {
+  if (oneWay) {
+    var url = `${WS_BASE_URL}/${wsName}`
+  } else {
+    var url = `${WS_BASE_URL}/${wsName}?inspect=true`;
+  }
+
   var ws = new WebSocket(url)
   ws.onerror = onErrorCallback
   ws.onmessage = onMessageCallback
   console.debug("WebSocket opened:", ws)
-
+  
   let closeCallback = () => {
     console.debug("WebSocket closed:", ws)
     ws.close()
   }
-  return closeCallback
+  if (oneWay) {
+    return closeCallback
+  }
+  // let sendCallback = (msg) => ws.send(msg)
+  return [closeCallback, ws]
+}
+
+// ms input
+export function time2str(t) {
+  const date = new Date(t);
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const seconds = date.getSeconds().toString().padStart(2, '0');
+  const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+  return `${minutes}:${seconds}:${milliseconds}`;
+  // return `${seconds}:${milliseconds}s`;
 }
 
 // handle multiple readers of the same websocket, only close when all readers are done

@@ -2,6 +2,7 @@
   import { fly } from "svelte/transition";
   export let showCross = true;
   export let onClickCallback;
+  export let disabled = false;
 </script>
 
 <button
@@ -9,6 +10,7 @@
   aria-label="upload parameters"
   type="button"
   style="width: 32px; height: 27px; background: none; border: none; padding: 0;"
+  disabled={disabled}
 >
   <svg
     width="6.3479319mm"
@@ -36,7 +38,7 @@
           ry="0.50354564"
         />
         <path
-          style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:var(--fg-color);stroke-width:0.566222;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1"
+          style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:{!disabled?"var(--fg-color)":"var(--fgFaint-color)"};stroke-width:0.566222;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1"
           d="m 768.26848,-64.983601 0.91668,0.87995 0.90469,-0.893401"
           id="path5"
         />

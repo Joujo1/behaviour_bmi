@@ -7,13 +7,14 @@ export const store = writable({
     showParameters: true,
     showSetup: false,
     showMonitor: false,
-    showAnalyze: false,
+    showInspect: false,
     showModal: false,
     showLogfiles: false,
     modalMessage: "",
 
     // server state
     initiated: true,
+    initiatedInspect: false,
     paradigmRunning: false,
     // shm interfaces
     termflag_shm_interface: false,
@@ -72,6 +73,13 @@ export const store = writable({
     por2shm2por_sim_errors: 0,
     
 });
+
+export const globalT = writable(0);
+export const globalTdelta = writable({
+    past: 0,
+    future: 0,
+})
+export const globalPlaying = writable(false);
 
 export const ballvelocityData = writable([]);
 export const portentaData = writable([]);

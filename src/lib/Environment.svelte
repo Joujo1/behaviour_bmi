@@ -1,12 +1,12 @@
 <script>
-  import { store, unityData } from "../../store/stores";
-  import { unityWSOnMessageCallback, setupUnityWS } from "../MonitorHelpers.js";
+  import { store, unityData, globalT } from "../../store/stores";
+  import { unityWSOnMessageCallback, setupUnityWS } from "../unityoutputWS.js";
   import { select, drag, line, easeBounce } from "d3";
   import ShowHideCardButton from "./ShowHideCardButton.svelte";
   import { GETParadigmsEnvironement } from "../monitor_api.js";
 
   // websocket
-  let closeCallback = () => {};
+  let closeCallback = (msg) => {"Calling empty closeCallback"};
 
   // reactive elements (circles is a d3.selection)
   let svg;
@@ -25,13 +25,13 @@
   }
   let paradigm_env;
   $: if ($unityData.length) {
-    // console.log($unityData[$unityData.length - 1].A);
-  } 
+    // console.log($unityData[$unityData.length - 1]);
+  }
 
   async function switchCardOnOff(event) {
     if (!isActive) {
       paradigm_env = await GETParadigmsEnvironement();
-      console.log(paradigm_env);
+      console.log("paradigm_env", paradigm_env);
 
       // check if data is a string (implecitly means an error message)
       if (typeof paradigm_env === "string") {
@@ -40,7 +40,7 @@
         return;
       } else {
         isActive = !isActive;
-        closeCallback = setupUnityWS();
+        closeCallback = setupUnityWS($store.initiated);
       }
     } else {
       isActive = !isActive;
@@ -66,7 +66,7 @@
     bind:contentRect={DOMRect}
     style="height: {isActive ? height : 0}px"
   >
-    {#if (isActive && paradigm_env  )}
+    {#if isActive && paradigm_env}
       <svg
         bind:this={svg}
         {width}
@@ -202,8 +202,10 @@
             <g
               id="rat"
               transform="translate(
-                {paradigm_env.envX_size / 2 + $unityData[$unityData.length - 1].X}, 
-                {paradigm_env.envY_size / 2 - $unityData[$unityData.length - 1].Z}) 
+                {paradigm_env.envX_size / 2 +
+                $unityData[$unityData.length - 1].X}, 
+                {paradigm_env.envY_size / 2 -
+                $unityData[$unityData.length - 1].Z}) 
                 rotate({$unityData[$unityData.length - 1].A + 90})"
             >
               <path

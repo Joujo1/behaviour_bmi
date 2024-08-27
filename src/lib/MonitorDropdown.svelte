@@ -5,6 +5,7 @@
   export let options = [];
   export let getOptions = () => {};
   export let title = null;
+  export let width = 120;
 </script>
 
 <div class="dropdown-ui-div">
@@ -17,7 +18,7 @@
     on:click={getOptions}
     disabled={!isEnabled}
     title={title?title:value}
-    style="color: {isEnabled ? 'var(--fg-color)' : 'gray'}"
+    style="color: {isEnabled ? 'var(--fg-color)' : 'gray'}; width: {width}px"
   >
     <option value="">Select</option>
     {#each options as option}
@@ -51,7 +52,9 @@
     border: 1px solid var(--bg-color);
     background-color: var(--bg-color);
     color: var(--fg-color);
-    width: 120px;
+    /* width: 120px; */
     /* width: 84px; */
+    /* max-width: 150px; */
+    /* min-width: 120px; */
   }
 </style>

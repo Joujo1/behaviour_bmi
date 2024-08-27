@@ -10,7 +10,7 @@ dataStore={portentaData}
 minYData={0.5}
 maxYData={4}
 height={150}
-title={"Portenta Output"}
+title={"Portenta Events"}
   
 nYTicks={4}
 yTickLabels={["Lick", "Reward", "Sound", "Airvalve" ]}

@@ -1,8 +1,6 @@
 <script>
   import { store } from "../../store/stores";
 
-  // export let lblLeft = ""
-  // export let lblRight = ""
   export let onSwitchCallback = () => {
     console.log("no event callback provided");
   };
@@ -13,7 +11,7 @@
   on:click={onSwitchCallback}
   aria-label="Toggle Color Mode"
   type="button"
-  style="width: 57px; height: 27px; background: none; border: none; padding: 0;"
+  style="width: 57px; height: 27px; background: none; border: none; padding: 0; margin-top: 5px;" 
 >
   <svg width="57" height="27">
     <rect

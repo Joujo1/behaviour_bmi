@@ -1,15 +1,19 @@
 <script>
-  import { store } from "../../store/stores";
-  import ShowHideCardButton from "./ShowHideCardButton.svelte";
-  import {  openWebsocket } from "../monitor_api.js";
+  import { store, globalT } from "../../store/stores";
+  import { openWebsocket, time2str } from "../monitor_api.js";
 
-  // websocket
+  import ShowHideCardButton from "./ShowHideCardButton.svelte";
+
   export let websocketName;
   export let title;
-  let closeCallback = () => {};
 
-  // visual properties
+  let closeCallback = () => {};
+  let ws;
   let isActive = false;
+
+  let prvGlobalT = 0;
+  let timestamp = "";
+  let imagePackage = {};
 
   // video properties
   let imageWidth = 240;
@@ -25,14 +29,24 @@
     $store.modalMessage = "Websocket failed to open. Check server for details.";
   }
 
-  function processFrame(wsFrameMessage) {
+  function processFrameMessage(wsFrameMessage) {
     // Revoke the previous object URL to free up memory
     if (previousImageUrl) {
       URL.revokeObjectURL(previousImageUrl);
     }
-    // Create a new object URL and store it
-    imageUrl = URL.createObjectURL(wsFrameMessage.data);
-    previousImageUrl = imageUrl;
+    // the acutal image data
+    if (wsFrameMessage.data instanceof Blob) {
+      imageUrl = URL.createObjectURL(wsFrameMessage.data);
+      previousImageUrl = imageUrl;
+      // metadata
+    } else {
+      imagePackage = JSON.parse(wsFrameMessage.data);
+      const lag = $globalT - imagePackage.PCT;
+      if (lag > 500000) {
+        console.log(`${websocketName} lag!`, lag / 1e6, "s");
+      }
+      timestamp = time2str(imagePackage.PCT / 1000);
+    }
   }
 
   function updateDimensions(event) {
@@ -43,26 +57,47 @@
   async function switchCardOnOff(event) {
     if (!isActive) {
       isActive = !isActive;
-      closeCallback = openWebsocket(
+      const result = openWebsocket(
         websocketName,
-        processFrame,
-        handleWSHandshakeError
+        processFrameMessage,
+        handleWSHandshakeError,
+        $store.initiated
       );
+
+      if (Array.isArray(result)) {
+        [closeCallback, ws] = result;
+      } else {
+        closeCallback = result;
+      }
     } else {
       isActive = !isActive;
       closeCallback();
       imageWidth = 240;
     }
   }
+
+  $: if (
+    $store.initiatedInspect &&
+    isActive &&
+    ws.readyState === 1 &&
+    $globalT !== prvGlobalT
+  ) {
+    ws.send($globalT);
+    prvGlobalT = $globalT;
+  }
 </script>
 
-<div class="monitor-dropdown-card"
-     style="width:{imageWidth}px"
->
+<div class="monitor-dropdown-card" style="width:{imageWidth}px">
   <div id="card-header-div">
-    <div>
+    <div id="label-headers-div">
       <h1>{title}</h1>
     </div>
+    {#if isActive}
+      <div id="timestamp-headers-div">
+        <h1>{timestamp}</h1>
+      </div>
+    {/if}
+
     <div id="swtich-btn-div">
       <ShowHideCardButton
         onClickCallback={switchCardOnOff}
@@ -103,12 +138,23 @@
     display: flex;
     margin-bottom: 20px;
   }
-  #card-header-div h1 {
+  #label-headers-div h1 {
     font-weight: bold;
     font-size: 14pt;
     margin: 0;
     padding: 0;
     color: var(--fg-color);
+  }
+  #timestamp-headers-div h1 {
+    font-size: 12pt;
+    margin-left: 1em;
+    font-family: "Courier New", Courier, monospace;
+    color: var(--fg-color);
+  }
+  #timestamp-headers-div {
+    flex-grow: 12;
+    display: flex;
+    justify-content: flex-end;
   }
   #swtich-btn-div {
     flex-grow: 1;

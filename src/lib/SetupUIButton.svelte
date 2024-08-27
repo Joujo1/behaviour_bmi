@@ -5,6 +5,7 @@
   export let warningsStateDependancy = null;
   export let errorsStateDependancy = null;
   export let isEnabled = true;
+  export let background_color = "var(--bg-color)";
 </script>
 
 <div class="setup-ui-button-div">
@@ -12,6 +13,7 @@
     on:click={onClickCallback}
     disabled={!isEnabled}
     class={stateDependancy !== null ? "state-button" : "no-state-button"}
+    style={"background-color: " + background_color}
   >
     {label}
     {#if stateDependancy !== null}
@@ -75,7 +77,7 @@
     justify-content: center;
     align-items: center;
     z-index: 1;
-    background-color: var(--bg-color);
+    /* background-color: var(--bg-color); */
     border: 0px solid var(--bg-color);
     box-shadow: var(--button-shadow);
     border-radius: 5px;
@@ -83,6 +85,7 @@
     color: var(--fg-color);
     cursor: pointer;
     font-size: 12pt;
+    font-family: Futura, Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;;
     height: 35px;
     padding-left: 1em;
   }

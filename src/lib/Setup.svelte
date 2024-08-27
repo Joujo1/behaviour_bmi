@@ -452,6 +452,29 @@
 </div>
 
 <style>
+
+#setup-div {
+    display: flex;
+    flex-wrap: wrap;
+    /* justify-content: space-between; */
+    justify-content: start;
+    align-items: flex-start;
+
+    transition: all 0.1s ease-in-out;
+    border-bottom: 1px solid var(--fg-color);
+    margin-left: 15px;
+    margin-right: 15px;
+    padding-top: 15px;
+    padding-bottom: 15px;
+  }
+ #setup-div.hide {
+  opacity: 0;
+  transform: translateX(-100%);
+  height: 0;
+  padding: 0;
+  border-bottom: none;
+}
+
   .button-row-div {
     display: flex;
     justify-content: start;
