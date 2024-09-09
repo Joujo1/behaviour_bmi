@@ -62,3 +62,30 @@ export async function GETTrials() {
     })
     .catch((error) => console.error("Error:", error));
   }
+
+  export async function GETEvents() {
+    return fetch(`${BASE_URL}/inspect/events`)
+      .then((response) => response.json())
+      .then((data) => {
+        return JSON.parse(data);
+      })
+      .catch((error) => console.error("Error:", error));
+  }
+  
+  export async function GETForwardVelocity() {
+    return fetch(`${BASE_URL}/inspect/forwardvelocity`)
+      .then((response) => response.json())
+      .then((data) => {
+        return JSON.parse(data);
+      })
+      .catch((error) => console.error("Error:", error));
+  }
+  
+  export async function GETUnityFrames() {
+    return fetch(`${BASE_URL}/inspect/unityframes`)
+      .then((response) => response.json())
+      .then((data) => {
+        return data;
+      })
+      .catch((error) => console.error("Error:", error));
+  }

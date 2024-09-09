@@ -53,8 +53,8 @@
   function sliceData2Range() {
     $dataStore = $dataStore.filter((d, idx) => {
       return (
-        d.PCT > $PortentaStreamerTRange.max &&
-        d.PCT < $PortentaStreamerTRange.min
+        d.PCT > $PortentaStreamerTRange.max && 
+        (d.PCT < $PortentaStreamerTRange.min || $store.initiated) // live data doesn't work as expected with .min ... ; not strictly needed anyway
       );
     });
 
@@ -65,7 +65,7 @@
       fromTimestamp = "";
       toTimestamp = "No data within interval";
     }
-    console.debug("dataStore length: ", $dataStore.length);
+    console.debug(wsEndpointName, " dataStore length: ", $dataStore.length);
   }
 
   function wsOnMessageCallback(msg) {
@@ -201,9 +201,9 @@
 </script>
 
 <div class="portenta-stream-card">
-  <audio id="rewardSound" src="src/assets/rewardsound.mp3" preload="auto"
+  <audio id="rewardSound" src="assets/rewardsound.mp3" preload="auto"
   ></audio>
-  <audio id="lickSound" src="src/assets/clicklick.mp3" preload="auto"></audio>
+  <audio id="lickSound" src="assets/clicklick.mp3" preload="auto"></audio>
   <!-- <audio id="lickSound" src="src/assets/licklick.mp3" preload="auto"></audio> -->
 
   <div id="card-header-div">
@@ -377,7 +377,7 @@
         {#if $store.initiatedInspect}
           <defs>
             <marker
-              id="arrowhead"
+              id="arrowheadTimelinePS"
               markerWidth="4.6875"
               markerHeight="3.28125"
               refX="-1.25"
@@ -400,7 +400,7 @@
             y2={yScale(minYData) - 2}
             stroke="var(--fg-color)"
             stroke-width="3"
-            marker-start="url(#arrowhead)"
+            marker-start="url(#arrowheadTimelinePS)"
           />
         {/if}
 

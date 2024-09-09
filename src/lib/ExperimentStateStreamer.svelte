@@ -250,7 +250,7 @@ $: if ($unityData.length > 0 && $unityData[$unityData.length-1] !== undefined) {
     select(svg)
       .append("defs")
       .append("marker")
-      .attr("id", "arrowhead")
+      .attr("id", "arrowheadStatemachine")
       .attr("viewBox", "-0 -5 10 10")
       .attr("refX", 5)
       .attr("refY", 0)
@@ -296,7 +296,7 @@ $: if ($unityData.length > 0 && $unityData[$unityData.length-1] !== undefined) {
       .append("path")
       .attr("stroke", "var(--fg-color)")
       .attr("fill", "none")
-      .attr("marker-end", "url(#arrowhead)")
+      .attr("marker-end", "url(#arrowheadStatemachine)")
       .attr("stroke-width", 2)
       .attr("d", (d) => lineGenerator(adjustEdgeEndpoints(d)));
     // on hover
