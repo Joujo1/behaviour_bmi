@@ -224,18 +224,18 @@
             stroke-width=".5"
           /> -->
             <line
-              x1={xScale(trial.PCT_enter_r1)}
+              x1={xScale(trial.enter_reward1)}
               y1={staytimeYScale(0)}
-              x2={xScale(trial.PCT_enter_r1)}
-              y2={staytimeYScale(trial.staytime_r1 / 1e6)}
+              x2={xScale(trial.enter_reward1)}
+              y2={staytimeYScale(trial.staytime_reward1 / 1e6)}
               stroke={"var(--fg-color)"}
               stroke-width="2"
             />
             <line
-              x1={xScale(trial.PCT_enter_r2)}
+              x1={xScale(trial.enter_reward2)}
               y1={staytimeYScale(0)}
-              x2={xScale(trial.PCT_enter_r2)}
-              y2={staytimeYScale(trial.staytime_r2 / 1e6)}
+              x2={xScale(trial.enter_reward2)}
+              y2={staytimeYScale(trial.staytime_reward2 / 1e6)}
               stroke={"var(--fgFaint-color)"}
               stroke-width="2"
             />
