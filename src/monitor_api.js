@@ -1,7 +1,7 @@
 import { store } from "../store/stores";
 
-const BASE_URL = "http://0.0.0.0:8000";
-const WS_BASE_URL = "ws://0.0.0.0:8000/stream";
+const BASE_URL = "http://127.0.0.1:8000";
+const WS_BASE_URL = "ws://127.0.0.1:8000/stream";
 
 let wsReaderCounters = {};
 let wsCloseCallbacks = {};

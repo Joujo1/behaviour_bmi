@@ -1,6 +1,6 @@
 import { store } from "../store/stores";
 
-const BASE_URL = "http://0.0.0.0:8000";
+const BASE_URL = "http://127.0.0.1:8000";
 
 // async function handlePOST(endpoint) {
 //   let response = await fetch(endpoint, { method: "POST" });
