@@ -214,6 +214,9 @@
   await new Promise(r => setTimeout(r, 100));
   result = await POSTLaunch_log_bodycam();
   handlePOSTResult(result);
+  await new Promise(r => setTimeout(r, 100));
+  result = await POSTLaunch_log_ephys();
+  handlePOSTResult(result);
   }
 
   async function launch_stream_bodycam() {

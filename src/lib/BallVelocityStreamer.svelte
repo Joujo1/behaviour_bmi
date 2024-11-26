@@ -7,13 +7,13 @@
 
 wsEndpointName={"ballvelocity"}
 dataStore={ballvelocityData}
-minYData={-40}
-maxYData={40}
+minYData={-28}
+maxYData={28}
 height={180}
 title={"Ball Velocity"}
   
 nYTicks={3}
-yTopOffsetPx={50}
+yTopOffsetPx={5}
 xLeftOffsetPx={90}
 >
 

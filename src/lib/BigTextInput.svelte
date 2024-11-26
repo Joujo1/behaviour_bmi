@@ -10,7 +10,6 @@
 <style>
   .big-text-input-div {
     height: 100px; /* Adjust this value to change the button's height */
-    width: 128px; 
     margin: 5px;
     display: flex;
     align-items: center;
@@ -34,7 +33,7 @@
     box-sizing: border-box;
     color: var(--fg-color);
     font-size: 8pt;
-    padding-left: .5em;
+    /* padding-left: .5em; */
     padding-right: .5em;
     resize: none;
   }

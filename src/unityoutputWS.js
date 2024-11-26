@@ -1,4 +1,5 @@
-import { unityStreamerTRange, unityData, unityXRangeSeconds, store , unityTrialData, globalT} from "../store/stores.js";
+import { unityStreamerTRange, unityData, unityXRangeSeconds, store , unityTrialData, globalT, portentaData, } from "../store/stores.js";
+import { trialUnityVelData, trialPortentaEventData} from "../store/stores.js";
 import { openWebsocket } from "./monitor_api.js";
 
 let wsReaders = 0;
@@ -8,13 +9,17 @@ let unityWS = null;
 let prvGlobalT = 0;
 let localGlobalT = 0;
 
+let curPortentaEvent = {}
+let curTrial = {}
+
 export function unityWSOnMessageCallback(msg) {
     let newData = JSON.parse(msg.data);
     // console.log(newData);
 
     // get the currently set xRange 
     let xRange;
-    let unsubscribe = unityXRangeSeconds.subscribe(value => {
+    let unsubscribe;
+    unsubscribe = unityXRangeSeconds.subscribe(value => {
         xRange = value;
     })
     unsubscribe();
@@ -33,10 +38,50 @@ export function unityWSOnMessageCallback(msg) {
         return d.N == "T"
     })]);
 
-    // unsubscribe = unityTrialData.subscribe(value => {
-    //     console.log(value)
-    // });
-    // unsubscribe();
+    // get the last 10 unity frames from unityData and calculate the velocity, 
+    // append to trialUnityVelData store
+    let last10Frames = [];
+    unsubscribe = unityData.subscribe(data => {
+        last10Frames = data.slice(Math.max(data.length - 10, 0));
+    });
+    unsubscribe();
+
+    const timeinterval = (last10Frames[last10Frames.length - 1].PCT - last10Frames[0].PCT) / 1000000;
+    const distance = last10Frames[last10Frames.length - 1].Z - last10Frames[0].Z;
+    const frameVelocity = distance / timeinterval;
+    const cur_position = last10Frames[last10Frames.length - 1].Z;
+    trialUnityVelData.update(data => [...data, {frameVelocity, cur_position}]);
+
+    // TODO: should rather be updated when new portenta event is received
+    let lastEvent = {};
+    unsubscribe = portentaData.subscribe(data => {
+        lastEvent = data[data.length - 1];
+    });
+    unsubscribe();
+    // console.log("lastEvent", lastEvent);
+    if (lastEvent && lastEvent !== curPortentaEvent) {
+        trialPortentaEventData.update(data => [...data, {N: lastEvent.N, cur_position}]);
+        curPortentaEvent = lastEvent; // update the current/ last portenta event
+    }
+
+
+    // clear the trial data stores if a new trial has started
+    let lastTrial = {};
+    unsubscribe = unityTrialData.subscribe(data => {
+        lastTrial = data[data.length - 1];
+    });
+    unsubscribe();
+    // console.log("lastTrial", lastTrial, "curTrial", curTrial);
+    if (lastTrial !== curTrial) {
+        console.log("New TrialData", curTrial);
+        // trialPortentaEventData.update(data => [...data, {N: "T", cur_position}]);
+        curTrial = lastTrial;
+        setTimeout(() => {
+            trialUnityVelData.set([]);
+            trialPortentaEventData.set([]);
+        }, 1000);
+    }
+
 }
 
 export function setupUnityWS(oneWay=true) {

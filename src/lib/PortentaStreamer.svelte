@@ -22,8 +22,10 @@
   let ws;
 
   let showForward = true;
-  let showSideways = false;
   let showRotation = false;
+  let showSideways = false;
+  let showSum = false;
+  let sum_threshold = .3
 
   let fromTimestamp;
   let toTimestamp;
@@ -76,12 +78,17 @@
       });
     }
     
+    // ball velocity normalization factors to cm
+    // public float ballForwardNormToCentimeter = 0.001542F;
+    // public float ballSidewaysNormToCentimeter = 0.001478F;
+    // public float ballRotatationNormToCentimeter = 0.003806F/3;
     // update dataStore with new websocket data
     $dataStore.push(...newData);
     // console.log(
-    //   "datastore currently: ",
-    //   time2str($dataStore[0].PCT / 1000),
-    //   time2str($dataStore[$dataStore.length - 1].PCT / 1000)
+    //   newData
+    //   // "datastore currently: ",
+    //   // time2str($dataStore[0].PCT / 1000),
+    //   // time2str($dataStore[$dataStore.length - 1].PCT / 1000)
     // );
 
     // for live data, update min and max, instead of based on glabalT
@@ -220,14 +227,24 @@
             title="Show forward"
           />
           <input
+          type="checkbox"
+          bind:checked={showRotation}
+          title="Show rotation"
+          />
+          <input
             type="checkbox"
             bind:checked={showSideways}
             title="Show sideways"
           />
           <input
             type="checkbox"
-            bind:checked={showRotation}
-            title="Show rotation"
+            bind:checked={showSum}
+            title="Show raw-yaw-pitch sum"
+          />
+          <input id="sum-threshold-number"
+            type="number"
+            bind:value={sum_threshold}
+            title="color threshold"
           />
         </div>
       {/if}
@@ -255,20 +272,21 @@
     style="height: {isActive ? height : 0}px"
   >
     {#if isActive}
-      <svg {width} {height} overflow="visible">
+    <svg {width} {height} overflow="visible">
+        <!-- # add a line at y=0 from left to right -->
+         {#if wsEndpointName === "ballvelocity"}
+          <line
+            x1={xScale($PortentaStreamerTRange.min)}
+            y1={yScale(0)}
+            x2={xScale($PortentaStreamerTRange.max)}
+            y2={yScale(0)}
+            stroke-width="1"
+            stroke="var(--fgFaint-color)" 
+          />
+        {/if}
         <g>
           {#each $dataStore as point, i}
             {#if wsEndpointName === "ballvelocity"}
-              {#if showRotation}
-                <circle
-                  cx={xScale(point.PCT)}
-                  cy={yScale(point.pitch)}
-                  r="2"
-                  stroke="var(--fg-color)"
-                  stroke-width="1.5"
-                  fill="none"
-                />
-              {/if}
               {#if showForward}
                 <circle
                   cx={xScale(point.PCT)}
@@ -277,12 +295,31 @@
                   fill="var(--fg-color)"
                 />
               {/if}
-              {#if showSideways}
+              {#if showRotation}
                 <circle
                   cx={xScale(point.PCT)}
                   cy={yScale(point.yaw)}
+                  r="2"
+                  stroke="var(--fg-color)"
+                  stroke-width="1.5"
+                  fill="none"
+                />
+              {/if}
+              {#if showSideways}
+                <circle
+                  cx={xScale(point.PCT)}
+                  cy={yScale(point.pitch)}
                   r="3"
                   fill="#888888"
+                />
+              {/if}
+              {#if showSum}
+                <circle
+                  cx={xScale(point.PCT)}
+                  cy={yScale(point.raw + point.yaw + point.pitch)}
+                  r="3"
+                  fill={point.raw + point.yaw + point.pitch < sum_threshold ? "var(--good-color)" : "var(--error-color)"}
+                  opacity="0.5"
                 />
               {/if}
               <!-- fresh package or not -->
@@ -362,12 +399,36 @@
                   stroke-width="2"
                 />
               {/if}
-              {#if point.N === "A"}
+              {#if point.N === "P"}
+                <circle
+                  cx={xScale(point.PCT)}
+                  cy={yScale(5)}
+                  r="3"
+                  fill="#51b1e7"
+                />
+                <line
+                  x1={xScale(point.PCT)}
+                  y1={yScale(5)}
+                  x2={xScale(point.PCT + point.V * 1000)}
+                  y2={yScale(5)}
+                  stroke="#51b1e7" 
+                  stroke-width="2"
+                />
+              {/if}
+              {#if point.N === "V"}
                 <circle
                   cx={xScale(point.PCT)}
                   cy={yScale(4)}
                   r="3"
-                  fill="var(--fg-color)"
+                  fill="var(--error-color)"
+                />
+                <line
+                  x1={xScale(point.PCT)}
+                  y1={yScale(4)}
+                  x2={xScale(point.PCT + point.V * 1000)}
+                  y2={yScale(4)}
+                  stroke="var(--error-color)"
+                  stroke-width="2"
                 />
               {/if}
             {/if}
@@ -456,14 +517,15 @@
         <!-- Y label: [a.u.] -->
         {#if title == "Ball Velocity"}
           <text
-            x={xLeftOffsetPx - tickLength - yAxisOffsetPx - 7}
-            y={yTopOffsetPx - 30}
+            x={xLeftOffsetPx - tickLength - yAxisOffsetPx-27}
+            y={yScale(0)}
+
             font-size={18}
             text-anchor="end"
             fill="var(--fg-color)"
             dominant-baseline="middle"
           >
-            {"[a.u.]"}</text
+            {"cm/s"}</text
           >
         {/if}
         <!-- x axis line -->
@@ -512,7 +574,10 @@
 
   #timestamp-headers-div h1 {
     font-size: 12pt;
-    margin: 1em;
+    margin: 0em;
+    margin-left: 1em;
+    margin-bottom: 4px;
+
     font-family: "Courier New", Courier, monospace;
     color: var(--fg-color);
   }
@@ -556,5 +621,11 @@
     flex-grow: 1;
     display: flex;
     justify-content: flex-end;
+  }
+  
+  #sum-threshold-number {
+    width: 20px;
+    height: 20px;
+    -moz-appearance: textfield;
   }
 </style>

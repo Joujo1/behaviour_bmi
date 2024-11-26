@@ -35,6 +35,9 @@
   let sessionDuration = 0;
   let sessionDurationStr = "00:00";
 
+  let lastTrial = {};
+  let sizeScaler = 5;
+
   const tickLength = 8;
   const xRightOffsetPx = 20;
   const yBottomOffsetPx = 50;
@@ -64,9 +67,19 @@
       position: yScale(tick),
     }));
 
-  // $: if ($unityTrialData.length > 0) {
-  //   console.log("Unity Trial Data: ", $unityTrialData);
-  // }
+  
+  $: if (lastTrial && $unityTrialData.length && $unityTrialData[$unityTrialData.length - 1].ID != lastTrial.ID) {
+    lastTrial = $unityTrialData[$unityTrialData.length - 1];
+    console.log("Unity Trial Data: ", $unityTrialData[$unityTrialData.length - 1], lastTrial);
+    sizeScaler = 20 / Math.sqrt($unityTrialData.length)
+
+    if (lastTrial.C && lastTrial.C == 2) {
+      console.log("Correct trial detected");
+    }
+
+
+
+  }
 
   // $: console.log($unityData);
   // $: console.log($unityData.length);
@@ -124,17 +137,23 @@
     }
   }
 
+  let valveOpenTime = 20;
   async function updateRewardCounter(msg) {
     const cmd = JSON.parse(msg.data).split("\r\n")[0];
     const [firstChar, ...rest] = cmd;
     const values = rest.join("");
     if (firstChar == "S") {
       const rewards = values.split(",");
-      const valveOpenTime = parseFloat(rewards[0]);
+      valveOpenTime = parseFloat(rewards[0]);
       rewardsMl += (valveOpenTime*0.295 -10) / 1000;
-      rewardsMl = parseFloat(rewardsMl.toFixed(3)); // Adjust the number of decimal places as needed
+      rewardsMl = parseFloat(rewardsMl.toFixed(3));
 
       rewardsN += 1;
+    } else if (firstChar == "V") {
+      console.log("Subtracting last reward open valve time ", valveOpenTime);
+      rewardsMl -= (valveOpenTime*0.295 -10) / 1000;
+      rewardsMl = parseFloat(rewardsMl.toFixed(3));
+
     }
   }
 
@@ -178,14 +197,33 @@
 
       <svg {width} {height} overflow="visible">
         {#each $unityTrialData as trialObj, i}
-          <circle
-            cx={xScale(trialObj.ID)}
-            cy={yScale(trialObj.TD / 1e6)}
-            r={(trialObj.O + 1) *  (20 / Math.sqrt($unityTrialData.length))}
-            fill={trialObj.O > 0
-              ? "var(--good-color)"
-              : "var(--error-color)"}
-          />
+          {#if (trialObj.C==undefined || trialObj.C == 1 || trialObj.DR == 1)}
+            <circle
+              cx={xScale(trialObj.ID)}
+              cy={yScale(trialObj.TD / 1e6)}
+              r={trialObj.DR && trialObj.DR==1 ? (trialObj.O%10)+1 *sizeScaler :
+                 (trialObj.O + 1) *  (sizeScaler)}
+              fill={trialObj.O > 0
+                ? "var(--good-color)"
+                : "var(--error-color)"}
+            />
+          {/if}
+          {#if ((trialObj.C && trialObj.C == 2) || trialObj.DR == 1) }
+            <rect
+              x={xScale(trialObj.ID) - 10}
+              y={yScale(trialObj.TD / 1e6) - 10}
+              width={trialObj.DR && trialObj.DR==1 ? (Math.floor(trialObj.O/10))+1 *2*sizeScaler :
+                     (trialObj.O + 1) *  2*(sizeScaler)}
+              height={trialObj.DR && trialObj.DR==1 ? (Math.floor(trialObj.O/10))+1 *2*sizeScaler :
+                     (trialObj.O + 1) *  2*(sizeScaler)}
+              fill={trialObj.O > 0
+                ? "var(--good-color)"
+                : "var(--error-color)"}
+              stroke="var(--bg-color)"
+              stroke-width="1"
+            />
+            {/if}
+          <title>{JSON.stringify(trialObj)}</title>
         {/each}
 
         <!-- X Axis -->

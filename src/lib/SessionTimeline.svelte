@@ -162,7 +162,7 @@
   // globalT increases here
   let clear;
   $: {
-    console.log("isPlaying", ($store.initiatedInspect && isPlaying));
+    // console.log("isPlaying", ($store.initiatedInspect && isPlaying));
 
     clearInterval(clear);
     clear = setInterval(() => {

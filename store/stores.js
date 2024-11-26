@@ -83,6 +83,8 @@ export const globalPlaying = writable(false);
 
 export const ballvelocityData = writable([]);
 export const portentaData = writable([]);
+export const trialUnityVelData = writable([]);
+export const trialPortentaEventData = writable([]);
 export const PortentaStreamerTRange = writable({
     min: -1,
     max: -1,
@@ -94,5 +96,5 @@ export const unityStreamerTRange = writable({
     max: -1,
 });
 export const unityTrialData = writable([]);
-export const unityXRangeSeconds = writable(5);
+export const unityXRangeSeconds = writable(3);
 

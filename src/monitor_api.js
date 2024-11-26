@@ -32,6 +32,24 @@ export async function GETParadigms() {
     .catch((error) => console.error("Error:", error));
 }
 
+export async function GETSelectedParadigm() {
+  return fetch(`${BASE_URL}/selected_paradigm`)
+    .then((response) => response.json())
+    .then((data) => {
+      return data;
+    })
+    .catch((error) => console.error("Error:", error));
+}
+
+export async function GETSelectedAnimal() {
+  return fetch(`${BASE_URL}/selected_animal`)
+    .then((response) => response.json())
+    .then((data) => {
+      return data;
+    })
+    .catch((error) => console.error("Error:", error));
+}
+
 export async function GETAnimals() {
   return fetch(`${BASE_URL}/animals`)
     .then((response) => response.json())

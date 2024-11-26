@@ -12,6 +12,9 @@
   import { POSTParadigm } from "../monitor_api.js";
   import { POSTAnimalWeight } from "../monitor_api.js";
   import { POSTStartParadigm } from "../monitor_api.js";
+  import { GETSelectedParadigm } from "../monitor_api.js";
+  import { GETSelectedAnimal } from "../monitor_api.js";
+
   
   import { POSTStopParadigm } from "../monitor_api.js";
   import { POSTSessionNotes } from "../monitor_api.js";
@@ -23,7 +26,14 @@
   let animals = [];
   let animalSelection;
   let animalWeight;
-  let freeNotes = "Free notes here";
+  
+  let freeNotes = "";
+  // log the freeNotes to local storage every 2 seconds
+  setInterval(() => {
+    localStorage.setItem("freeNotes", freeNotes);
+  }, 2000);
+  // load the freeNotes from local storage
+  freeNotes = localStorage.getItem("freeNotes") || "Free notes here";
 
   function handlePOSTResult(result) {
     console.log(result);
@@ -42,6 +52,18 @@
   onMount(() => {
     getParadigms();
     getAnimals();
+    GETSelectedParadigm().then((result) => {
+      if (typeof result === "string") { //success
+        console.log("previously selected paradigm ", result);
+        paradigmSelection = result;
+      }
+    });
+    GETSelectedAnimal().then((result) => {
+      if (typeof result === "string") { //success
+        console.log("previously selected animal ", result);
+        animalSelection = result;
+      }
+    });
   });
 
   async function startParadigm() {

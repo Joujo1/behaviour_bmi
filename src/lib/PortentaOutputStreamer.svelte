@@ -8,13 +8,13 @@
 wsEndpointName={"portentaoutput"}
 dataStore={portentaData}
 minYData={0.5}
-maxYData={4}
-height={150}
+maxYData={5}
+height={145}
 title={"Portenta Events"}
   
 nYTicks={4}
-yTickLabels={["Lick", "Reward", "Sound", "Airvalve" ]}
-yTopOffsetPx={30}
+yTickLabels={["Lick", "Reward", "Sound", "Vacuum", "Airpuff" ]}
+yTopOffsetPx={5}
 xLeftOffsetPx={90}
 >
 
