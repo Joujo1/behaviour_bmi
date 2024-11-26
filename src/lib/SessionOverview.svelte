@@ -127,6 +127,7 @@
 
       console.log("Session Start Time: ", sessionStartTime);
       isActive = !isActive;
+      console.log("setting up unity ws from session Overview");
       closeCallback = setupUnityWS();
 
       secondCloseCallback = openWebsocket("portentainput", updateRewardCounter);
@@ -157,7 +158,8 @@
     }
   }
 
-  $: if (paradigmRunningState != $store.paradigmRunning) {
+  $: console.log("Paradigm Running State: ", $store.paradigmRunning, paradigmRunningState);
+  $: if ($store.paradigmRunning && (paradigmRunningState != $store.paradigmRunning)) {
     console.log("Paradigm Running State Changed");
     if (isActive) {
       switchCardOnOff();
