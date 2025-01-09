@@ -46,6 +46,8 @@
         console.log(`${websocketName} lag!`, lag / 1e6, "s");
       }
       timestamp = time2str(imagePackage.PCT / 1000);
+      // log difference
+      console.log($globalT - imagePackage.PCT);
     }
   }
 

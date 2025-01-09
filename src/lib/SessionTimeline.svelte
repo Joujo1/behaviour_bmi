@@ -14,7 +14,7 @@
 
   let trials = [];
   let events = [];
-  let velocities = [];
+  // let velocities = [];
 
   const maxCMPerSecond = 100;
 
@@ -49,10 +49,10 @@
       return "var(--fg-color)";
     }
   }
-  // trial_id, trial_start_frame, trial_start_pc_timestamp, trial_end_frame, trial_end_pc_timestamp, trial_pc_duration, trial_outcome, trial_start_ephys_timestamp, trial_end_ephys_timestamp, stay_time, maximum_reward_number, cue, lick_reward, staytime_cue1, PCT_enter_cue1, staytime_cue2, PCT_enter_cue2, staytime_r1, PCT_enter_r1, staytime_r2, PCT_enter_r2, staytime_correct_r, staytime_incorrect_r
+  // trial_id, trial_start_frame, SPCT, trial_end_frame, EPCT, trial_pc_duration, trial_outcome, trial_start_ephys_timestamp, trial_end_ephys_timestamp, stay_time, maximum_reward_number, cue, lick_reward, staytime_cue1, PCT_enter_cue1, staytime_cue2, PCT_enter_cue2, staytime_r1, PCT_enter_r1, staytime_r2, PCT_enter_r2, staytime_correct_r, staytime_incorrect_r
   function handleClick(event, trial) {
     console.log("Trial clicked:", trial);
-    $globalT = trial.trial_start_pc_timestamp;
+    $globalT = trial.SPCT;
   }
 
   function handleKeydown(event, trial) {
@@ -67,6 +67,7 @@
 
   async function getTrials() {
     trials = await GETTrials();
+    console.log(trials);
     initTrialVariables();
   }
 
@@ -75,23 +76,23 @@
     console.log(events);
   }
 
-  async function getForwardVelocities() {
-    velocities = await GETForwardVelocity();
-    console.log("velocities", velocities);
-  }
+  // async function getForwardVelocities() {
+  //   velocities = await GETForwardVelocity();
+  //   console.log("velocities", velocities);
+  // }
 
   function initTrialVariables() {
-    $globalT = trials[0].trial_start_pc_timestamp;
+    $globalT = trials[0].SPCT;
     const startTimestamps = trials
-      .map((trial) => trial.trial_start_pc_timestamp)
+      .map((trial) => trial.SPCT)
       .filter((ts) => ts !== null);
     const endTimestamps = trials
-      .map((trial) => trial.trial_end_pc_timestamp)
+      .map((trial) => trial.EPCT)
       .filter((ts) => ts !== null);
     trialsTmin = Math.min(...startTimestamps);
     trialsTmax = Math.max(...endTimestamps);
-    trialsIDmin = trials[0].trial_id;
-    trialsIDmax = trials[trials.length - 1].trial_id;
+    trialsIDmin = trials[0].ID;
+    trialsIDmax = trials[trials.length - 1].ID;
     // init the selected trials input field
     trialsIDminSelected = trialsIDmin;
     trialsIDmaxSelected = trialsIDmax;
@@ -103,26 +104,26 @@
     if ($store.initiatedInspect) {
       getTrials();
       getEvents();
-      getForwardVelocities();
+      // getForwardVelocities();
       initiatedInspectState = true;
     } else {
       initiatedInspectState = false;
       trials = [];
       events = [];
-      velocities = [];
+      // velocities = [];
       timestamp = "";
     }
   }
 
   $: if (trials.length) {
-    const from = trials.find((trial) => trial.trial_id === trialsIDminSelected).trial_start_pc_timestamp;
-    const to = trials.find((trial) => trial.trial_id === trialsIDmaxSelected).trial_end_pc_timestamp;
+    const from = trials.find((trial) => trial.ID === trialsIDminSelected).SPCT;
+    const to = trials.find((trial) => trial.ID === trialsIDmaxSelected).EPCT;
     xScale = scaleLinear().domain([from, to]).range([0, width]);
 
     if ($globalT < from) {
       $globalT = from;
     } else if ($globalT > to) {
-      $globalT = trials.find((trial) => trial.trial_id === trialsIDmaxSelected).trial_start_pc_timestamp;
+      $globalT = trials.find((trial) => trial.ID === trialsIDmaxSelected).SPCT;
     }
   }
 
@@ -132,11 +133,11 @@
 
   $: xScale = scaleLinear().domain([trialsTmin, trialsTmax]).range([0, width]);
 
-  $: if (velocities.length) {
-    yScaleVelocity = scaleLinear()
-      .domain([0, maxCMPerSecond])
-      .range([velocitiesPlotHeight, 0]);
-  }
+  // $: if (velocities.length) {
+  //   yScaleVelocity = scaleLinear()
+  //     .domain([0, maxCMPerSecond])
+  //     .range([velocitiesPlotHeight, 0]);
+  // }
 
   $: if (trials.length) {
     staytimeYScale = scaleLinear()
@@ -175,8 +176,8 @@
   let updateGlobalT = (delta) => {
     let newGlobalT = $globalT + delta;
     // general bounds check
-    const minT = trials[trialsIDminSelected-1].trial_start_pc_timestamp;
-    const maxT = trials[trialsIDmaxSelected-1].trial_end_pc_timestamp;
+    const minT = trials[trialsIDminSelected-1].SPCT;
+    const maxT = trials[trialsIDmaxSelected-1].EPCT;
     // wants to go too far back, limit to minT
     if (newGlobalT < minT) {
       console.log("newGlobalT < minT");
@@ -193,7 +194,7 @@
     $globalT = newGlobalT;
   };
 
-  // $:console.log("globalT", $globalT);
+  $:console.log("globalT", $globalT);
 
 </script>
 
@@ -202,28 +203,21 @@
   bind:contentRect={DOMRect}
   style="height: {true ? height : 0}px"
 >
+
   <div id="waitTimePlot">
     {#if trials}
       <svg {width} height={waitTimePlotHeight} overflow="visible">
         {#each trials as trial}
-          {#if trial.trial_id >= trialsIDminSelected && trial.trial_id <= trialsIDmaxSelected}
+          {#if trial.ID >= trialsIDminSelected && trial.ID <= trialsIDmaxSelected}
             <rect
-              x={xScale(trial.trial_start_pc_timestamp)}
+              x={xScale(trial.SPCT)}
               y={(waitTimePlotHeight * 2) / 3}
               height={10}
-              width={xScale(trial.trial_end_pc_timestamp) - xScale(trial.trial_start_pc_timestamp)}
-              fill={trial.cue == 1 ? "var(--fg-color)" : "var(--fgFaint-color)"}
+              width={xScale(trial.EPCT) - xScale(trial.SPCT)}
+              fill={trial.C == 1 ? "var(--fg-color)" : "var(--fgFaint-color)"}
               stroke="1px solid var(--fg-color)"
             />
             <!-- <line
-            x1={xScale(trial.PCT_enter_cue2)}
-            y1={staytimeYScale(0)}
-            x2={xScale(trial.PCT_enter_cue2)}
-            y2={staytimeYScale(trial.staytime_cue2/1e6)}
-            stroke="var(--fg-color)"
-            stroke-width=".5"
-          /> -->
-            <line
               x1={xScale(trial.enter_reward1)}
               y1={staytimeYScale(0)}
               x2={xScale(trial.enter_reward1)}
@@ -238,7 +232,7 @@
               y2={staytimeYScale(trial.staytime_reward2 / 1e6)}
               stroke={"var(--fgFaint-color)"}
               stroke-width="2"
-            />
+            /> -->
           {/if}
         {/each}
       </svg>
@@ -247,6 +241,7 @@
 
   <div id="lickPlot">
     {#if events}
+    {console.log("Within ", events)}
       <svg {width} height={lickPlotHeight} overflow="invisible">
         {#each events as event}
           {#if event.N === "L"}
@@ -267,12 +262,22 @@
               stroke-width="2"
             />
           {/if}
+          {#if event.N === "V"}
+            <line
+              x1={xScale(event.PCT)}
+              y1={0}
+              x2={xScale(event.PCT)}
+              y2={lickPlotHeight}
+              stroke="var(--error-color)"
+              stroke-width="2"
+            />
+          {/if}
         {/each}
       </svg>
     {/if}
   </div>
 
-  <div id="velocityPlot">
+  <!-- <div id="velocityPlot">
     {#if velocities}
       <svg {width} height={velocitiesPlotHeight} overflow="invisible">
         <g>
@@ -287,19 +292,20 @@
         </g>
       </svg>
     {/if}
-  </div>
+  </div> -->
 
   <div id="trialTimeline">
     {#if trials}
+    {console.log("Within ", trials)}
       <svg {width} height={trialsHeight} overflow="visible">
         {#each trials as trial}
-          {#if trial.trial_id >= trialsIDminSelected && trial.trial_id <= trialsIDmaxSelected}
+          {#if trial.ID >= trialsIDminSelected && trial.ID <= trialsIDmaxSelected}
             <rect
-              x={xScale(trial.trial_start_pc_timestamp)}
+              x={xScale(trial.SPCT)}
               y={0}
               height={trialsHeight}
-              width={xScale(trial.trial_end_pc_timestamp) - xScale(trial.trial_start_pc_timestamp)}
-              fill={getOutcomeColor(trial.trial_outcome)}
+              width={xScale(trial.EPCT) - xScale(trial.SPCT)}
+              fill={getOutcomeColor(trial.O)}
               stroke="1px solid var(--fg-color)"
               on:click={(event) => handleClick(event, trial)}
               on:keydown={(event) => handleKeydown(event, trial)}

@@ -262,7 +262,10 @@
                   2}
                 fill="var(--fg-color)"
                 opacity={0.5}
-              />
+              >
+              <title>PillarID:{pillar.id}:Reward, X={pillar.y}</title>
+              </circle>
+
               <circle
                 class="pillar_{pillar.id}"
                 cx={xScaleZPosition(pillar.y)}
@@ -272,8 +275,9 @@
                 stroke="var(--accent-color)"
                 stroke-width="3"
                 fill="none"
-              />
-              <title>PillarID:{pillar.id}:Reward</title>
+              >
+              <title>PillarID:{pillar.id}:Reward, X={pillar.y}</title>
+              </circle>
             {:else}
               <!-- other pillars -->
               <circle
@@ -290,8 +294,9 @@
                 "black"
                   ? "var(--accent-color)"
                   : "none"}
-              />
-              <title>PillarID:{pillar.id}</title>
+              >
+              <title>PillarID:{pillar.id}, X={pillar.y}</title>
+            </circle>
             {/if}
           {/if}
         {/each}
@@ -306,7 +311,9 @@
               r="4"
               fill-opacity={(i * 1) / $unityData.length}
               fill="var(--fg-color)"
-            />
+            >
+            <title>UnityFrame: {i}, X={unityFrame.Z}</title>
+            </circle>
           {/if}
         {/each}
 

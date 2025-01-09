@@ -157,7 +157,9 @@
     }
   }
 
-  $: if (paradigmRunningState != $store.paradigmRunning) {
+  $: if (paradigmRunningState !== undefined && $store.paradigmRunning &&
+         paradigmRunningState != $store.paradigmRunning) {
+    console.log("paradigmRunningState != $store.paradigmRunning", paradigmRunningState, $store.paradigmRunning)
     console.log("Paradigm Running State Changed");
     if (isActive) {
       switchCardOnOff();
