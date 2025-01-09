@@ -127,6 +127,7 @@
 
       console.log("Session Start Time: ", sessionStartTime);
       isActive = !isActive;
+      console.log("setting up unity ws from session Overview");
       closeCallback = setupUnityWS();
 
       secondCloseCallback = openWebsocket("portentainput", updateRewardCounter);
