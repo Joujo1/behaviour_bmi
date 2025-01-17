@@ -77,6 +77,17 @@ export async function GETServerState() {
 
 export const stateEventSource = new EventSource(`${BASE_URL}/statestream`);
 
+
+export async function GETcheckNAS() {
+  return fetch(`${BASE_URL}/check_nas`)
+    .then((response) => response.json())
+    .then((data) => {
+      return data;
+    }
+    )
+    .catch((error) => console.error("Error:", error));
+}
+
 export async function POSTInitiate() {
   return await handlePOST(`${BASE_URL}/initiate`);
 }
@@ -191,4 +202,12 @@ export async function POSTLaunch_stream_portenta() {
 
 export async function POSTLaunch_unity() {
   return await handlePOST(`${BASE_URL}/procs/launch_unity`);
+}
+
+export async function POSTLaunch_scope() {
+  return await handlePOST(`${BASE_URL}/procs/launch_scope`);
+}
+
+export async function POSTLaunch_mxserver() {
+  return await handlePOST(`${BASE_URL}/procs/launch_mxserver`);
 }

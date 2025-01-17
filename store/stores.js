@@ -36,6 +36,8 @@ export const store = writable({
     facecam2shm: 0,
     bodycam2shm: 0,
     unity: 0,
+    mxserver: 0,
+    scope: 0,
     log_portenta: 0,
     log_facecam: 0,
     log_bodycam: 0,

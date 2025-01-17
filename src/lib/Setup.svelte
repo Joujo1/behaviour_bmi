@@ -3,7 +3,7 @@
   import SetupUIBlock from "./SetupUIBlock.svelte";
   import SetupUIButton from "./SetupUIButton.svelte";
   import ProcessSessionCard from "./ProcessSessionCard.svelte";
-  import { GETServerState, POSTInitiate } from "../setup_api";
+  import { GETServerState, GETcheckNAS, POSTInitiate } from "../setup_api";
   import { POSTFlashPortentaM4, POSTFlashPortentaM7 } from "../setup_api";
   import { POSTCreateTermflag,
            POSTCreateParadigmRunningFlag,
@@ -41,7 +41,11 @@
     POSTLaunch_face_bodycam,
     POSTLaunch_stream_portenta,
   } from "../setup_api";
-  import { POSTLaunch_unity } from "../setup_api";
+  
+  import { POSTLaunch_unity,
+           POSTLaunch_scope,
+           POSTLaunch_mxserver,
+   } from "../setup_api";
 
   import SetupUiButton from "./SetupUIButton.svelte";
 
@@ -54,7 +58,11 @@
   }
 
   async function initiate() {
-    const result = await POSTInitiate();
+    let result = await POSTInitiate();
+    handlePOSTResult(result);
+
+    result = await GETcheckNAS();
+    console.log(result);
     handlePOSTResult(result);
   }
 
@@ -238,6 +246,16 @@
     const result = await POSTLaunch_unity();
     handlePOSTResult(result);
   }
+  
+  async function launch_mxserver() {
+    const result = await POSTLaunch_mxserver();
+    handlePOSTResult(result);
+  }
+  
+  async function launch_scope() {
+    const result = await POSTLaunch_scope();
+    handlePOSTResult(result);
+  }
 </script>
 
 <div id="setup-div" class={$store.showSetup ? "" : "hide"}>
@@ -375,6 +393,16 @@
             warningsStateDependancy={$store.unity_warnings}
             errorsStateDependancy={$store.unity_errors}
           />
+          <SetupUiButton
+            label="mxserver"
+            onClickCallback={launch_mxserver}
+            stateDependancy={$store.mxserver}
+          />
+          <SetupUiButton
+            label="scope"
+            onClickCallback={launch_scope}
+            stateDependancy={$store.scope}
+          />
         </div>
 
         <div class="button-row-div">
@@ -428,7 +456,7 @@
           />
         </div>
         <div class="button-row-div">
-          <SetupUiButton
+          <!-- <SetupUiButton
             label="stream_portenta"
             onClickCallback={launch_stream_portenta}
           />
@@ -441,7 +469,7 @@
             label="stream_facecam"
             onClickCallback={launch_face_bodycam}
             isEnabled={false}
-          />
+          /> -->
         </div>
         <div class="button-row-div">
           <SetupUiButton

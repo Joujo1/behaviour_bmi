@@ -57,9 +57,7 @@
     }
 
     console.log("Loading session", sessionSelection);
-    let result = await POSTSessionSelection(
-      (useNAS ? "NAS;" : "DB;") + sessionSelection
-    );
+    let result = await POSTSessionSelection(sessionSelection);
     console.log(result);
     handlePOSTResult(result);
   }
