@@ -43,7 +43,7 @@
   let DOMRect = { width: width };
 
   const olderDataSubsampling = 10; // subsample older data, every nth datapoint for xRangeSeconds
-  const ballvelSumInterval = 10; // sum of raw, yaw, pitch, every nth datapoint
+  const ballvelSumInterval = 35; // sum of raw, yaw, pitch, every nth datapoint
   const xRangeSeconds = 3;
 
   const tickLength = 8;
@@ -77,9 +77,13 @@
     console.debug(wsEndpointName, " dataStore length: ", $dataStore.length);
   }
 
+  let leftOverBallVelLength
+  let leftOverBallVel = []
   function wsOnMessageCallback(msg) {
     let newData = JSON.parse(msg.data);
-    // console.log(newData[0]);
+    newData = [...leftOverBallVel, ...newData];
+
+    console.log(newData[0]);
     // if (wsEndpointName == "ballvelocity") {
     //   newData = newData.filter((d, idx) => {
     //     return idx % olderDataSubsampling === 0 || d.F === 0;
@@ -103,15 +107,18 @@
           T: newData[i].T,
           PCT: newData[i].PCT,
           F: fresh,
-          raw: raw,
-          yaw: yaw,
-          pitch: pitch
+          raw: raw*raw_norm ,
+          yaw: yaw*yaw_norm ,
+          pitch: pitch*pitch_norm ,
+          ryp_abs_sum: Math.abs(raw)*raw_norm + Math.abs(yaw)*yaw_norm + Math.abs(pitch)*pitch_norm
         });
 
-        // console.log("processedData: ", processedData[processedData.length - 1]);
+        console.log("processedData: ", processedData[processedData.length - 1]);
       }
     }
-    // console.log("processedData length: ", processedData.length);
+
+    leftOverBallVelLength = newData.length % ballvelSumInterval;
+    leftOverBallVel = newData.slice(newData.length - leftOverBallVelLength, newData.length);
 
     // Update dataStore with processed data
     $dataStore.push(...processedData);
@@ -343,13 +350,12 @@
                 />
               {/if}
               {#if showSum}
-              {ryp_sum = Math.abs(point.raw)*raw_norm + Math.abs(point.yaw)*yaw_norm + Math.abs(point.pitch)*pitch_norm}
-              {console.log("ryp_sum: ", ryp_sum)}
+              <!-- {ryp_sum = Math.abs(point.raw)*raw_norm + Math.abs(point.yaw)*yaw_norm + Math.abs(point.pitch)*pitch_norm} -->
                 <circle
                   cx={xScale(point.PCT)}
-                  cy={yScale(ryp_sum)}
+                  cy={yScale(point.ryp_abs_sum)}
                   r="3"
-                  fill={ryp_sum ? "var(--good-color)" : "var(--error-color)"}
+                  fill={point.ryp_abs_sum ? "var(--error-color)" : "var(--good-color)"}
                   opacity="0.5"
                 />
               {/if}
