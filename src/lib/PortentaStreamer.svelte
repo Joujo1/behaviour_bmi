@@ -27,6 +27,12 @@
   let showSum = false;
   let sum_threshold = .3
 
+  let ryp_sum = 0;
+  let raw_norm = 0.001542 // forward
+  let yaw_norm = 0.003806 // rotation
+  let pitch_norm = 0.001478 // sideways
+
+
   let fromTimestamp;
   let toTimestamp;
 
@@ -37,6 +43,7 @@
   let DOMRect = { width: width };
 
   const olderDataSubsampling = 10; // subsample older data, every nth datapoint for xRangeSeconds
+  const ballvelSumInterval = 10; // sum of raw, yaw, pitch, every nth datapoint
   const xRangeSeconds = 3;
 
   const tickLength = 8;
@@ -72,24 +79,46 @@
 
   function wsOnMessageCallback(msg) {
     let newData = JSON.parse(msg.data);
-    if (wsEndpointName == "ballvelocity") {
-      newData = newData.filter((d, idx) => {
-        return idx % olderDataSubsampling === 0 || d.F === 0;
-      });
+    // console.log(newData[0]);
+    // if (wsEndpointName == "ballvelocity") {
+    //   newData = newData.filter((d, idx) => {
+    //     return idx % olderDataSubsampling === 0 || d.F === 0;
+    //   });
+    // }
+    // $dataStore.push(...newData);
+
+
+    // Process data in intervals
+    let processedData = [];
+    for (let i = 0; i < newData.length; i += ballvelSumInterval) {
+      if (i + ballvelSumInterval <= newData.length) {
+        let raw = newData.slice(i, i + ballvelSumInterval).reduce((acc, d) => acc + d.raw, 0);
+        let yaw = newData.slice(i, i + ballvelSumInterval).reduce((acc, d) => acc + d.yaw, 0);
+        let pitch = newData.slice(i, i + ballvelSumInterval).reduce((acc, d) => acc + d.pitch, 0);
+        let fresh = newData.slice(i, i + ballvelSumInterval).every(d => d.F === 1) ? 1 : 0;
+
+        processedData.push({
+          N: "B",
+          ID: newData[i].ID,
+          T: newData[i].T,
+          PCT: newData[i].PCT,
+          F: fresh,
+          raw: raw,
+          yaw: yaw,
+          pitch: pitch
+        });
+
+        // console.log("processedData: ", processedData[processedData.length - 1]);
+      }
     }
-    
-    // ball velocity normalization factors to cm
-    // public float ballForwardNormToCentimeter = 0.001542F;
-    // public float ballSidewaysNormToCentimeter = 0.001478F;
-    // public float ballRotatationNormToCentimeter = 0.003806F/3;
-    // update dataStore with new websocket data
-    $dataStore.push(...newData);
-    // console.log(
-    //   newData
-    //   // "datastore currently: ",
-    //   // time2str($dataStore[0].PCT / 1000),
-    //   // time2str($dataStore[$dataStore.length - 1].PCT / 1000)
-    // );
+    // console.log("processedData length: ", processedData.length);
+
+    // Update dataStore with processed data
+    $dataStore.push(...processedData);
+
+    // // Update dataStore with processed data
+    // $dataStore.push(...processedData);    
+
 
     // for live data, update min and max, instead of based on glabalT
     if ($store.initiated) {
@@ -314,11 +343,13 @@
                 />
               {/if}
               {#if showSum}
+              {ryp_sum = Math.abs(point.raw)*raw_norm + Math.abs(point.yaw)*yaw_norm + Math.abs(point.pitch)*pitch_norm}
+              {console.log("ryp_sum: ", ryp_sum)}
                 <circle
                   cx={xScale(point.PCT)}
-                  cy={yScale(point.raw + point.yaw + point.pitch)}
+                  cy={yScale(ryp_sum)}
                   r="3"
-                  fill={point.raw + point.yaw + point.pitch < sum_threshold ? "var(--good-color)" : "var(--error-color)"}
+                  fill={ryp_sum ? "var(--good-color)" : "var(--error-color)"}
                   opacity="0.5"
                 />
               {/if}
