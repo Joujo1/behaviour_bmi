@@ -1,5 +1,6 @@
 <script>
   import { store, unityData, unityTrialData } from "../../store/stores";
+  import { unityFPS } from "../../store/stores";
   import { openWebsocket, GETSessionStartTime } from "../monitor_api.js";
   import ShowHideCardButton from "./ShowHideCardButton.svelte";
   import { setupUnityWS } from "../unityoutputWS.js";
@@ -86,9 +87,10 @@
 
   $: if ($unityData.length > 10) {
     // Calculate FPS
-    const cur_t = Math.floor($unityData[$unityData.length - 1].PCT / 1e3);
-    const prv_t = Math.floor($unityData[$unityData.length - 2].PCT / 1e3);
-    fps = cur_t - prv_t;
+    // const cur_t = Math.floor($unityData[$unityData.length - 1].PCT / 1e3);
+    // const prv_t = Math.floor($unityData[$unityData.length - 2].PCT / 1e3);
+    // fps = cur_t - prv_t;
+    
     // Calculate session duration
     sessionDuration = calculateTimeDelta();
     sessionDurationStr =
@@ -103,6 +105,19 @@
     // Calculate reward
     $unityData.filter((data) => data.S % 100 == 1);
   }
+
+  // Calculate smoothed average FPS over the last 10 frames
+  $: if ($unityData.length > 30) {
+    let totalDiff = 0;
+    for (let i = $unityData.length - 1; i > $unityData.length - 30; i--) {
+      const cur_t = Math.floor($unityData[i].PCT / 1e3);
+      const prv_t = Math.floor($unityData[i - 1].PCT / 1e3);
+      totalDiff += cur_t - prv_t;
+    }
+    fps = Math.round(totalDiff / 29); // Average over 9 intervals
+  }
+  unityFPS.set(fps);
+  console.log("FPS: ", $unityFPS);
 
   $: if ($unityTrialData.length > 0) {
     minXData = Math.min(...$unityTrialData.map((trial) => trial.ID)) - 2;

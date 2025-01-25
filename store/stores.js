@@ -97,6 +97,8 @@ export const unityStreamerTRange = writable({
     min: -1,
     max: -1,
 });
+// add single value fps store
+export const unityFPS = writable(0);
 export const unityTrialData = writable([]);
 export const unityXRangeSeconds = writable(3);
 

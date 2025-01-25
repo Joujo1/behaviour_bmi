@@ -25,13 +25,12 @@
   let showRotation = false;
   let showSideways = false;
   let showSum = false;
-  let sum_threshold = .3
+  let sum_threshold = 0.3;
 
   let ryp_sum = 0;
-  let raw_norm = 0.001542 // forward
-  let yaw_norm = 0.003806 // rotation
-  let pitch_norm = 0.001478 // sideways
-
+  let raw_norm = 0.001542; // forward
+  let yaw_norm = 0.003806; // rotation
+  let pitch_norm = 0.001478; // sideways
 
   let fromTimestamp;
   let toTimestamp;
@@ -62,7 +61,7 @@
   function sliceData2Range() {
     $dataStore = $dataStore.filter((d, idx) => {
       return (
-        d.PCT > $PortentaStreamerTRange.max && 
+        d.PCT > $PortentaStreamerTRange.max &&
         (d.PCT < $PortentaStreamerTRange.min || $store.initiated) // live data doesn't work as expected with .min ... ; not strictly needed anyway
       );
     });
@@ -77,8 +76,8 @@
     console.debug(wsEndpointName, " dataStore length: ", $dataStore.length);
   }
 
-  let leftOverBallVelLength
-  let leftOverBallVel = []
+  let leftOverBallVelLength;
+  let leftOverBallVel = [];
   function wsOnMessageCallback(msg) {
     let newData = JSON.parse(msg.data);
     newData = [...leftOverBallVel, ...newData];
@@ -91,46 +90,69 @@
     // }
     // $dataStore.push(...newData);
 
+    if (wsEndpointName == "ballvelocity") {
+      // Process data in intervals
+      let processedData = [];
+      for (let i = 0; i < newData.length; i += ballvelSumInterval) {
+        if (i + ballvelSumInterval <= newData.length) {
+          let raw = newData
+            .slice(i, i + ballvelSumInterval)
+            .reduce((acc, d) => acc + d.raw, 0);
+          let yaw = newData
+            .slice(i, i + ballvelSumInterval)
+            .reduce((acc, d) => acc + d.yaw, 0);
+          let pitch = newData
+            .slice(i, i + ballvelSumInterval)
+            .reduce((acc, d) => acc + d.pitch, 0);
+          let fresh = newData
+            .slice(i, i + ballvelSumInterval)
+            .every((d) => d.F === 1)
+            ? 1
+            : 0;
 
-    // Process data in intervals
-    let processedData = [];
-    for (let i = 0; i < newData.length; i += ballvelSumInterval) {
-      if (i + ballvelSumInterval <= newData.length) {
-        let raw = newData.slice(i, i + ballvelSumInterval).reduce((acc, d) => acc + d.raw, 0);
-        let yaw = newData.slice(i, i + ballvelSumInterval).reduce((acc, d) => acc + d.yaw, 0);
-        let pitch = newData.slice(i, i + ballvelSumInterval).reduce((acc, d) => acc + d.pitch, 0);
-        let fresh = newData.slice(i, i + ballvelSumInterval).every(d => d.F === 1) ? 1 : 0;
+          processedData.push({
+            N: "B",
+            ID: newData[i].ID,
+            T: newData[i].T,
+            PCT: newData[i].PCT,
+            F: fresh,
+            raw: raw * raw_norm,
+            yaw: yaw * yaw_norm,
+            pitch: pitch * pitch_norm,
+            ryp_abs_sum:
+              Math.abs(raw) * raw_norm +
+              Math.abs(yaw) * yaw_norm +
+              Math.abs(pitch) * pitch_norm,
+          });
 
-        processedData.push({
-          N: "B",
-          ID: newData[i].ID,
-          T: newData[i].T,
-          PCT: newData[i].PCT,
-          F: fresh,
-          raw: raw*raw_norm ,
-          yaw: yaw*yaw_norm ,
-          pitch: pitch*pitch_norm ,
-          ryp_abs_sum: Math.abs(raw)*raw_norm + Math.abs(yaw)*yaw_norm + Math.abs(pitch)*pitch_norm
-        });
-
-        console.log("processedData: ", processedData[processedData.length - 1]);
+          console.log(
+            "processedData: ",
+            processedData[processedData.length - 1]
+          );
+        }
       }
+
+      leftOverBallVelLength = newData.length % ballvelSumInterval;
+      leftOverBallVel = newData.slice(
+        newData.length - leftOverBallVelLength,
+        newData.length
+      );
+
+      // Update dataStore with processed data
+      $dataStore.push(...processedData);
+
+      // portenta output / events
+    } else {
+      $dataStore.push(...newData);
     }
-
-    leftOverBallVelLength = newData.length % ballvelSumInterval;
-    leftOverBallVel = newData.slice(newData.length - leftOverBallVelLength, newData.length);
-
-    // Update dataStore with processed data
-    $dataStore.push(...processedData);
-
     // // Update dataStore with processed data
-    // $dataStore.push(...processedData);    
-
+    // $dataStore.push(...processedData);
 
     // for live data, update min and max, instead of based on glabalT
     if ($store.initiated) {
       $PortentaStreamerTRange.min = newData[newData.length - 1].PCT; // newest datapoint, minimum deltatime to t0
-      $PortentaStreamerTRange.max = $PortentaStreamerTRange.min - xRangeSeconds * 1e6;
+      $PortentaStreamerTRange.max =
+        $PortentaStreamerTRange.min - xRangeSeconds * 1e6;
     }
     sliceData2Range();
   }
@@ -195,7 +217,7 @@
     prvGlobalT = $globalT;
     sliceData2Range();
   }
-  
+
   // check if any new data is a lick or reward, and play sound
   $: if ($store.initiatedInspect && $dataStore.length) {
     if (wsEndpointName == "portentaoutput") {
@@ -235,17 +257,14 @@
     return { value: readableTime, position: xScale(tick) };
   });
 
-  $: yTicks = yScale
-    .ticks(nYTicks)
-    .map((tick, i) => ({
-      value: yTickLabels == null ? tick : yTickLabels[i],
-      position: yScale(tick),
-    }));
+  $: yTicks = yScale.ticks(nYTicks).map((tick, i) => ({
+    value: yTickLabels == null ? tick : yTickLabels[i],
+    position: yScale(tick),
+  }));
 </script>
 
 <div class="portenta-stream-card">
-  <audio id="rewardSound" src="assets/rewardsound.mp3" preload="auto"
-  ></audio>
+  <audio id="rewardSound" src="assets/rewardsound.mp3" preload="auto"></audio>
   <audio id="lickSound" src="assets/clicklick.mp3" preload="auto"></audio>
   <!-- <audio id="lickSound" src="src/assets/licklick.mp3" preload="auto"></audio> -->
 
@@ -263,9 +282,9 @@
             title="Show forward"
           />
           <input
-          type="checkbox"
-          bind:checked={showRotation}
-          title="Show rotation"
+            type="checkbox"
+            bind:checked={showRotation}
+            title="Show rotation"
           />
           <input
             type="checkbox"
@@ -277,7 +296,8 @@
             bind:checked={showSum}
             title="Show raw-yaw-pitch sum"
           />
-          <input id="sum-threshold-number"
+          <input
+            id="sum-threshold-number"
             type="number"
             bind:value={sum_threshold}
             title="color threshold"
@@ -308,16 +328,16 @@
     style="height: {isActive ? height : 0}px"
   >
     {#if isActive}
-    <svg {width} {height} overflow="visible">
+      <svg {width} {height} overflow="visible">
         <!-- # add a line at y=0 from left to right -->
-         {#if wsEndpointName === "ballvelocity"}
+        {#if wsEndpointName === "ballvelocity"}
           <line
             x1={xScale($PortentaStreamerTRange.min)}
             y1={yScale(0)}
             x2={xScale($PortentaStreamerTRange.max)}
             y2={yScale(0)}
             stroke-width="1"
-            stroke="var(--fgFaint-color)" 
+            stroke="var(--fgFaint-color)"
           />
         {/if}
         <g>
@@ -350,12 +370,14 @@
                 />
               {/if}
               {#if showSum}
-              <!-- {ryp_sum = Math.abs(point.raw)*raw_norm + Math.abs(point.yaw)*yaw_norm + Math.abs(point.pitch)*pitch_norm} -->
+                <!-- {ryp_sum = Math.abs(point.raw)*raw_norm + Math.abs(point.yaw)*yaw_norm + Math.abs(point.pitch)*pitch_norm} -->
                 <circle
                   cx={xScale(point.PCT)}
                   cy={yScale(point.ryp_abs_sum)}
                   r="3"
-                  fill={point.ryp_abs_sum ? "var(--error-color)" : "var(--good-color)"}
+                  fill={point.ryp_abs_sum > sum_threshold
+                    ? "var(--error-color)"
+                    : "var(--good-color)"}
                   opacity="0.5"
                 />
               {/if}
@@ -448,7 +470,7 @@
                   y1={yScale(5)}
                   x2={xScale(point.PCT + point.V * 1000)}
                   y2={yScale(5)}
-                  stroke="#51b1e7" 
+                  stroke="#51b1e7"
                   stroke-width="2"
                 />
               {/if}
@@ -554,9 +576,8 @@
         <!-- Y label: [a.u.] -->
         {#if title == "Ball Velocity"}
           <text
-            x={xLeftOffsetPx - tickLength - yAxisOffsetPx-27}
+            x={xLeftOffsetPx - tickLength - yAxisOffsetPx - 27}
             y={yScale(0)}
-
             font-size={18}
             text-anchor="end"
             fill="var(--fg-color)"
@@ -659,7 +680,7 @@
     display: flex;
     justify-content: flex-end;
   }
-  
+
   #sum-threshold-number {
     width: 20px;
     height: 20px;
