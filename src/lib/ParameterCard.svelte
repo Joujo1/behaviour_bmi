@@ -18,7 +18,7 @@
     Math.max(...Object.values(cardParams).map((v) => String(v).length))
   );
   const width = 11 * (maxKeyLength + maxValueLength) + 20;
-  const highlightedParams = ["SESSION_NAME_POSTFIX", "LOGGING_LEVEL"];
+  const highlightedParams = ["MAXWELL_CONFIG_OF_ANIMAL", "LOGGING_LEVEL"];
 
   async function uploadParameters(event) {
     // Iterate over each updated parameter and send a PATCH request

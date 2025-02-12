@@ -3,7 +3,7 @@
   import SetupUIBlock from "./SetupUIBlock.svelte";
   import SetupUIButton from "./SetupUIButton.svelte";
   import ProcessSessionCard from "./ProcessSessionCard.svelte";
-  import { GETServerState, GETcheckNAS, POSTInitiate } from "../setup_api";
+  import { GETParameters, GETServerState, GETcheckNAS, POSTInitiate } from "../setup_api";
   import { POSTFlashPortentaM4, POSTFlashPortentaM7 } from "../setup_api";
   import { POSTCreateTermflag,
            POSTCreateParadigmRunningFlag,
@@ -192,7 +192,14 @@
   async function launch_log_ephys() {
     const result = await POSTLaunch_log_ephys();
     handlePOSTResult(result);
+    
+    // hijack handlePostResult to inform the User which ephys config is loaded
+    const params = await GETParameters();
+    const MAXWELL_CONFIG_OF_ANIMAL = params["MAXWELL_CONFIG_OF_ANIMAL"];
+    const message = `log_ephys.py configured MEA1K for implant of <b style="color: red;">${MAXWELL_CONFIG_OF_ANIMAL}</b>!`;
+    handlePOSTResult(message);
   }
+
   
   async function launch_all_processes() {
   let result;
@@ -222,9 +229,20 @@
   await new Promise(r => setTimeout(r, 100));
   result = await POSTLaunch_log_bodycam();
   handlePOSTResult(result);
-  await new Promise(r => setTimeout(r, 100));
-  result = await POSTLaunch_log_ephys();
-  handlePOSTResult(result);
+  }
+
+  async function launch_all_ephys_processes() {
+    launch_all_processes();
+    let result;
+    await new Promise(r => setTimeout(r, 100));
+    result = await POSTLaunch_log_ephys();
+    handlePOSTResult(result);
+    await new Promise(r => setTimeout(r, 100));
+    result = await POSTLaunch_scope();
+    handlePOSTResult(result);
+    await new Promise(r => setTimeout(r, 100));
+    result = await POSTLaunch_mxserver();
+    handlePOSTResult(result);
   }
 
   async function launch_stream_bodycam() {
@@ -421,11 +439,15 @@
             errorsStateDependancy={$store.log_unity_errors}
           />
           <SetupUiButton
-            label="log_unitycam"
-            onClickCallback={launch_log_unitycam}
-            stateDependancy={$store.log_unitycam}
-            warningsStateDependancy={$store.log_unitycam_warnings}
-            errorsStateDependancy={$store.log_unitycam_errors}
+          label="log_ephys"
+          onClickCallback={launch_log_ephys}
+          stateDependancy={$store.log_ephys}
+          warningsStateDependancy={$store.log_ephys_warnings}
+          errorsStateDependancy={$store.log_ephys_errors}
+          />
+          <SetupUiButton
+            label="/all+ephys"
+            onClickCallback={launch_all_ephys_processes}
           />
         </div>
         <div class="button-row-div">
@@ -444,11 +466,11 @@
             errorsStateDependancy={$store.log_bodycam_errors}
           />
           <SetupUiButton
-            label="log_ephys"
-            onClickCallback={launch_log_ephys}
-            stateDependancy={$store.log_ephys}
-            warningsStateDependancy={$store.log_ephys_warnings}
-            errorsStateDependancy={$store.log_ephys_errors}
+            label="log_unitycam"
+            onClickCallback={launch_log_unitycam}
+            stateDependancy={$store.log_unitycam}
+            warningsStateDependancy={$store.log_unitycam_warnings}
+            errorsStateDependancy={$store.log_unitycam_errors}
           />
           <SetupUiButton
             label="/all"
