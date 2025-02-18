@@ -48,7 +48,7 @@
     handlePOSTResult(result);
   }
   async function sendSucess() {
-    const unityMsg = `Success,${successLengthTextValue},${successDelayTextValue}`;
+    const unityMsg = `Success,${successDelayTextValue},${successLengthTextValue}`;
     const result = await POSTUnityInput(unityMsg);
     handlePOSTResult(result);
   }
