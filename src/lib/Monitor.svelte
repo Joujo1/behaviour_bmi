@@ -38,6 +38,9 @@
     <div id="monitor-flex-div">
         <VideoStreamer websocketName="bodycam" title="Overview Camera"/>
         <VideoStreamer websocketName="facecam" title="Face Camera"/>
+        <VideoStreamer websocketName="ttlcam2" title="TTL2 Camera"/>
+        <VideoStreamer websocketName="ttlcam3" title="TTL3 Camera"/>
+        <VideoStreamer websocketName="ttlcam4" title="TTL4 Camera"/>
         <Environment/>
         
         <VideoStreamer websocketName="unitycam" title="Unity View"/>

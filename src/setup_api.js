@@ -144,6 +144,18 @@ export async function POSTCreateFacecam() {
   return await handlePOST(`${BASE_URL}/shm/create_facecam_shm`);
 }
 
+export async function POSTCreateTTL2cam() {
+  return await handlePOST(`${BASE_URL}/shm/create_ttl2cam_shm`);
+}
+
+export async function POSTCreateTTL3cam() {
+  return await handlePOST(`${BASE_URL}/shm/create_ttl3cam_shm`);
+}
+
+export async function POSTCreateTTL4cam() {
+  return await handlePOST(`${BASE_URL}/shm/create_ttl4cam_shm`);
+}
+
 export async function POSTCreateBodycam() {
   return await handlePOST(`${BASE_URL}/shm/create_bodycam_shm`);
 }
@@ -164,12 +176,34 @@ export async function POSTLaunch_facecam2shm() {
   return await handlePOST(`${BASE_URL}/procs/launch_facecam2shm`);
 }
 
+export async function POSTLaunch_ttl2cam2shm() {
+  return await handlePOST(`${BASE_URL}/procs/launch_ttl2cam2shm`);
+}
+export async function POSTLaunch_ttl3cam2shm() {
+  return await handlePOST(`${BASE_URL}/procs/launch_ttl3cam2shm`);
+}
+export async function POSTLaunch_ttl4cam2shm() {
+  return await handlePOST(`${BASE_URL}/procs/launch_ttl4cam2shm`);
+}
+
 export async function POSTLaunch_bodycam2shm() {
   return await handlePOST(`${BASE_URL}/procs/launch_bodycam2shm`);
 }
 
 export async function POSTLaunch_log_facecam() {
   return await handlePOST(`${BASE_URL}/procs/launch_log_facecam`);
+}
+
+export async function POSTLaunch_log_ttl2cam() {
+  return await handlePOST(`${BASE_URL}/procs/launch_log_ttl2cam`);
+}
+
+export async function POSTLaunch_log_ttl3cam() {
+  return await handlePOST(`${BASE_URL}/procs/launch_log_ttl3cam`);
+}
+
+export async function POSTLaunch_log_ttl4cam() {
+  return await handlePOST(`${BASE_URL}/procs/launch_log_ttl4cam`);
 }
 
 export async function POSTLaunch_log_bodycam() {

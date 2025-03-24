@@ -30,16 +30,28 @@ export const store = writable({
     unityinput: false,
     unitycam: false,
     facecam: false,
+    ttlcam2: false,
+    ttlcam3: false,
+    ttlcam4: false,
+    
     bodycam: false, 
     // processes running (PID)
     por2shm2por: 0,
     facecam2shm: 0,
+    ttl2cam2shm: 0,
+    ttl3cam2shm: 0,
+    ttl4cam2shm: 0,
+    
     bodycam2shm: 0,
     unity: 0,
     mxserver: 0,
     scope: 0,
     log_portenta: 0,
     log_facecam: 0,
+    log_ttl2cam: 0,
+    log_ttl3cam: 0,
+    log_ttl4cam: 0,
+
     log_bodycam: 0,
     log_unity: 0,
     log_unitycam: 0,
@@ -50,10 +62,18 @@ export const store = writable({
     // each process' warnings and errors counters
     por2shm2por_warnings: 0,
     facecam2shm_warnings: 0,
+    ttl2cam2shm_warnings: 0,
+    ttl3cam2shm_warnings: 0,
+    ttl4cam2shm_warnings: 0,
+    
     bodycam2shm_warnings: 0,
     unity_warnings: 0,
     log_portenta_warnings: 0,
     log_facecam_warnings: 0,
+    log_ttl2cam_warnings: 0,
+    log_ttl3cam_warnings: 0,
+    log_ttl4cam_warnings: 0,
+
     log_bodycam_warnings: 0,
     log_unity_warnings: 0,
     log_unitycam_warnings: 0,
@@ -63,10 +83,18 @@ export const store = writable({
     
     por2shm2por_errors: 0,
     facecam2shm_errors: 0,
+    ttl2cam2shm_errors: 0,
+    ttl3cam2shm_errors: 0,
+    ttl4cam2shm_errors: 0,
+    
     bodycam2shm_errors: 0,
     unity_errors: 0,
     log_portenta_errors: 0,
     log_facecam_errors: 0,
+    log_ttl2cam_errors: 0,
+    log_ttl3cam_errors: 0,
+    log_ttl4cam_errors: 0,
+    
     log_bodycam_errors: 0,
     log_unity_errors: 0,
     log_unitycam_errors: 0,

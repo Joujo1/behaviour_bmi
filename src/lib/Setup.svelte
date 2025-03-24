@@ -17,6 +17,10 @@
   import {
     POSTCreateUnitycam,
     POSTCreateFacecam,
+    POSTCreateTTL2cam,
+    POSTCreateTTL3cam,
+    POSTCreateTTL4cam,
+    
     POSTCreateBodycam,
   } from "../setup_api";
 
@@ -27,8 +31,17 @@
   } from "../setup_api";
   import {
     POSTLaunch_facecam2shm,
+
+    POSTLaunch_ttl2cam2shm,
+    POSTLaunch_ttl3cam2shm,
+    POSTLaunch_ttl4cam2shm,
+
     POSTLaunch_bodycam2shm,
     POSTLaunch_log_facecam,
+    POSTLaunch_log_ttl2cam,
+    POSTLaunch_log_ttl3cam,
+    POSTLaunch_log_ttl4cam,
+
     POSTLaunch_log_bodycam,
     POSTLaunch_log_ephys,
   } from "../setup_api";
@@ -125,6 +138,18 @@
     const result = await POSTCreateFacecam();
     handlePOSTResult(result);
   }
+  async function createTTL2cam() {
+    const result = await POSTCreateTTL2cam();
+    handlePOSTResult(result);
+  }
+  async function createTTL3cam() {
+    const result = await POSTCreateTTL3cam();
+    handlePOSTResult(result);
+  }
+  async function createTTL4cam() {
+    const result = await POSTCreateTTL4cam();
+    handlePOSTResult(result);
+  }
 
   async function createBodycam() {
     const result = await POSTCreateBodycam();
@@ -141,6 +166,10 @@
     createUnityoutput();
     createUnitycam();
     createFacecam();
+    createTTL2cam();
+    createTTL3cam();
+    createTTL4cam();
+    
     createBodycam();
   }
 
@@ -163,6 +192,19 @@
     const result = await POSTLaunch_facecam2shm();
     handlePOSTResult(result);
   }
+  
+  async function launch_ttl2cam2shm() {
+    const result = await POSTLaunch_ttl2cam2shm();
+    handlePOSTResult(result);
+  }
+  async function launch_ttl3cam2shm() {
+    const result = await POSTLaunch_ttl3cam2shm();
+    handlePOSTResult(result);
+  }
+  async function launch_ttl4cam2shm() {
+    const result = await POSTLaunch_ttl4cam2shm();
+    handlePOSTResult(result);
+  }
 
   async function launch_bodycam2shm() {
     const result = await POSTLaunch_bodycam2shm();
@@ -171,6 +213,21 @@
 
   async function launch_log_facecam() {
     const result = await POSTLaunch_log_facecam();
+    handlePOSTResult(result);
+  }
+
+  async function launch_log_ttl2cam() {
+    const result = await POSTLaunch_log_ttl2cam();
+    handlePOSTResult(result);
+  }
+
+  async function launch_log_ttl3cam() {
+    const result = await POSTLaunch_log_ttl3cam();
+    handlePOSTResult(result);
+  }
+
+  async function launch_log_ttl4cam() {
+    const result = await POSTLaunch_log_ttl4cam();
     handlePOSTResult(result);
   }
 
@@ -368,6 +425,22 @@
             stateDependancy={$store.facecam}
           />
           <SetupUIButton
+            label="ttl2cam"
+            onClickCallback={createTTL2cam}
+            stateDependancy={$store.ttlcam2}
+          />
+          <SetupUIButton
+            label="ttl3cam"
+            onClickCallback={createTTL3cam}
+            stateDependancy={$store.ttlcam3}
+          />
+          <SetupUIButton
+            label="ttl4cam"
+            onClickCallback={createTTL4cam}
+            stateDependancy={$store.ttlcam4}
+          />
+
+          <SetupUIButton
             label="bodycam"
             onClickCallback={createBodycam}
             stateDependancy={$store.bodycam}
@@ -393,6 +466,27 @@
             stateDependancy={$store.facecam2shm}
             warningsStateDependancy={$store.facecam2shm_warnings}
             errorsStateDependancy={$store.facecam2shm_errors}
+          />
+          <SetupUiButton
+            label="ttl2cam2shm"
+            onClickCallback={launch_ttl2cam2shm}
+            stateDependancy={$store.ttl2cam2shm}
+            warningsStateDependancy={$store.ttl2cam2shm_warnings}
+            errorsStateDependancy={$store.ttl2cam2shm_errors}
+          />
+          <SetupUiButton
+            label="ttl3cam2shm"
+            onClickCallback={launch_ttl3cam2shm}
+            stateDependancy={$store.ttl3cam2shm}
+            warningsStateDependancy={$store.ttl3cam2shm_warnings}
+            errorsStateDependancy={$store.ttl3cam2shm_errors}
+          />
+          <SetupUiButton
+            label="ttl4cam2shm"
+            onClickCallback={launch_ttl4cam2shm}
+            stateDependancy={$store.ttl4cam2shm}
+            warningsStateDependancy={$store.ttl4cam2shm_warnings}
+            errorsStateDependancy={$store.ttl4cam2shm_errors}
           />
           <SetupUiButton
             label="bodycam2shm"
@@ -458,6 +552,29 @@
             warningsStateDependancy={$store.log_facecam_warnings}
             errorsStateDependancy={$store.log_facecam_errors}
           />
+          <SetupUiButton
+            label="log_ttl2cam"
+            onClickCallback={launch_log_ttl2cam}
+            stateDependancy={$store.log_ttl2cam}
+            warningsStateDependancy={$store.log_ttl2cam_warnings}
+            errorsStateDependancy={$store.log_ttl2cam_errors}
+          />
+          <SetupUiButton
+            label="log_ttl3cam"
+            onClickCallback={launch_log_ttl3cam}
+            stateDependancy={$store.log_ttl3cam}
+            warningsStateDependancy={$store.log_ttl3cam_warnings}
+            errorsStateDependancy={$store.log_ttl3cam_errors}
+          />
+          <SetupUiButton
+            label="log_ttl4cam"
+            onClickCallback={launch_log_ttl4cam}
+            stateDependancy={$store.log_ttl4cam}
+            warningsStateDependancy={$store.log_ttl4cam_warnings}
+            errorsStateDependancy={$store.log_ttl4cam_errors}
+          />
+
+
           <SetupUiButton
             label="log_bodycam"
             onClickCallback={launch_log_bodycam}
