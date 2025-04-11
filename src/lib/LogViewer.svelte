@@ -49,6 +49,15 @@
         $store.log_facecam_warnings = warningCount;
         $store.log_facecam_errors = errorCount;
         break;
+      case "log_ttlcam2.log":
+        $store.log_ttl2cam_warnings = warningCount;
+        $store.log_ttl2cam_errors = errorCount;
+      case "log_ttlcam3.log":
+        $store.log_ttl3cam_warnings = warningCount;
+        $store.log_ttl3cam_errors = errorCount;
+      case "log_ttlcam4.log":
+        $store.log_ttl4cam_warnings = warningCount;
+        $store.log_ttl4cam_errors = errorCount;
       case "log_bodycam.log":
         $store.log_bodycam_warnings = warningCount;
         $store.log_bodycam_errors = errorCount;
