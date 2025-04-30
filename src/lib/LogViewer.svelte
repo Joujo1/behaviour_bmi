@@ -33,6 +33,18 @@
         $store.facecam2shm_warnings = warningCount;
         $store.facecam2shm_errors = errorCount;
         break;
+      case "ttlcam22shm.log":
+        $store.ttl2cam2shm_warnings = warningCount;
+        $store.ttl2cam2shm_errors = errorCount;
+        break;
+      case "ttlcam32shm.log":
+        $store.ttl3cam2shm_warnings = warningCount;
+        $store.ttl3cam2shm_errors = errorCount;
+        break;
+      case "ttlcam42shm.log":
+        $store.ttl4cam2shm_warnings = warningCount;
+        $store.ttl4cam2shm_errors = errorCount;
+        break;
       case "bodycam2shm.log":
         $store.bodycam2shm_warnings = warningCount;
         $store.bodycam2shm_errors = errorCount;
@@ -52,12 +64,15 @@
       case "log_ttlcam2.log":
         $store.log_ttl2cam_warnings = warningCount;
         $store.log_ttl2cam_errors = errorCount;
+        break
       case "log_ttlcam3.log":
         $store.log_ttl3cam_warnings = warningCount;
         $store.log_ttl3cam_errors = errorCount;
+        break
       case "log_ttlcam4.log":
         $store.log_ttl4cam_warnings = warningCount;
         $store.log_ttl4cam_errors = errorCount;
+        break
       case "log_bodycam.log":
         $store.log_bodycam_warnings = warningCount;
         $store.log_bodycam_errors = errorCount;

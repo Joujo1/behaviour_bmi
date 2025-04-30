@@ -101,9 +101,10 @@
     let result = await POSTSessionNotes(freeNotes);
     handlePOSTResult(result);
 
-    const unityMsg = "Stop";
-    result = await POSTUnityInput(unityMsg);
-    handlePOSTResult(result);
+    // deprecated, uss shm flag now
+    // const unityMsg = "Stop";
+    // result = await POSTUnityInput(unityMsg);
+    // handlePOSTResult(result);
     result = await POSTStopParadigm();
     handlePOSTResult(result);
   }
