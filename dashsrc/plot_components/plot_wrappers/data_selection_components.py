@@ -7,7 +7,7 @@ import dash_bootstrap_components as dbc
 import dashsrc.components.dashvis_constants as C
 import pandas as pd
     
-def paradigm_dropdown_component(vis_name, global_data, analytic):
+def paradigm_dropdown_component(vis_name, global_data, analytic, multi=False):
     data = global_data[analytic]
     component_id = f'paradigm-dropdown-{vis_name}'
     return [
@@ -16,7 +16,8 @@ def paradigm_dropdown_component(vis_name, global_data, analytic):
             id=component_id,
             options=[] if data is None else [{'label': f'Paradigm {i:02}', 'value': i} 
                                              for i in data.index.unique("paradigm_id")],
-            placeholder="Paradigm ID"
+            placeholder="Paradigm ID",
+            multi=multi,
         )
     ], component_id
 
@@ -422,13 +423,13 @@ def register_paradigm_dropdown_callback(app, vis_name, global_data, analytic):
     # html not used, just ensure that callcack is linked to correct component
     _, paradigm_dropd_comp_id = paradigm_dropdown_component(vis_name, global_data, analytic)
     data_loaded_id = C.get_vis_name_data_loaded_id(vis_name)
-    
     @app.callback(
         Output(paradigm_dropd_comp_id, 'options'),
         Input(data_loaded_id, 'data'),
     )
     def update_paradigm_options(data_loaded_id):
         data = global_data[analytic]
+        print(data)
         if data_loaded_id and data is not None:
             paradigm_ids = data.index.unique("paradigm_id")
             return [{'label': f'Paradigm {i:04}', 'value': i} for i in paradigm_ids]

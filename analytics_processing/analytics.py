@@ -14,7 +14,7 @@ import analytics_processing.sessions_from_nas_parsing as sp
 
 import ephys_preprocessing.postproc_mea1k_ephys as ephys
 
-def _get_analytics_fname(session_dir, analytic):
+def _get_sess_analytic_fname(session_dir, analytic):
     full_path = os.path.join(session_dir, "session_analytics")
     if not os.path.exists(full_path):
         print("Creating analytics directory for session ", os.path.basename(session_dir))
@@ -22,16 +22,75 @@ def _get_analytics_fname(session_dir, analytic):
     fullfname = os.path.join(full_path, analytic+".parquet")
     return fullfname
 
-def _compute_analytic(analytic, session_fullfname, all_sess_ffnames):
+def _get_animal_analytic_fname(animal_dir, analytic):
+    full_path = os.path.join(animal_dir, "animal_analytics")
+    if not os.path.exists(full_path):
+        print("Creating analytics directory.")
+        os.makedirs(full_path)
+    fullfname = os.path.join(full_path, analytic+".parquet")
+    return fullfname
+
+def _compute_animal_analytic(analytic, all_sessions_ffnames):
+    L = Logger()
+    
+    if set(analytic.split("-")) == {"ConcatenatedPCs40ms", "ConcatenatedPCembeddings40ms"}:
+        all_fr_z = get_analytics(analytic="FiringRate40msZ",
+                                 session_names=sp.fullfnames2snames(all_sessions_ffnames))
+        if all_fr_z is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        data = ephys.get_ConcatenatedPCA40ms(all_fr_z)
+        # TODO
+        # schema = C.SCHEMA_ConcatenatedPCs40ms
+        
+    # elif analytic == "ConcatenatedEnsambles40ms":
+    elif set(analytic.split("-")) == {"ConcatenatedEnsambles40ms", "ConcatenatedEnsambleProj40ms"}:
+        
+        all_fr_z = get_analytics(analytic="FiringRate40msZ",
+                                session_names=sp.fullfnames2snames(all_sessions_ffnames))
+        if all_fr_z is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        
+        PCs = get_analytics(analytic="ConcatenatedPCs40ms",
+                            session_names=[os.path.basename(s_ffname)[:-5]
+                                           for s_ffname in all_sessions_ffnames],)
+        if PCs is None:
+            L.logger.warning("Missing lower level analytic `ConcatenatedPCs40ms`")
+            return None
+        
+        # assembly_templates, assembly_activity
+        data = ephys.get_ConcatenatedEnsambles40ms(PCs, all_fr_z)
+        
+    elif analytic == "SessionPCs40msCAs":
+        PCs = get_analytics(analytic='SessionPCs40ms',
+                            session_names=sp.fullfnames2snames(all_sessions_ffnames))
+        if PCs is None:
+            L.logger.warning("Missing lower level analytic `SessionPCs40ms`")
+        
+        data = ephys.get_SessionPCs40msCAs(PCs)
+        
+    return data
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+def _compute_sess_analytic(analytic, session_fullfname):
     L = Logger()
     session_name = os.path.basename(session_fullfname)[:-5]
-    session_names = [os.path.basename(s_ffname)[:-5] for s_ffname in all_sess_ffnames]
+    # session_names = [os.path.basename(s_ffname)[:-5] for s_ffname in all_sess_ffnames]
     L.logger.debug(f"Computing {analytic} for {session_name}:")
     
     # TODO still check this one, i still don't like sessionOverview handling
     if analytic == "SessionMetadata":
         data = m2a.get_SesssionMetadata(session_fullfname)
-        data_table = C.SESSION_METADATA_TABLE
+        schema = C.SESSION_METADATA_TABLE
     
     elif analytic == "TrackKinematics":
         data = m2a.get_TrackKinematics(session_fullfname)
@@ -179,9 +238,19 @@ def _compute_analytic(analytic, session_fullfname, all_sess_ffnames):
     # elif analytic == "MultiUnits":
     #     data = m2a.get_MultiUnits(session_fullfname)
     #     data_table = C.MULTI_UNITS_TABLE
+    
+    elif set(analytic.split("-")) == {'SpikeClusterMetadata', 'Spikes'}:
+        sp_clust_metadata, spikes = ephys.extract_jrc_spikes(session_fullfname)
+        data = spikes, sp_clust_metadata
+        if data[0] is None:
+            return None
+        
+        
+        
         
     elif analytic == "SpikeClusterMetadata":
         data = ephys.get_SpikeClusterMetadata(session_fullfname)
+        print(data)
         data_table = C.SPIKES_CLUSTER_METADATA_TABLE
     
     elif analytic == "Spikes":
@@ -201,19 +270,33 @@ def _compute_analytic(analytic, session_fullfname, all_sess_ffnames):
     
     elif analytic == "FiringRate40msHz":
         spikes = get_analytics('Spikes', session_names=[session_name],
-                               columns=['ephys_timestamp', 'cluster_id'])
+                               columns=['ephys_timestamp', 'cluster_id_str'])
         if spikes is None:
+            L.logger.warning("Missing lower level analytic")
             return None
-        data = ephys.get_FiringRate40msHz(spikes.reset_index(drop=True))
+        all_cluster_names = get_analytics('SpikeClusterMetadata', session_names=[session_name],
+                                          columns=['cluster_id_str', ])
+        if spikes is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        data = ephys.get_FiringRate40msHz(spikes.reset_index(drop=True),all_cluster_names)
         data_table = dict.fromkeys(data.columns, C.FIRING_RATE_40MS_HZ_ONE_DTYPE)
     
-    # elif analytic == "FiringRate40msZ":
-    #     fr_hz = get_analytics('FiringRate40msHz', session_names=[session_name],)
+    elif analytic == "FiringRate40msZ":
+        fr_hz = get_analytics('FiringRate40msHz', session_names=[session_name],)
                                
-    #     if fr_hz is None:
-    #         return None
-    #     data = ephys.get_FiringRate40msZ(fr_hz)
-    #     data_table = dict.fromkeys(data.columns, C.FIRING_RATE_40MS_Z_ONE_DTYPE)
+        if fr_hz is None:
+            return None
+        data = ephys.get_FiringRate40msZ(fr_hz)
+        data_table = dict.fromkeys(data.columns, C.FIRING_RATE_40MS_Z_ONE_DTYPE)
+        
+    elif analytic == "SessionPCs40ms-SessionPCsProj40ms":
+        fr_z = get_analytics('FiringRate40msZ', session_names=[session_name])
+        if fr_z is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        # return PCs, Z_proj
+        data = ephys.get_sessionPCA(fr_z)    
     
     elif analytic == "FiringRateTrackwiseHz":
         fr_data = get_analytics('FiringRate40msHz', session_names=[session_name])
@@ -297,9 +380,10 @@ def _compute_analytic(analytic, session_fullfname, all_sess_ffnames):
         except Exception as e:
             pass
             # data = data.astype(data_table)
-            
-        L.logger.debug(f"Computed analytic {analytic}:\n{data}\n{data.dtypes}")
-    
+        
+        if data is not None:
+            L.logger.debug(f"Computed analytic {analytic}:\n{data}\n{data.dtypes}")
+
     return data
 
 # def _extract_id_from_sessionname(session_name):
@@ -316,62 +400,113 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
                                                                       session_ids, session_names, 
                                                                       excl_session_names,
                                                                       from_date, to_date)
-    
+    ANIMAL_ANALYTICS = ('ConcatenatedEnsambles40ms-ConcatenatedEnsambleProj40ms', 
+                        "ConcatenatedPCs40ms-ConcatenatedPCembeddings40ms",
+                        'ConcatenatedPCs40ms', 'ConcatenatedEnsambleProj40ms',
+                        'ConcatenatedEnsambles40ms',
+                        'SessionPCs40msCAs')
     aggr = []
+    
+    if analytic in ANIMAL_ANALYTICS:
+        L.logger.debug(f"Processing {analytic}, for n={len(sessionlist_fullfnames)} sessions")
+        animal_dir = os.path.join(os.path.dirname(sessionlist_fullfnames[0]), "..", "..")
+        
+        # Handle combo analytics for animal-level analytics
+        if "-" in analytic:
+            combo_analytic_fnames = []
+            for analyt in analytic.split('-'):
+                analytic_fname = _get_animal_analytic_fname(animal_dir, analytic=analyt)
+                combo_analytic_fnames.append(analytic_fname)
+            main_analytic_fname = combo_analytic_fnames[0]  # Use first analytic for existence check
+        else:
+            analytic_fname = _get_animal_analytic_fname(animal_dir, analytic=analytic)
+            main_analytic_fname = analytic_fname
+        
+        if mode.endswith('compute'):
+            if os.path.exists(main_analytic_fname) and mode != "recompute":
+                L.logger.info(f"Output exists, skipping.")
+                return None
+            
+            data = _compute_animal_analytic(analytic, sessionlist_fullfnames)
+            if data is not None:
+                if "-" in analytic and isinstance(data, tuple):
+                    # combo analytics return a tuple of dataframes and save them separately
+                    for analytic_fname, dat in zip(combo_analytic_fnames, data):
+                        dat.to_parquet(analytic_fname, index=False, engine='pyarrow')
+                else:
+                    # single analytic
+                    data.to_parquet(main_analytic_fname, index=False, engine='pyarrow')
+            else:
+                L.logger.warning(f"Failed to compute {analytic} for animal")
+            return data
+
+        elif mode == "set":
+            print(main_analytic_fname)
+        if not os.path.exists(main_analytic_fname):
+            L.logger.info(f"Analytic `{analytic}` not does not exist for")
+        data = pd.read_parquet(main_analytic_fname, columns=columns)
+        return data
+        
+    
+    
     for session_fullfname, identif in zip(sessionlist_fullfnames, ids):
         L.logger.debug(f"Processing {analytic}, {identif} {os.path.basename(session_fullfname)}"
                        f"\n{os.path.dirname(session_fullfname)}")
-        analytics_fname = _get_analytics_fname(os.path.dirname(session_fullfname),
+        analytic_fname = _get_sess_analytic_fname(os.path.dirname(session_fullfname),
                                                analytic=analytic)
         
         if mode.endswith('compute'):
             # here, the user can specify multiple analytics, set mode is limited to one analytic
             combo_analytic_fnames = []
             for analyt in analytic.split('-'):
-                analytics_fname = _get_analytics_fname(os.path.dirname(session_fullfname),
+                analytic_fname = _get_sess_analytic_fname(os.path.dirname(session_fullfname),
                                                        analytic=analyt)
-                if os.path.exists(analytics_fname) and mode != "recompute":
-                    L.logger.info(f"Output exists, skipping.")
-                    continue
-                combo_analytic_fnames.append(analytics_fname)
+                combo_analytic_fnames.append(analytic_fname)
+            if len(combo_analytic_fnames) > 1:
+                L.logger.debug(f"Combo analytic {analytic} with files: "
+                               f"{[os.path.basename(fname) for fname in combo_analytic_fnames]}")
             
-            data = _compute_analytic(analytic, session_fullfname, 
-                                     all_sess_ffnames=sessionlist_fullfnames)
+            # for double analyitcs doens't skip second analyitc if exists
+            if os.path.exists(analytic_fname) and mode != "recompute":
+                L.logger.info(f"Output exists, skipping.")
+                continue
+            
+            data = _compute_sess_analytic(analytic, session_fullfname)
             if data is not None and not isinstance(data, tuple):
                 # default, single iteration of the lopp above, no combo analytics
-                data.to_parquet(analytics_fname, index=False, engine='pyarrow')
+                data.to_parquet(analytic_fname, index=False, engine='pyarrow')
             
             elif data is not None and isinstance(data, tuple):
                 # combo analytics return a tuple of dataframes and save them separately
-                for analytics_fname, dat in zip(combo_analytic_fnames, data):
-                    dat.to_parquet(analytics_fname, index=False, engine='pyarrow')
+                for analytic_fname, dat in zip(combo_analytic_fnames, data):
+                    dat.to_parquet(analytic_fname, index=False, engine='pyarrow')
             else:
                 L.logger.warning(f"Failed to compute {analytic} for {identif}")
             L.spacer("debug")
             
         
         elif mode == "set":
-            if not os.path.exists(analytics_fname):
+            if not os.path.exists(analytic_fname):
                 L.logger.info(f"Analytic `{analytic}` not does not exist for"
                               f" {identif}, compute first, or check for typo")
                 continue
-            data = pd.read_parquet(analytics_fname, columns=columns)
+            data = pd.read_parquet(analytic_fname, columns=columns)
             midx = [(*identif, i) for i in range(data.shape[0])]
             names = ["paradigm_id", "animal_id", "session_id", "entry_id"]
             data.index = pd.MultiIndex.from_tuples(midx, names=names)
             aggr.append(data)
             
         elif mode == "available":
-            if os.path.exists(analytics_fname):
+            if os.path.exists(analytic_fname):
                 aggr.append(identif)
         
         elif mode == 'clear':
-            if os.path.exists(analytics_fname):
-                L.logger.warning(f"Permantly DELETING {analytics_fname} in 1s !")
+            if os.path.exists(analytic_fname):
+                L.logger.warning(f"Permantly DELETING {analytic_fname} in 1s !")
                 sleep(1)
-                os.remove(analytics_fname)
+                os.remove(analytic_fname)
             else:
-                L.logger.warning(f"File {analytics_fname} does not exist, skipping.")
+                L.logger.warning(f"File {analytic_fname} does not exist, skipping.")
         
         else:
             raise ValueError(f"Unknown mode {mode}")
@@ -395,3 +530,15 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
         aggr = np.array(aggr)
         L.logger.debug(f"Returning {analytic}:\n{aggr}")
         return aggr
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

@@ -1,189 +1,463 @@
 import plotly.graph_objects as go
-
+import json
+import re
+from scipy.stats import zscore
+        
 import pandas as pd
 import numpy as np
 from dash import dcc, html
 from plotly.subplots import make_subplots
+import plotly.express as px
 
-def render_plot(spikes, spike_metadata, width, height):
-    print(spikes)
-    print(spike_metadata)
-    print("==========================")
-    
+def render_plot(spike_metadata, session_metadata, width, height):
+    session_metadata = session_metadata.droplevel((0,1,3))
+    start_stop = session_metadata.loc[:, ['start_time', 'stop_time']]
+    # convert to datetime (let pandas infer the format)
+    start_stop['start_time'] = pd.to_datetime(start_stop['start_time'], format="%Y-%m-%d_%H-%M")
+    start_stop['stop_time'] = pd.to_datetime(start_stop['stop_time'], format="%Y-%m-%d_%H-%M")
+
     clusters = spike_metadata.cluster_id.unique()
-    sessions = spike_metadata.index.unique('session_id').unique()
-    print(clusters)
-    print(sessions)
+    session_ids = spike_metadata.index.unique('session_id').unique()
     
-    
-    tile_height = 160
+    tile_height = 70
     tile_width = 40
     
-    fig = make_subplots(
-        rows=len(clusters), cols=len(sessions),
-        shared_xaxes=True, shared_yaxes=True,
-        vertical_spacing=0.1 / len(clusters),
-        horizontal_spacing=0.1 / len(sessions),
+    left_margin = 100
+    right_margin = 50
+    top_margin = 50
+    bottom_margin = 50
+    
+    fig = make_subplots(rows=1, cols=1,)
+    
+    x0s = np.arange(len(session_ids)) * tile_width
+    y0s = np.arange(len(clusters)) * tile_height
+
+    # draw grid of tiles
+    for i in range(len(clusters)+1):
+        fig.add_trace(
+            # horizontal lines
+            go.Scatter(
+                x=[0, len(session_ids) * tile_width],
+                y=[tile_height * i, tile_height * i],
+                mode='lines',
+                opacity=0.2,
+                line=dict(color='gray', width=2),
+                showlegend=False,
+                hoverinfo='skip',  
+            )
+            
+        )
+    for i in range(len(session_ids)+1):
+        fig.add_trace(
+            go.Scatter(
+                x=[tile_width * i, tile_width * i],
+                y=[0, len(clusters) * tile_height],
+                mode='lines',
+                opacity=0.2,
+                line=dict(color='gray', width=2),
+                showlegend=False,
+                hoverinfo='skip',  
+            )
+        )
+
+    # reverse y axis
+    fig.update_yaxes(
+        range=[len(clusters)*tile_height +bottom_margin, 0-top_margin],
+        showticklabels=False,
+        showgrid=False,
     )
-    
-        
-    def draw_waveform(waveform, chnl, site_k, first_session, sess_spike_metadata,
-                      gnrl_annotation):
-        waveform -= site_k*60
-        mean_wf = np.mean(waveform, axis=0)
-        std_wf = np.std(waveform, axis=0)
-        print(waveform.shape)
-        # print(sess_spike_metadata)
-        # Draw the standard deviation as a filled area around the mean waveform
-        upper_bound = mean_wf + std_wf
-        lower_bound = mean_wf - std_wf
+    # revers x axis
+    fig.update_xaxes(
+        range=[0-left_margin, len(session_ids)*tile_width +right_margin],
+        showgrid=False,
+    )
 
-        # draw the legend
-        if site_k == 0 and first_session:
-            fig.add_trace(
-                go.Scatter(
-                    x=[18, 23, 23],
-                    y=[10, 10, -40],
-                    mode='lines',
-                    line=dict(color="black", width=3),
-                    showlegend=False,
-                ),row=i + 1, col=j + 1
-            )
-            for x,y,text in zip([17, 23], [10, -25], ["250us", "50uV"]):
-                fig.add_annotation(
-                    x=x,
-                    y=y,
-                    text=text,
-                    xanchor="left",
-                    yanchor="bottom",
-                    showarrow=False,
-                    row=i + 1, col=j + 1
-                )
-        
-        # general annotation
-        if site_k == 0:
-            fig.add_annotation(
-                x=23, y=-55,
-                text=gnrl_annotation,
-                xanchor="center",
-                yanchor="bottom",
-                showarrow=False,
-                font=dict(size=13),
-                row=i + 1, col=j + 1
-                
-            )
-
-        # draw the std area waveform
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(mean_wf)).tolist() + np.arange(len(mean_wf))[::-1].tolist(),
-                y=upper_bound.tolist() + lower_bound[::-1].tolist(),
-                fill='toself',
-                fillcolor='rgba(0, 0, 0, 0.08)',
-                mode='lines',
-                line=dict(color='rgba(0,0,0,0)'),  # Invisible boundary lines
-                name=f"Std Area {cluster}",
-                showlegend=False,
-            ),
-            row=i + 1, col=j + 1
-        )
-        # Draw the mean waveform
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(std_wf)),
-                y=mean_wf,
-                mode='lines',
-                name=f"Std Waveform {cluster}",
-                line=dict(color="black", width=1),
-                showlegend=False,
-            ),
-            row=i + 1, col=j + 1
-        )
-        # annotate channel
-        fig.add_annotation(
-            x=0, y=mean_wf[0],
-            text=f"Ch{chnl:03d}",
-            xanchor="left",
-            yanchor="bottom",
-            showarrow=False,
-            font=dict(size=12),
-            row=i + 1, col=j + 1
-        )
-        
-    
     # Update layout for better visualization
     fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
+        # plot_bgcolor='white',
+        # paper_bgcolor='white',
         # title=f"Firing Rate Heatmap",
         # xaxis_title="Track Bins",
         # yaxis_title="Neurons",
-        # template="plotly_white",
-        height=tile_height * len(clusters) +200,
-        width=tile_width * len(sessions) +200,
-        # yaxis_type="category",
+        template="plotly_white",
+        height=tile_height * len(clusters) +top_margin + bottom_margin,
+        width=tile_width * len(session_ids) +left_margin + right_margin,
+        margin=dict(l=0, r=0, t=0, b=0),
+        
+        
     )
     
-    # Loop through each cluster and session to create subplots
-    for j, session in enumerate(sessions):
-        sess_spikes = spikes.loc[pd.IndexSlice[:, :, session]]
-        sess_spike_metadata = spike_metadata.loc[pd.IndexSlice[:, :, session]]
+    def format_timedelta(td):
+        """Format timedelta as Xd, Xh, or Xmin depending on size."""
+        total_minutes = td.total_seconds() / 60
+        if total_minutes >= 20 * 60:  # >20h round up to 1 day
+            days = round(total_minutes / (60 * 24))
+            return f"{days}d"
+        elif total_minutes >= 90:  # 1.5 hours
+            hours = round(total_minutes / 60)
+            return f"{hours}h"
+        else:
+            minutes = round(total_minutes)
+            return f"{minutes}min"
+        
+    # add annotations for session_ids and clusters
+    prv_s_end_time = None
+    for i, s_id in enumerate(session_ids):
+        fig.add_annotation(
+            x=x0s[i] + tile_width / 2,
+            y=-15,
+            text=f"S{s_id:02d}",
+            showarrow=False,
+            font=dict(size=12),
+            xanchor="center",
+            yanchor="bottom",
+        )
+        fig.add_annotation(
+            x=x0s[i] + tile_width / 2,
+            y=-4,
+            text=f"P{session_metadata.loc[s_id].paradigm_id:02d}",
+            showarrow=False,
+            font=dict(size=9),
+            xanchor="center",
+            yanchor="bottom",
+        )
+        if prv_s_end_time is not None:
+            timedelta = start_stop.loc[s_id, 'start_time'] - prv_s_end_time
+            fig.add_annotation(
+                x=x0s[i],
+                y=-30,
+                text=f"{format_timedelta(timedelta)}",
+                showarrow=False,
+                font=dict(size=9),
+                xanchor="center",
+                yanchor="bottom",
+            )
+        prv_s_end_time = start_stop.loc[s_id, 'stop_time']
+        
+        
+        
+    for i, cluster in enumerate(clusters):
+        fig.add_annotation(
+            x=-10,
+            y=y0s[i] + tile_height / 2,
+            text=f"Cluster {cluster}",
+            showarrow=False,
+            font=dict(size=12),
+            xanchor="right",
+            yanchor="middle",
+        )
+        region = spike_metadata[spike_metadata.cluster_id == cluster].gross_brain_area.unique()
+        fig.add_annotation(
+            x=-10,
+            y=y0s[i] + tile_height/2 +12,
+            text=f"{region[0]}",
+            showarrow=False,
+            font=dict(size=9),
+            xanchor="right",
+            yanchor="middle",
+        )
+    
+    # return fig
+    
+    def draw_scalebars(fig, origin=(0, 0), uV=50, us=1000):
+        """
+        Draws scale bars for amplitude (uV) and time (us) using the waveform scaling functions.
+        - uV: vertical scale bar length in microvolts
+        - us: horizontal scale bar length in microseconds
+        """
+        # Calculate pixel lengths using the scaling lambdas
+        # us to samples: samples = us * 20 / 1000 (since 20,000 Hz = 20 samples per ms)
+        n_samples = int(us * 20 / 1000)
+        x0, y0 = origin
+        x1 = x0 + X_smpls2px(n_samples)
+        y1 = y0 - Y_uV2px(uV)
 
-        for i, cluster in enumerate(clusters):
-            spikes_cluster = sess_spikes[sess_spikes['cluster_id'] == cluster].reset_index(drop=True)
-            
-            if spikes_cluster.empty:
+        # Draw horizontal (time) bar
+        # Draw vertical (amplitude) bar
+        fig.add_trace(
+            go.Scatter(
+                x=[x0, x1, x1],
+                y=[y0, y0, y1],
+                mode='lines',
+                line=dict(color="black", width=3),
+                showlegend=False,
+                hoverinfo='skip',
+            )
+        )
+
+        # Add text annotations
+        fig.add_annotation(
+            x=(x0 + x1) / 2,
+            y=y0,
+            text=f"{us//1000}ms",
+            xanchor="center",
+            yanchor="bottom",
+            showarrow=False,
+            font=dict(size=12),
+        )
+        fig.add_annotation(
+            x=x1 + 5,
+            y=(y0 + y1) / 2,
+            text=f"{uV}μV",
+            xanchor="left",
+            yanchor="middle",
+            showarrow=False,
+            font=dict(size=12),
+        )
+        
+    # def draw_scalebars(fig, origin=(0, 0), uV=50, us=250):
+        # # Draw the scale bars for each subplot
+        # fig.add_trace(
+        #     go.Scatter(
+        #         x=[origin[0], origin[0] + 20, origin[0] + 20],
+        #         y=[origin[1], origin[1], origin[1] + 50],
+        #         mode='lines',
+        #         line=dict(color="black", width=3),
+        #         showlegend=False,
+        #         hoverinfo='skip',
+        #     ), row=i + 1, col=j + 1
+        # )
+        # for x,y,text in zip([17, 23], [10, -25], ["250us", "50uV"]):
+        #     fig.add_annotation(
+        #         x=x,
+        #         y=y,
+        #         text=text,
+        #         xanchor="left",
+        #         yanchor="bottom",
+        #         showarrow=False,
+        #         row=i + 1, col=j + 1
+        #     )
+    
+    def draw_waveform(mean_wf, std_wf, x, annotation, col): 
+        # Draw the mean waveform
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=mean_wf,
+                mode='lines',
+                name=annotation,
+                line=dict(color=col, width=1),
+                showlegend=False,
+                hovertemplate=f"{annotation}<extra></extra>",  
+                hoverlabel=dict(bgcolor="lightgray"),  
+            ),
+        )
+    
+    
+    def extract_sessionwise_wfs():
+        sessionw_wfs_counts = []
+        sessionw_wfs = []
+        for j, session in enumerate(session_ids):
+            sess_spike_metadata = clst_metdadata.loc[pd.IndexSlice[:, :, session]].iloc[0]
+            n_spikes = sess_spike_metadata.session_spike_count
+            if n_spikes == 0:
                 continue
+
+            # iterate over channels for session+cluster and aggreate 
+            # how often each channel has a waveform (1st, 2nd, 3rd hieghest)
+            all_chnl_counts = []
+            for chnl_count_col, chnl_count_col_annot in zip(['channel_wf_count', 'channel_2nd_wf_count', 'channel_3rd_wf_count'], 
+                                                            ('1st-Chnl', '2nd-Chnl', '3rd-Chnl')):
+                if chnl_count_col not in sess_spike_metadata: # often 3rd wf
+                    continue
+                chnl_wf_counts = {int(chnl):int(cnt/sess_spike_metadata.session_spike_count*100) 
+                                for chnl,cnt in sess_spike_metadata[chnl_count_col].items() 
+                                if cnt is not None}
+                all_chnl_counts.append(pd.Series(chnl_wf_counts, name=(session,chnl_count_col_annot)))
+            all_chnl_counts = pd.concat(all_chnl_counts, axis=1)
+            # print(all_chnl_counts)
+            sessionw_wfs_counts.append(all_chnl_counts)
             
-            # new tile
-            fig.update_yaxes(tickvals=[], ticktext=[], row=i + 1, col=j + 1)
+            # iterate over channels for session+cluster and aggreate
+            # average and std waveforms for each channel, irrespective of 1st, 2nd, 3rd highest
+            avg_wfs = {int(chnl):wf for chnl,wf in sess_spike_metadata['averge_wf'].items() 
+                       if int(chnl) in all_chnl_counts.index}
+            std_wfs = {int(chnl):wf for chnl,wf in sess_spike_metadata['std_wf'].items() 
+                       if int(chnl) in all_chnl_counts.index}
+            peak_uV = {int(chnl):wf.min().item() *-1 
+                       for chnl,wf in sess_spike_metadata['averge_wf'].items() if wf is not None}
+            sessionw_wfs.append(pd.Series(avg_wfs, name=(session,'avg_wf')))
+            sessionw_wfs.append(pd.Series(peak_uV, name=(session,'peak_uV')))
+            sessionw_wfs.append(pd.Series(std_wfs, name=(session,'std_wf')))
+        
+        # concat counts over session_ids
+        sessionw_wfs_counts = pd.concat(sessionw_wfs_counts, axis=1)
+        # rank channels by max count over all session_ids, devide which to draw
+        all_chnls_ranked = sessionw_wfs_counts.groupby(level=0).max()
+        all_chnls_ranked = all_chnls_ranked.reindex(all_chnls_ranked.sum(axis=1).sort_values(ascending=False).index, axis=0)
+        selected_chnls = all_chnls_ranked.index[:n_channels]
+        # the non selected channels (sum over all of them)
+        sessionw_wfs_other_counts = sessionw_wfs_counts.drop(selected_chnls).sum(axis=0).T.rename(-1).to_frame().T
+        sessionw_wfs_counts = sessionw_wfs_counts.loc[selected_chnls].fillna(0).astype(int)
+        # insert the non selected channels as a single channel
+        sessionw_wfs_counts = pd.concat([sessionw_wfs_counts, sessionw_wfs_other_counts], axis=0)
             
-            for k, site_col in enumerate(['channel', 'channel_2nd', 'channel_3rd']):
-                print(spikes_cluster)
-                print(sess_spike_metadata.session_nsamples)
-                avg_fr = spikes_cluster.shape[0] / sess_spike_metadata.session_nsamples.iloc[0] *20_000
-                gnrl_annotation = f"{avg_fr:.2f}Hz"
+        # aggregate waveforms for selected channels, select only those
+        # selected with high counts caluclated above
+        sessionw_wfs = pd.concat(sessionw_wfs, axis=1)
+        sessionw_wfs = sessionw_wfs.loc[selected_chnls]
+        # remove channels with low counts, smaller than 20% of spikes, won't be ddrawn
+        for s_id in session_ids:
+            for chnl in sessionw_wfs.index:
+                if s_id not in sessionw_wfs_counts.columns:
+                    continue
+                if ((sessionw_wfs_counts.loc[chnl, s_id] > min_spikes_perc).any()):
+                    continue
+                sessionw_wfs.loc[chnl, s_id] = np.nan
                 
-                chnl = spikes_cluster[site_col].iloc[0]
-                wfs = spikes_cluster[f'{site_col}_hpf_wf']
-                if wfs.isnull().all():
+        # now use the counts to create annotations for each session 
+        sessionw_wfs_annots = {}
+        for s_id in sessionw_wfs_counts.columns.levels[0]:
+            info = sessionw_wfs_counts[s_id].astype(int).astype(str)
+            info['peak ampl.'] = sessionw_wfs.loc[:, (s_id, 'peak_uV')].astype(object)
+            info.loc[:,'peak ampl.'] = info['peak ampl.'].astype(str) + " uV"
+            
+            info.index = [f"C{idx if idx != -1 else '___'}:" for idx in info.index]
+            info.loc[:,['1st-Chnl','2nd-Chnl']] = info.loc[:, ['1st-Chnl','2nd-Chnl']].astype(str) + " %"
+            sessionw_wfs_annots[s_id] = info.to_string().replace("\n", "<br>")
+        return sessionw_wfs, sessionw_wfs_annots
+
+    def highlight_channel_row(annotation, channel_label, color="#ff6600"):
+        # This will wrap the row starting with channel_label in a span
+        
+        # Escape for regex
+        channel_label_escaped = re.escape(channel_label)
+        # Replace only the first occurrence of the row starting with channel_label
+        return re.sub(
+            rf'({channel_label_escaped}.*?)(<br>|$)',
+            rf'<span style="color:{color}">\1</span>\2',
+            annotation,
+            count=1
+        )
+        
+    def calc_normed_avg_frate(clst_metdadata):
+        # calculate the normalized average firing rate for the cluster
+        # for all sessions, used for plotting
+        sess_spk_cnt = clst_metdadata['session_spike_count']
+        sess_seconds = clst_metdadata['session_nsamples']/20_000
+        normed_avg_frate = (sess_spk_cnt /sess_seconds).to_frame().rename(columns={0: 'avg_frate'})
+        normed_avg_frate.index = normed_avg_frate.index.droplevel((0,1,3))
+        normed_avg_frate['normed_avg_frate'] = normed_avg_frate.values /normed_avg_frate.values.max()
+        normed_avg_frate['n_spikes'] = sess_spk_cnt.values
+        normed_avg_frate['sess_seconds'] = sess_seconds.values
+        return normed_avg_frate
+
+    def draw_avg_frate(normed_avg_frate, cluster_idx, s):
+        # Get the per-session values
+        avg_frate = normed_avg_frate.loc[:, 'normed_avg_frate']
+        # Build a list of annotations for each session
+        hover_texts = [
+            f"Avg f. rate: {sess_vals.avg_frate:.2f}Hz<br>n={int(sess_vals.n_spikes):,d}"
+            f" spikes, {int(sess_vals.sess_seconds/60):.2f}min<br>"
+            f"Normed: {sess_vals.normed_avg_frate:.2f}, S{sess}"
+            for sess, sess_vals in normed_avg_frate.iterrows()
+        ]
+        fig.add_trace(
+            go.Scatter(
+                x=np.arange(len(session_ids)) * tile_width + tile_width * (2/3),
+                y=np.full(len(session_ids), cluster_idx * tile_height + tile_height * (5/6)),
+                mode='markers', hoverinfo='skip', showlegend=False,
+                marker=dict(size=s,symbol='circle-open', color='lightgray', showscale=False),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=np.arange(len(session_ids)) * tile_width + tile_width * (2/3),
+                y=np.full(len(session_ids), cluster_idx * tile_height + tile_height * (5/6)),
+                mode='markers',
+                marker=dict(
+                    size=s-1,
+                    symbol='circle',
+                    color=avg_frate,
+                    colorscale=normed_fr_cscale,
+                    showscale=False,
+                    cmin=avg_frate.min(),
+                    cmax=avg_frate.max(),
+                ),
+                showlegend=False,
+                text=hover_texts,  # <-- Per-point annotation
+                hovertemplate="%{text}<extra></extra>",  # <-- Use text for hover
+                name=f"Cluster {cluster_idx} Avg Firing Rate",
+            )
+        )
+        
+    normed_fr_cscale = [[0,'#ffffff'], [.1,'#eaeaea'], [.2,'#d9d9d9'], 
+                        [.3,'#c9c9c9'], [.4,'#b7b7b7',], 
+                        [.5,'#9b9b9b'], [.6,'#818181'], [.7,'#716468'], 
+                        [.8,'#70525c'], [.9,'#7d3d54'], [1,'#752541']]
+        
+    # wf_colors = ['#04724D', '#56876D', '#8DB38B', '#7D8060']
+    # use plotly discerte color scale
+    wf_colors = px.colors.qualitative.Plotly
+
+    n_channels = 3
+    
+    min_spikes_perc = 10 # minimum percentage of spikes for a channel to be drawn
+    markersize = 10
+    
+    waveform_width_scaler = .4
+    uV2px_scaler = -.6
+    
+    X_smpls2px = lambda smpls: np.array(smpls) * (tile_width/25) *waveform_width_scaler
+    Y_uV2px = lambda uV: np.array(uV) * uV2px_scaler
+    
+    intial_y_offset = 10
+    intial_x_offset = 4
+    chnl_y_spacing = 15
+    
+    draw_frate_markers = False
+    draw_waveforms = True
+
+    y_offset = intial_y_offset
+    x_offset = intial_x_offset
+    # Loop through each cluster and session to create subplots
+    for i, cluster_id in enumerate((spike_metadata.cluster_id.unique())):
+        print(f"Processing cluster {cluster_id} ({i+1}/{len(clusters)})")
+        clst_metdadata = spike_metadata[spike_metadata.cluster_id == cluster_id]
+        
+        # get the spikes for the current cluster, unpack convoluted dicts
+        normed_avg_frate = calc_normed_avg_frate(clst_metdadata)
+        
+        # draw scatter markers for average firing rate
+        if draw_frate_markers:
+            draw_avg_frate(normed_avg_frate, i, s=markersize)
+        
+        # draw the waveforms for each session
+        if draw_waveforms:
+            sessionw_wfs, sessionw_wfs_annots = extract_sessionwise_wfs()
+            for j, s_id in enumerate(session_ids):
+                if i == 5 and j == 0:
+                    # draw the scale bars only once
+                    draw_scalebars(fig, origin=(tile_width*(1/4), tile_height*i +intial_y_offset))
+                
+                if s_id not in sessionw_wfs.columns.levels[0]: # no spike for this cluster+session
+                    # shift to next box 
+                    x_offset += tile_width
                     continue
                 
-                # wfs = np.stack(wfs.apply(lambda x: np.fromstring(x.strip("[]"), sep=" ", 
-                #                                                  dtype=np.int32)))
-                wfs = np.stack(wfs[:1000].apply(lambda x:x))
-                print(f"Channel {site_col} {chnl}: ", wfs.shape)
+                # draw avg firing rate as backgound color
+                base_annot = sessionw_wfs_annots[s_id]
                 
-                # wfs = wfs[:, 5:-10]
+                for k, chnl in enumerate(sessionw_wfs.index):
+                    # convert from data values to pixels
+                    mean_wf = Y_uV2px(sessionw_wfs.loc[chnl, (s_id, 'avg_wf')]) +y_offset +chnl_y_spacing*k
+                    std_wf = Y_uV2px(sessionw_wfs.loc[chnl, (s_id, 'std_wf')]) 
+                    if not isinstance(mean_wf, np.ndarray): # is NA
+                        continue
+                    
+                    # print(base_annot)
+                    annot = highlight_channel_row(base_annot, f"C{chnl}:", color=wf_colors[k])
+                    # print(normed_avg_frate)
+                    annot += (f"<br>" + f"{normed_avg_frate.loc[s_id,'avg_frate']:.2f}Hz,"
+                              f" n={normed_avg_frate.loc[s_id,'n_spikes']:,d} spikes")
+                    x = X_smpls2px(np.arange(len(mean_wf))) +x_offset
+                    draw_waveform(mean_wf, std_wf, x, annotation=annot, col=wf_colors[k])
                 
-                draw_waveform(wfs, chnl, k, j==0, sess_spike_metadata,
-                              gnrl_annotation)
-
-            # return fig
-            # # prim_chn_wfs = spikes_cluster['channel_hpf_wf']
-            # # print(prim_chn_wfs)
-            # # parsed_arrays = prim_chn_wfs.apply(lambda x: print(np.fromstring(x.strip("[]"), sep=" ")))
-            # parsed_arrays = np.stack(prim_chn_wfs.apply(lambda x: np.fromstring(x.strip("[]"), sep=" ", dtype=np.int32)))
-            # parsed_arrays = parsed_arrays[:10_000, 10:-5]
-            # # parsed_arrays -= parsed_arrays[:, 9:10]
-            # # for row in parsed_arrays[:10_000, ]:
-            # #     fig.add_trace(
-            # #             go.Scatter(
-            # #                 x=np.arange(len(row)),
-            # #                 y=row,
-            # #                 mode='lines',
-            # #                 name=f"Waveform {cluster}",
-            # #                 opacity=0.4,
-            # #                 line=dict(color="blue", width=1),
-            # #             ),
-            # #             row=i + 1, col=j + 1
-            # #         )
+                # shift to next box 
+                x_offset += tile_width
             
-            
-            
-        #     break
-        # break
-    
-
-    
+        # reset x_offset for next cluster    
+        x_offset = intial_x_offset
+        # shift down for next cluster
+        y_offset += tile_height
     return fig

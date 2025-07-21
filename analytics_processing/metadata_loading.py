@@ -4,6 +4,8 @@ import ast
 
 from CustomLogger import CustomLogger as Logger
 
+import pandas as pd
+
 from analytics_processing.analytics_constants import device_paths
 
 def extract_metadata(metadata, session_name, session_fullfname):
@@ -101,7 +103,14 @@ def extract_metadata(metadata, session_name, session_fullfname):
     env_metadata = metadata.get("env_metadata")
     if env_metadata is not None and env_metadata.shape[0]:
         try:
-            metadata_parsed['env_metadata'] = json.loads(env_metadata.item())
+            env_metadata = json.loads(env_metadata.item())
+            # empty dicts are not allowed in parquet, replace with pd.NA
+            # eg freely moving paradigm has not pillars
+            if env_metadata.get("pillars") == {}:
+                env_metadata['pillars'] = pd.NA
+            if env_metadata.get("pillar_details") == {}:
+                env_metadata['pillar_details'] = pd.NA
+            metadata_parsed['env_metadata'] = env_metadata
         except json.JSONDecodeError:
             L.logger.error(f"Failed to parse env_metadata: {env_metadata.item()}")
             metadata_parsed['env_metadata'] = None

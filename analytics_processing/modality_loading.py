@@ -43,7 +43,8 @@ def session_modality_from_nas(session_fullfname, key, where=None, start=None,
             session_fullfname.endswith("2025-01-24_12-24_rYL006_P1100_LinearTrackStop_41min.hdf5")):
             # non comprssed mea1k data, ephys timestamps have wrong offset
             data = mT.fix_ephys_timestamps_offset(data)
-        if key == 'unity_frame' and 'frame_ephys_patched' not in data.columns:
+        # schema change, add frame_ephys_patched column if missing in old data
+        if data is not None and key == 'unity_frame' and 'frame_ephys_patched' not in data.columns:
             data["frame_ephys_patched"] = pd.NA
     return data
 
@@ -121,12 +122,11 @@ def get_modality_summary(session_fullfname):
         modality_summary = {}
         L.logger.debug(f"Creating summary of {modality_key} modality...")
         data = session_modality_from_nas(session_fullfname, modality_key)
-                    
         if modality_key == "metadata":
             # to pandas 
             data = pd.Series(data).to_frame().T
         
-        elif data is None or data == (None,None):
+        elif data is None or data is (None,None):
             L.logger.warning(f"Modality {modality_key} missing.")
             continue
         

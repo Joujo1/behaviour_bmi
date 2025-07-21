@@ -120,3 +120,6 @@ def sessionlist_fullfnames_from_args(paradigm_ids=None, animal_ids=None, session
                          f"to_date: {to_date}\n\t"
                          f"Merging {len(sessionlist_fullfnames)} sessions\n")
     return sessionlist_fullfnames, ids  
+
+def fullfnames2snames(all_sessions_ffnames):
+    return [os.path.basename(s_ffname)[:-5] for s_ffname in all_sessions_ffnames]

@@ -132,7 +132,15 @@ def draw_modality_heatmap(data, modalities, fig):
                 # check for missing frames in camera modalities
                 if modality.endswith('cam'):
                     key = f"{modality}_packages"
-                    n_missing_frames = session_modality_data[f"{key}_missing_frame_keys"].count(",") 
+                    n_missing_frames = session_modality_data[f"{key}_missing_frame_keys"]
+                    if isinstance(n_missing_frames, str):
+                        # encoded as string
+                        n_missing_frames = len(n_missing_frames.split(','))
+                    elif isinstance(n_missing_frames, np.ndarray):
+                        # encoded as numpy array
+                        n_missing_frames = len(n_missing_frames)
+                        
+                        
                     if n_missing_frames > 0:
                         annot += f"<span style='color:yellow'>Missing Frames: {n_missing_frames:,}</span><br>"
                         color = 1

@@ -172,6 +172,30 @@ def get_height_input(vis_name):
         )
     ]
 
+def get_vmin_input(vis_name):
+    return [
+        html.Label("V Min", style={"marginTop": 15}),
+        dcc.Input(
+            id=f'vmin-input-{vis_name}',
+            type='number',
+            value=0,
+            style={"width": "40%", "marginLeft": "5px"},
+            debounce = True,
+        )
+    ]
+
+def get_vmax_input(vis_name):
+    return [
+        html.Label("V Max", style={"marginTop": 15}),
+        dcc.Input(
+            id=f'vmax-input-{vis_name}',
+            type='number',
+            value=30,
+            style={"width": "40%", "marginLeft": "5px"},
+            debounce = True,
+        )
+    ]
+
 def register_animal_dropdown_callback(app, global_data, analytic, vis_name):
     data_loaded_id = get_vis_name_data_loaded_id(vis_name)
     
@@ -246,29 +270,37 @@ def register_paradigm_dropdown_callback(app, global_data, analytic, vis_name):
             return [{'label': f'Paradigm {i:04}', 'value': i} for i in paradigm_ids]
         return []
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-# def get_vis_name_data_loaded_id(vis_name):
-#     match vis_name:
-#         case 'Kinematics':
-#             data_loaded_id = C.DATA_LOADED_Kinematics_ID
-#         case 'StayPerformance':
-#             data_loaded_id = C.DATA_LOADED_StayPerformance_ID
-#         case 'SessionKinematics':
-#             data_loaded_id = C.DATA_LOADED_SessionKinematics_ID
-#         case 'StayRatio':
-#             data_loaded_id = C.DATA_LOADED_StayRatio_ID
-#         case 'EvolvingStayTime':
-#             data_loaded_id = C.DATA_LOADED_EvolvingStayTime_ID
-#         case _:
-#             raise ValueError(f"Unknown vis_name: {vis_name} for matching "
-#                             "with its data_loaded_id")
-#     return data_loaded_id
+def get_ca_method_radioitems_component(vis_name):
+    return [
+        html.Label("CA Method", style={"marginTop": 15}),
+        dcc.RadioItems(
+            [
+                {'label': 'Mean', 'value': 'mean'},
+                {'label': 'Median', 'value': 'median'},
+                {'label': 'Aligned Dims Count', 'value': 'aligned_dims_count'},
+                {'label': 'Unaligned Dims Mean', 'value': 'unaligned_dims_mean'},
+                {'label': 'Unaligned Dims Median', 'value': 'unaligned_dims_median'}
+            ],
+            inputStyle={"margin-right": "5px"},
+            style={"marginLeft": 5},
+            value='mean',
+            id=f'ca-method-{vis_name}'
+        )
+    ]
+
+def get_vis_name_data_loaded_id(vis_name):
+    match vis_name:
+        case 'Kinematics':
+            data_loaded_id = C.DATA_LOADED_Kinematics_ID
+        case 'StayPerformance':
+            data_loaded_id = C.DATA_LOADED_StayPerformance_ID
+        case 'SessionKinematics':
+            data_loaded_id = C.DATA_LOADED_SessionKinematics_ID
+        case 'StayRatio':
+            data_loaded_id = C.DATA_LOADED_StayRatio_ID
+        case 'EvolvingStayTime':
+            data_loaded_id = C.DATA_LOADED_EvolvingStayTime_ID
+        case _:
+            raise ValueError(f"Unknown vis_name: {vis_name} for matching "
+                            "with its data_loaded_id")
+    return data_loaded_id

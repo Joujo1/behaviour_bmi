@@ -12,6 +12,7 @@ import numpy as np
 # from dashsrc.plot_components.plots import plot_LickTrack
 from dashsrc.plot_components.plots import plot_SVMPredictions
 from dashsrc.plot_components.plots import plot_SessionWaveforms
+from dashsrc.plot_components.plots import plot_unit_fr_stability
 from dashsrc.plot_components.plots import plot_RawSpikes
 from dashsrc.plot_components.plots import plot_rawEvents
 from dashsrc.plot_components.plots import plot_fr
@@ -30,7 +31,8 @@ data = {}
 nas_dir = C.device_paths()[0]
 Logger().init_logger(None, None, logging_level="INFO")
 
-
+import plotly.io as pio
+pio.renderers.default = "browser"
 
 # # PANEL 1
 # paradigm_ids = [800]
@@ -106,34 +108,30 @@ Logger().init_logger(None, None, logging_level="INFO")
 # fig.show()
 
 
-# # ephys
-# paradigm_ids = [1100]
-# animal_ids = [6]
-# session_ids = None
-# # animal_ids = [10]
-# # session_ids = list(range(8))
-# width = 1400
-# height = 1400
-# group_by = None
-# data["Spikes"] = analytics.get_analytics('spikes', mode='set',
-#                                          paradigm_ids=paradigm_ids,
-#                                          animal_ids=animal_ids,
-#                                          session_ids=session_ids)
-# data["Spikes"] = data["Spikes"].iloc[:, :30]
-# data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
-#                                                     paradigm_ids=paradigm_ids,
-#                                                     animal_ids=animal_ids,
-#                                                     session_ids=session_ids)
-
-# # session_dir = sessionlist_fullfnames_from_args(paradigm_ids, animal_ids, session_ids)[0][0]
-# # raw_data_mmap, mapping = session_modality_from_nas(session_dir, 'ephys_traces')
-# # data['ephys_traces'] = raw_data_mmap
-# # data['implant_mapping'] = mapping
-# fig = plot_SessionWaveforms.render_plot(data['Spikes'], data['SpikeClusterMetadata'],
-#                                         width, height,)
-# fig.show()
+# ephys
+paradigm_ids = [1100]
+animal_ids = [6]
+session_ids = None
+# session_ids = [1,2,3]
+# session_names = ['2025-01-22_17-51_rYL006_P1100_LinearTrackStop_5min']
+width = 1400
+height = 1400
+group_by = None
+data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
+                                         paradigm_ids=paradigm_ids,
+                                         animal_ids=animal_ids,
+                                         session_ids=session_ids)
+data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
+                                                    paradigm_ids=paradigm_ids,
+                                                    animal_ids=animal_ids,
+                                                    session_ids=session_ids)
 
 
+fig = plot_unit_fr_stability.render_plot(data['SpikeClusterMetadata'])
+fig.show()
+fig = plot_SessionWaveforms.render_plot(data['SpikeClusterMetadata'], data['SessionMetadata'],
+                                        width, height,)
+fig.show()
 
 
 
@@ -295,79 +293,79 @@ Logger().init_logger(None, None, logging_level="INFO")
 
 
 
-# ephys
-paradigm_ids = [1100]
-animal_ids = [6]
-width = 700
-height = 700
-session_ids = None
-session_ids = [1,2]
+# # ephys
+# paradigm_ids = [1100]
+# animal_ids = [6]
+# width = 700
+# height = 700
+# session_ids = None
+# session_ids = [1,2]
 
-bases = analytics.get_analytics('PCsZoneBases', mode='set',
-                                paradigm_ids=paradigm_ids,
-                                animal_ids=animal_ids,
-                                session_ids=session_ids)
-bases.index = bases.index.droplevel((0,1,3))
-bases.set_index(['track_zone', 'predictor_name',], append=True, inplace=True)
+# bases = analytics.get_analytics('PCsZoneBases', mode='set',
+#                                 paradigm_ids=paradigm_ids,
+#                                 animal_ids=animal_ids,
+#                                 session_ids=session_ids)
+# bases.index = bases.index.droplevel((0,1,3))
+# bases.set_index(['track_zone', 'predictor_name',], append=True, inplace=True)
 
-angles = analytics.get_analytics('PCsSubspaceAngles', mode='set',
-                                paradigm_ids=paradigm_ids,
-                                animal_ids=animal_ids,
-                                session_ids=session_ids)
-angles.index = angles.index.droplevel((0,1,3))
-angles.set_index(['track_zone', 'predictor', 'comp_session_id'], append=True, inplace=True)
+# angles = analytics.get_analytics('PCsSubspaceAngles', mode='set',
+#                                 paradigm_ids=paradigm_ids,
+#                                 animal_ids=animal_ids,
+#                                 session_ids=session_ids)
+# angles.index = angles.index.droplevel((0,1,3))
+# angles.set_index(['track_zone', 'predictor', 'comp_session_id'], append=True, inplace=True)
 
 
-from scipy.linalg import subspace_angles
-from scipy.linalg import orth
+# from scipy.linalg import subspace_angles
+# from scipy.linalg import orth
 
-s_id = 1
-predictor = 'HP'
-track_zone = 'beforeCueZone'
-# print(np.deg2rad(angles.loc[(s_id, track_zone, predictor), :]))
+# s_id = 1
+# predictor = 'HP'
+# track_zone = 'beforeCueZone'
+# # print(np.deg2rad(angles.loc[(s_id, track_zone, predictor), :]))
 
-s1_PCs_U = bases.loc[(s_id, track_zone, predictor), :].dropna(axis=1, how='all')
-print("Session1 PCs")
-print(s1_PCs_U)
+# s1_PCs_U = bases.loc[(s_id, track_zone, predictor), :].dropna(axis=1, how='all')
+# print("Session1 PCs")
+# print(s1_PCs_U)
 
-s2_PCs_V = bases.loc[(s_id+1, track_zone, predictor), :].dropna(axis=1, how='all')
-print("Session1 PCs")
-print(s2_PCs_V)
+# s2_PCs_V = bases.loc[(s_id+1, track_zone, predictor), :].dropna(axis=1, how='all')
+# print("Session1 PCs")
+# print(s2_PCs_V)
 
-s1_PCs_U = s1_PCs_U.values[:, :22]
-s2_PCs_V = s2_PCs_V.values[:, :22]
+# s1_PCs_U = s1_PCs_U.values[:, :22]
+# s2_PCs_V = s2_PCs_V.values[:, :22]
 
-print("--")
-M = s1_PCs_U.T @ s2_PCs_V
-U_c, S, Vh_c = np.linalg.svd(M)  # S = cos(angles)
-print(np.arccos(S))
+# print("--")
+# M = s1_PCs_U.T @ s2_PCs_V
+# U_c, S, Vh_c = np.linalg.svd(M)  # S = cos(angles)
+# print(np.arccos(S))
 
-c1_U = (s1_PCs_U @ U_c[:, 0])
-print(c1_U)
-print(c1_U.shape)
-c1_U = (s1_PCs_U @ U_c[:, :])
-print(c1_U)
-print(c1_U.shape)
-exit()
-
-# c1_U = c1_U.reshape(-1, 20)
+# c1_U = (s1_PCs_U @ U_c[:, 0])
+# print(c1_U)
 # print(c1_U.shape)
-import matplotlib.pyplot as plt
+# c1_U = (s1_PCs_U @ U_c[:, :])
+# print(c1_U)
+# print(c1_U.shape)
+# exit()
+
+# # c1_U = c1_U.reshape(-1, 20)
+# # print(c1_U.shape)
+# import matplotlib.pyplot as plt
 
 
-plt.plot(c1_U, label='c1_U')
-# plt.vlines(x=np.arange(0, c1_U.shape[0], 20), ymin=-.15, ymax=.15, color='red', linestyle='--', label='PCs', alpha=.5)
-plt.vlines(x=np.arange(0, c1_U.shape[0], 68), ymin=-.15, ymax=.15, color='blue', linestyle='--', label='PCs', alpha=.5)
+# plt.plot(c1_U, label='c1_U')
+# # plt.vlines(x=np.arange(0, c1_U.shape[0], 20), ymin=-.15, ymax=.15, color='red', linestyle='--', label='PCs', alpha=.5)
+# plt.vlines(x=np.arange(0, c1_U.shape[0], 68), ymin=-.15, ymax=.15, color='blue', linestyle='--', label='PCs', alpha=.5)
 
 
-plt.figure()
-# c1_U.reshape(-1, 20)
-plt.imshow(c1_U.reshape(20, -1), cmap='viridis', aspect='auto')
+# plt.figure()
+# # c1_U.reshape(-1, 20)
+# plt.imshow(c1_U.reshape(20, -1), cmap='viridis', aspect='auto')
 
 
 
 
-plt.show()
+# plt.show()
 
 
 

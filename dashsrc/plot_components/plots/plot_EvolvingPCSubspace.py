@@ -13,170 +13,131 @@ import json
 
 
 
-def render_plot(data, CCs, metadata, selected_predictor, selected_session_focus, 
-                selected_trackzone, max_metric, avg_over_n_CCs, height, width):    
-    
-    session_t = pd.to_datetime(metadata.start_time, format='%Y-%m-%d_%H-%M')
-    session_t.index = session_t.index.get_level_values('session_id')
-    
-    
-    sessions = CCs.index.get_level_values('session_id').unique().to_list()
-    
-    if selected_predictor == 'HP':
-        nfeatures = 20
-    elif selected_predictor == 'mPFC':
-        nfeatures = 57
-    elif selected_predictor == 'HP-mPFC':
-        nfeatures = 77
-    elif selected_predictor == 'behavior':
-        nfeatures = 6
-        
-    zones = {
-        'beforeCueZone': (-168, -100),
-        'cueZone': (-80, 25),
-        'afterCueZone': (25, 50),
-        'reward1Zone': (50, 110),
-        'betweenRewardsZone': (110, 170),
-        'reward2Zone': (170, 230),
-        'postRewardZone': (230, 260),
-        'wholeTrack': (-168, 260),
-    }
-        
-    fig = make_subplots(rows=4, cols=1, row_heights=(.125, .125, .05, .7), vertical_spacing=0.01,)
-    
-    if selected_session_focus is not None:
-        idx_selected_session_focus = sessions.index(selected_session_focus)
-        
-        if idx_selected_session_focus < len(sessions)-1:
-            nxt_selected_session_focus = sessions[idx_selected_session_focus + 1]
-            
-            min_track, max_track = -169, 260
-            draw_track_illustration(fig, row=3, col=1, track_details=json.loads(metadata.iloc[0]['track_details']), 
-                                    min_track=min_track, max_track=max_track, choice_str='Stop', draw_cues=[2], 
-                                    double_rewards=False)
-        
-            print('===============')
-            print(data)
-            print('Selected Session Focus:', selected_session_focus)
-            print('Next Selected Session Focus:', nxt_selected_session_focus)
-            print(CCs.index.get_level_values('session_id').unique())
-            print(CCs.index.get_level_values('comp_session_id').unique())
-            print(CCs)
-            CCs_arr = CCs.loc[(selected_session_focus, nxt_selected_session_focus), :].dropna(axis=1, how='all').values
-            CCs_arr = np.abs(CCs_arr.reshape(CCs_arr.shape[0], nfeatures, -1))
-            print(CCs_arr)
-            print("CCs_arr.shape:")
-            print(CCs_arr.shape)
-            # print(PCs_range)
-            print('---------------')
-            
-            fig.add_trace(
-                go.Heatmap(
-                    z=CCs_arr[:avg_over_n_CCs].mean(axis=0),  # Average across CC_i
-                    x=np.arange(*zones[selected_trackzone]),  # Use feature indices as x-axis
-                    # y=np.arange(CCs_arr.shape[2]),  # Use CC_i indices as y-axis
-                    # y=mean_angles.index.get_level_values('comp_session_id').astype(str),  # Use session_id as y-axis
-                    colorscale='Greys',
-                ), row=1, col=1,
-            )
-            fig.add_trace(
-                go.Heatmap(
-                    z=CCs_arr[-avg_over_n_CCs:].mean(axis=0),  # Average across CC_i
-                    x=np.arange(*zones[selected_trackzone]),  # Use feature indices as x-axis
-                    # y=np.arange(CCs_arr.shape[2]),  # Use CC_i indices as y-axis
-                    # x=mean_angles.columns.astype(str),  # Use session_id as x-axis
-                    # y=mean_angles.index.get_level_values('comp_session_id').astype(str),  # Use session_id as y-axis
-                    colorscale='Greys',
-                ), row=2, col=1,
-            )
-            
-            fig.update_xaxes(
-                range=[min_track, max_track],
-                row=2, col=1
-            )
-            fig.update_yaxes(
-                title_text='last CCs',
-                range=(0, nfeatures),
-                row=2, col=1
-            )
-            fig.update_xaxes(
-                range=[min_track, max_track],
-                row=1, col=1
-            )
-            fig.update_yaxes(
-                title_text='first CCs',
-                range=(0, nfeatures),
-                row=1, col=1
-            )
-            
-            
-    
-    # selected_session_focus = [selected_session_focus, selected_session_focus + 1]
-    # selected_session_focus = filter(lambda x: x in session_slice, selected_session_focus)
+def render_plot(PCs, CAs, metadata, height, width, ca_method='mean', vmin=0, vmax=30):
+    print(PCs)
+    print(CAs)
+    print(metadata)
+    print("======================")
 
-    mean_angles = data.iloc[:, :].mean(axis=1).unstack(level=0)
-    mean_angles = np.cos(mean_angles)  # Convert radian angles to cosine similarity
-    print(mean_angles)
+    # Get available sessions from the PCs data
+    available_sessions = PCs.index.get_level_values('session_id').unique()
+    print(f"Available sessions: {available_sessions}")
     
-    if height == -1:
-        height = 2000
-   
+    # Filter CAs to only include sessions present in the data
+    CAs_filtered = CAs.loc[
+        (CAs['from_session_id'].isin(available_sessions)) & 
+        (CAs['to_session_id'].isin(available_sessions))
+    ].copy()
     
-    # draw_track_illustration(fig, row, col, track_details, min_track, max_track, 
-    #                         draw_cues=[2], choice_str='Stay', double_rewards=False):
+    CAs_filtered.set_index(['from_session_id', 'to_session_id'], inplace=True)
+    print(f"Filtered CAs shape: {CAs_filtered.shape}")
+
+    method = ca_method  # Use the passed parameter instead of hardcoded value
+    
+    # Different methods to process the CAs data
+    if method == 'mean':
+        CAs_processed = CAs_filtered.mean(axis=1)
+        colorbar_title = 'Mean Canonical Angles'
+    elif method == 'median':
+        CAs_processed = CAs_filtered.median(axis=1)
+        colorbar_title = 'Median Canonical Angles'
+    elif method == 'aligned_dims_count':
+        # Count of aligned dimensions (canonical angles close to 0, < 0.01)
+        CAs_processed = (CAs_filtered < 0.01).sum(axis=1)
+        colorbar_title = 'Aligned Dims Count'
+    elif method == 'unaligned_dims_mean':
+        # Mean of unaligned dimensions (canonical angles >= 0.01)
+        CAs_unaligned = CAs_filtered[CAs_filtered >= 0.01]
+        CAs_processed = CAs_unaligned.mean(axis=1)
+        colorbar_title = 'Unaligned Dims Mean'
+    elif method == 'unaligned_dims_median':
+        # Median of unaligned dimensions (canonical angles >= 0.01)
+        CAs_unaligned = CAs_filtered[CAs_filtered >= 0.01]
+        CAs_processed = CAs_unaligned.median(axis=1)
+        colorbar_title = 'Unaligned Dims Median'
+    else:
+        # Default to mean if unknown method
+        CAs_processed = CAs_filtered.mean(axis=1)
+        colorbar_title = 'Mean Canonical Angles'
+    
+    # Convert to matrix format
+    print(CAs_processed)
+    CAs_matrix = CAs_processed.unstack(level='to_session_id')
+    print(f"CAs matrix shape: {CAs_matrix.shape}")
+    print(CAs_matrix)
+
+    # make two rows of subplots
+    fig = make_subplots(
+        rows=2, cols=1, 
+        shared_xaxes=True,
+        row_heights=[0.25, 0.75],  # Top plot 25%, bottom plot 75%
+        vertical_spacing=0.05,     # Reduce spacing between plots
+        subplot_titles=("Number of PCs for Explained Variance Thresholds", "Cell Assembly Correlations Across Sessions")
+    )
     
     
+    expl_var = PCs.explained_variance.unstack(level='session_id')
+    expl_var = expl_var.cumsum(axis=0)
+    
+    threshs = [0.5, .8, 0.95]
+    nPCs = {}
+    for thresh in threshs:
+        nPCs[thresh] = (expl_var < thresh).sum(axis=0)
+    # plot as separate traces on first row
+    for i, (thresh, nPCs) in enumerate(nPCs.items()):
+        fig.add_trace(
+            go.Scatter(
+                x=expl_var.columns,  # Use actual session_ids instead of range
+                y=nPCs.values,
+                mode='lines+markers',
+                name=f'nPCs {int(thresh*100)}% expl. var.',
+            ),
+            row=1, col=1
+        )
+    fig.update_yaxes(
+        title_text='Number of PCs',
+        range=[0, PCs.columns.str.startswith('PC').sum()],
+        row=1, col=1
+    )
+    fig.update_xaxes(
+        type='category',
+        showticklabels=False,  # Hide x-axis labels on top plot since it's shared
+        row=1, col=1
+    )
+    
+    # draw a heatmap of the CAs
     fig.add_trace(
         go.Heatmap(
-            z=mean_angles.values,
-            x=mean_angles.columns.astype(str),  # Use session_id as x-axis
-            y=mean_angles.index.get_level_values('comp_session_id').astype(str),  # Use session_id as y-axis
+            z=CAs_matrix.values,
+            x=CAs_matrix.index,
+            y=CAs_matrix.columns,
             colorscale='Viridis',
-            colorbar=dict(title='Subspace Angle (cosine similarity)'),
-            zmin=0, zmax=max_metric,  # Adjust based on expected range of angles
-        ), row=4, col=1,
+            colorbar=dict(title=colorbar_title),
+            zmin=vmin,
+            zmax=vmax,
+        ),
+        row=2, col=1
     )
-    
-    # Draw BOX around selected session, sel session+1
-    if selected_session_focus is not None and selected_session_focus+1 in mean_angles.columns:
-        # Find the x-position (index) of the selected session
-        position = list(mean_angles.columns.astype(str)).index(str(selected_session_focus))
-        fig.add_shape(
-            type='rect',
-            x0=position-0.5,
-            y0=position-0.5,
-            x1=position+1.5,
-            y1=position+1.5,
-            fillcolor='rgba(255,255,255,0.05)',
-            line=dict(color='red', width=2, dash='dash'),
-            xref='x',
-            yref='y',
-            row=4, col=1
-        )
-        
-        print(CCs)
-        # Add text annotation for the selected session
-        
     fig.update_yaxes(
-        title_text='Session ID',
-        scaleanchor="x",
+        title_text='To Session',
+        range=[len(CAs_matrix.columns)-0.5, -0.5],  # Adjust range to remove padding
+        scaleanchor="x2",
         scaleratio=1,
-        row=4, col=1
+        type='category',
+        row=2, col=1
+    )
+    fig.update_xaxes(
+        title_text='From Session',
+        constrain="domain",
+        type='category',
+        range=[-0.5, len(CAs_matrix.index)-0.5],  # Adjust range to remove padding
+        row=2, col=1
     )
     
-    # set background to white
     fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=False),
-        title=f'Subspace Angles for {selected_predictor} {selected_trackzone}',
-        # autosize=True,
-        
-        height=height,
-        
-        
-        # margin=dict(l=100, r=20, t=50, b=50)  # Adjust margins as needed
+        height=1200, width=1200,
+        showlegend=True,
+        margin=dict(l=50, r=50, t=100, b=50),  # Reduce margins
     )
-    print("Done rednering")
+
     return fig

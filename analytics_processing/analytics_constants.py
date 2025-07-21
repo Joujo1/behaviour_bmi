@@ -23,7 +23,7 @@ def device_paths():
         local_data_dir = "/home/vrmaster/local_data/"
         project_dir = "/home/loaloa/homedataXPS/projects/ratvr/VirtualReality/"
     
-    elif which_os == "Darwin" and user == "root":
+    elif which_os == "Darwin" and (user == "root" or user == "loaloa"):
         nas_dir = "/Volumes/large/BMI/VirtualReality/SpatialSequenceLearning/"
         # nas_dir = "/Users/loaloa/local_data/nas_imitation"
         folders = [f for f in os.listdir("/Users") if os.path.isdir(os.path.join("/Users", f))]
@@ -561,6 +561,7 @@ POSITION_BIN_TABLE_EXCLUDE = ["frame_x_position", "frame_angle",
 
 SPIKES_TABLE = OrderedDict([
     ("cluster_id", pd.Int16Dtype()),        # max 32767 
+    ("cluster_id_str", pd.StringDtype()),  # string representation of cluster_id Unit0013 
     ("sample_id", pd.UInt32Dtype()),          
     ("ephys_timestamp", pd.UInt64Dtype()),   
     ('ss_batch_id', pd.UInt16Dtype()),
@@ -574,11 +575,14 @@ SPIKES_TABLE = OrderedDict([
     ("channel", pd.UInt16Dtype()),
     ("shank", pd.UInt8Dtype()),
     ("depth", pd.UInt16Dtype()),
+    ('gross_brain_area', pd.StringDtype()),
+    ('fine_brain_area', pd.StringDtype()),
 ])
 
 SPIKES_CLUSTER_METADATA_TABLE = OrderedDict([
     ("cluster_id_ssbatch", pd.Int16Dtype()),        # max 32767 
     ('cluster_id', pd.UInt16Dtype()),
+    ("cluster_id_str", pd.StringDtype()),  # string representation of cluster_id Unit0013 
     ('cluster_channel', pd.UInt16Dtype()),
     ('cluster_type', pd.StringDtype()),
     ('unit_count', pd.UInt64Dtype()),
@@ -603,6 +607,14 @@ SPIKES_CLUSTER_METADATA_TABLE = OrderedDict([
     ('shank_id', pd.UInt16Dtype()),
     ('session_nsamples', pd.UInt64Dtype()),
     ('cluster_color', pd.StringDtype()),
+    
+    ('gross_brain_area', pd.StringDtype()),
+    ('fine_brain_area', pd.StringDtype()),
+    ('channel_wf_count', pd.StringDtype()), # {4: 4222, 7: 42 ...} # how often was a specific channel the primary channel
+    ('channel_2nd_wf_count', pd.StringDtype()), # {7: 4222, 4: 42 ...} # how often was a specific channel the 2nd channel
+    ('channel_3rd_wf_count', pd.StringDtype()), # can be NA
+    ('averge_wf', pd.StringDtype()), # {'4': [6, 12, ...], '7': [-18, 0, ...]} # average waveform of the cluster by channel
+    ('std_wf', pd.StringDtype()), # {'4': [6, 12, ...], '7': [-18, 0, ...]} # standard deviation of the waveform of the cluster by channel
 ])
 
 # Index(['trial_id', 'trial_outcome', 'zone', 'HP', 'mPFC', 'behavior'], dtype='object')
@@ -633,7 +645,7 @@ SVM_CUE_OUTCOME_CHOICE_PRED_TABLE = OrderedDict([
 ])  
 
 FIRING_RATE_40MS_HZ_ONE_DTYPE = pd.UInt64Dtype()
-# FIRING_RATE_40MS_Z_ONE_DTYPE = pd.Float32Dtype() # variable length, all columns are float32
+FIRING_RATE_40MS_Z_ONE_DTYPE = pd.Float32Dtype() # variable length, all columns are float32
 FIRING_RATE_TRACKWISE_HZ_ONE_DTYPE = pd.Float32Dtype() # variable length, all columns are float32
 # SPIKES_CLUSTER_METADATA_ARGS - {
 #     'order_cluster_by': 'rastermap',
