@@ -37,6 +37,11 @@ def device_paths():
         else:
             raise ValueError("Unknown MacOS user")
     
+    elif which_os == "Windows" and user == "Yuanzhao":
+        nas_dir = "Z:/BMI/VirtualReality/SpatialSequenceLearning/"
+        local_data_dir = "C:/Users/Yuanzhao/Desktop/VR_Analysis_Cache/"
+        project_dir = "C:/Users/Yuanzhao/Desktop/VR_Analysis_Project/"
+    
     else:
         nas_dir, local_data_dir, project_dir = None, None, None
         raise ValueError("Unknown OS or user: ", which_os, user)
