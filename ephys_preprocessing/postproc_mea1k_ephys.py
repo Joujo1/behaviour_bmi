@@ -12,6 +12,7 @@ import analytics_processing.sessions_from_nas_parsing as sp
 import analytics_processing.modality_loading as ml
 from analytics_processing.analytics_constants import device_paths
 from sklearn.linear_model import LinearRegression
+from scipy.stats import ttest_ind
 
 from scipy.signal import butter
 from scipy.signal import filtfilt
@@ -473,9 +474,9 @@ def extract_jrc_spikes(session_fullfname): #, get_spikes=False,
 
 def get_FiringRate40msHz(spikes, all_cluster_names):
     # create a timer interval calmun from sample_id
-    bin_size_us = 40_000 # in us
-    breaks = np.arange(0, spikes['ephys_timestamp'].max()+bin_size_us, 
-                       bin_size_us, dtype='uint64')
+    bin_size_us_us = 40_000 # in us
+    breaks = np.arange(0, spikes['ephys_timestamp'].max()+bin_size_us_us, 
+                       bin_size_us_us, dtype='uint64')
     spikes['bin_40ms'] = pd.cut(
         spikes['ephys_timestamp'],
         bins=pd.IntervalIndex.from_breaks(breaks)
@@ -499,10 +500,8 @@ def get_FiringRate40msZ(fr_hz):
         if not x.name.startswith('Unit'):
             return x
         if (x == 0).all():
-            x.iloc[-1] = 25 # artifical single spike in last time bin to calc std
+            return np.nan * np.ones_like(x)
         z = ((x - x.mean()) / x.std())
-        # last row is invalid because of artifical spike in last time bin, fill with previous bin
-        # z.iloc[-1] = z.iloc[-2]
         return z
     return fr_hz.apply(zscore, axis=0)
 
@@ -587,7 +586,7 @@ def get_SessionPCs40msCAs(PCs):
     angle_aggr.index.names = ['from_session_id', 'to_session_id']
     return angle_aggr.reset_index()
 
-def get_Ensamble40msProjEncodings(ensemble_proj, kinematics, kinematic_vars=None, verbose=True):
+def get_Ensamble40msProjEncodings(ensemble_proj, kinematics, time_interval_sec=5*60,stride_sec=1*60, kinematic_vars=None, verbose=True):
     """
     For each ensemble, fit a linear regression to predict its activity from each kinematic variable.
     Returns a DataFrame with R² scores for each ensemble/kinematic pair.
@@ -599,40 +598,244 @@ def get_Ensamble40msProjEncodings(ensemble_proj, kinematics, kinematic_vars=None
     
     Returns: DataFrame (rows: ensemble, columns: kinematic variable, values: R²)
     """
-    # Map kinematics to ensemble time bins
-    if not isinstance(ensemble_proj.index, pd.IntervalIndex):
-        raise ValueError("ensemble_proj must have IntervalIndex as index (time bins).")
-    # Assign each kinematics row to a bin
-    kinematics = kinematics.copy()
-    kinematics['ephys_bin'] = ensemble_proj.index.get_indexer(kinematics.index)
-    kinematics_grouped = kinematics.groupby('ephys_bin').mean().round(3)
-    # Only keep bins that exist in ensemble_proj
-    kinematics_grouped = kinematics_grouped.loc[kinematics_grouped.index >= 0]
-    # Optionally select kinematic variables
-    if kinematic_vars is None:
-        kinematic_vars = [col for col in kinematics_grouped.columns if col.startswith('frame_')]
-    # Prepare result DataFrame
-    r2_results = pd.DataFrame(index=ensemble_proj.columns, columns=kinematic_vars, dtype=float)
-    model = LinearRegression()
-    # For each ensemble
-    for ens in ensemble_proj.columns:
-        y = ensemble_proj[ens].iloc[kinematics_grouped.index]
-        for regre in kinematic_vars:
-            x = kinematics_grouped[regre]
-            # Fit regression
-            model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-            r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-            r2_results.loc[ens, regre] = r2
-            if verbose and r2 > 0.03:
-                print(f"Ensemble {ens} - {regre} R^2: {r2:.3f}")
-    return r2_results
 
-def get_ConcatenatedPCA40ms(fr_z):
+    # convert session_id to a column in kinematics, make ephys timestamp the index
+    kinematics['session_id'] = kinematics.index.get_level_values('session_id')
+    kinematics.reset_index(inplace=True, drop=True)
+    kinematics.set_index('frame_ephys_timestamp', inplace=True)
+    
+    # index by ephys timestamp intervals
+    ensemble_proj.index = pd.IntervalIndex.from_arrays(ensemble_proj.pop("from_ephys_timestamp"),
+                                                       ensemble_proj.pop("to_ephys_timestamp"))
+
+    bin_size_us = ensemble_proj.index[0].right - ensemble_proj.index[0].left
+    time_interval_nbins = int(time_interval_sec * 1_000_000 / bin_size_us)
+    stride_nbins = int(stride_sec * 1_000_000 / bin_size_us)
+    
+    aggr_results = []
+    for s_id in ensemble_proj.session_id.unique():
+        sess_kinematics = kinematics[kinematics.session_id == s_id]
+        sess_ensemble_proj = ensemble_proj[ensemble_proj.session_id == s_id]
+        if sess_kinematics.empty or sess_ensemble_proj.empty:
+            print(f"Skipping session {s_id} due to empty kinematics or ensemble projection.")
+            exit(0)
+            
+        print((0, len(sess_ensemble_proj), stride_nbins))
+        # bin_edges = []
+        for from_bin_i in range(0, len(sess_ensemble_proj)-2*stride_nbins, stride_nbins):
+            to_bin_i = from_bin_i + time_interval_nbins
+            print(f"\nProcessing session {s_id} from bin {from_bin_i} to {to_bin_i}, of {sess_ensemble_proj.shape} bins.", end=' ', flush=True)
+            # bin_edges.append((from_bin_i, to_bin_i))
+            # print(f"Session {s_id} - from {from_bin_i} to {to_bin_i}; ({to_bin_i - from_bin_i} bins)")
+
+            # block_sess_kinematics = sess_kinematics.iloc[from_bin_i:to_bin_i]
+            # print(block_sess_kinematics)
+            block_sess_ensemble_proj = sess_ensemble_proj.iloc[from_bin_i:to_bin_i]
+            if block_sess_ensemble_proj.empty:
+                print(f"Skipping empty ensemble projection for session {s_id} "
+                      f"from bin {from_bin_i} to {to_bin_i}.")
+                continue
+            
+            block_t = block_sess_ensemble_proj.index[block_sess_ensemble_proj.shape[0]-1].mid
+            block_sess_kinematics = sess_kinematics.copy()
+            # assign each row/timestamp to its 40ms interval bin
+            block_sess_kinematics['ephys_bin'] = block_sess_ensemble_proj.index.get_indexer(block_sess_kinematics.index)
+            # then group by this index and take the mean
+            block_sess_kinematics = block_sess_kinematics.groupby('ephys_bin').mean().round(3)
+            # drop -1 bin
+            block_sess_kinematics = block_sess_kinematics.loc[block_sess_kinematics.index >= 0]
+            # slice to bins for which there is behavior (eg missing before unity launches)
+            
+            
+            
+            # clip the acceleration to +-5 std, outliers from recording start
+            acc = block_sess_kinematics['frame_acceleration']
+            # print(acc.sort_values())
+            acc.loc[:] = np.clip(acc, -15, 15)
+            # print(acc.sort_values())
+            forward_acc_positive_only = acc.copy()
+            forward_acc_positive_only[forward_acc_positive_only <= 0] = np.nan
+            
+            forward_acc_negative_only = acc.copy()
+            forward_acc_negative_only[forward_acc_negative_only >= 0] = np.nan
+
+            # shift down the ephys index by one second, predict future acceleration
+            forward_acc_in1sec = acc.copy()
+            nbins_1sec = int(1 * 1_000_000 / bin_size_us)
+            idx = forward_acc_in1sec.index.values[:-nbins_1sec]
+            forward_acc_in1sec = forward_acc_in1sec.iloc[nbins_1sec:]
+            forward_acc_in1sec.index = idx
+
+            forward_acc_positive_only_in1sec = forward_acc_in1sec.copy()
+            forward_acc_positive_only_in1sec[forward_acc_positive_only_in1sec <= 0] = np.nan
+            
+            forward_acc_negative_only_in1sec = forward_acc_in1sec.copy()
+            forward_acc_negative_only_in1sec[forward_acc_negative_only_in1sec >= 0] = np.nan
+
+            Y = pd.DataFrame({
+             'forward_vel': block_sess_kinematics['frame_raw'],
+             'sideway_vel': block_sess_kinematics['frame_yaw'],
+             'sideway_vel_abs': np.abs(block_sess_kinematics['frame_yaw']),
+             'rotation_vel': block_sess_kinematics['frame_pitch'],
+             'rotation_vel_abs': np.abs(block_sess_kinematics['frame_pitch']),
+             
+             'forward_acc': acc,
+             'forward_acc_abs': np.abs(acc),
+             'forward_acc_positive_only': forward_acc_positive_only,
+             'forward_acc_negative_only': forward_acc_negative_only,
+            
+             'forward_acc_in1sec': forward_acc_in1sec,
+             'forward_acc_abs_in1sec': np.abs(forward_acc_in1sec),
+             'forward_acc_positive_only_in1sec': forward_acc_positive_only_in1sec,
+             'forward_acc_negative_only_in1sec': forward_acc_negative_only_in1sec,
+                
+             })
+            
+            # make a 4x4 grid matplotlib figure, one hist for each variable
+            # for i, (col_name, col_data) in enumerate(Y.items()):
+            #     ax = axs[i // 4, i % 4]
+            #     ax.hist(col_data.dropna(), bins=50, alpha=0.7, label=f"n={col_data.dropna().count()}")
+            #     ax.set_title(col_name)
+            #     ax.set_xlabel('Value')
+            #     ax.set_ylabel('Frequency')
+            #     ax.legend()
+            # plt.tight_layout()
+            # plt.show()
+            
+            
+            # for regre in kinematic_vars:
+            # x = kinematics_grouped[regre]
+            # # Fit regression
+            # model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+            # r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+            # r2_results.loc[ens, regre] = r2
+            # if verbose and r2 > 0.03:
+
+            for ensemble in [col for col in block_sess_ensemble_proj.columns if col.startswith("Assembly")]:
+                
+                if ensemble == 'Assembly003':
+                    fig, axs = plt.subplots(4, 4, figsize=(16, 12))
+                    fig.suptitle(f"Session {s_id} - {from_bin_i}-{to_bin_i}; {block_t:,} - Ensemble: {ensemble}", fontsize=12)
+                    axs = axs.flatten()
+                
+                for i, encodes_col in enumerate(Y.columns):
+                    y = Y[encodes_col]
+                    y = y.dropna()
+                    x = (block_sess_ensemble_proj[ensemble].iloc[y.index])
+                    
+                    if x.isna().all() or y.isna().all():
+                        continue
+
+                    model = LinearRegression()
+                    model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+                    # y_pred = model.predict(x.values.reshape(-1, 1))
+                    r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+                    # print(f"Ensemble {ensemble} - {encodes_col} R^2: {r2:.3f}")
+
+                    
+                    # see if outliers encode high versus low y metric
+                    high_x_mask = (x >x.std()).values
+                    low_x_mask = (x < -x.std()).values
+                    high_y = y[high_x_mask]
+                    low_y = y[low_x_mask]
+                    
+                    _, p_val = ttest_ind(high_y, low_y, equal_var=False)
+                    if low_x_mask.sum() < 50 or high_x_mask.sum() < 50:
+                        print(f"{low_x_mask.sum():_},{high_x_mask.sum():_},skipping", end='   ')
+                        continue
+
+                    aggr_results.append(pd.Series({ #"x": x.tolist(), "y": y.tolist(), 
+                                                   "n": len(x), "r2": 
+                     r2, "p_val_highlow_activation": p_val, 'avg_activation': x.mean(),
+                    }, name=(s_id, block_t, ensemble, encodes_col)))
+
+
+                    if ensemble == 'Assembly003':
+
+                        axs[i].set_xlim(-4.2,4.2)
+                        axs[i].scatter(np.clip(x[high_x_mask], -4,4), y[high_x_mask], s=1, alpha=0.3, color='red', )
+                        axs[i].scatter(np.clip(x[low_x_mask], -4,4), y[low_x_mask], s=1, alpha=0.3, color='blue', )
+
+                        # draw boxplot of high and low x values, without outlier points
+                        axs[i].boxplot([y[high_x_mask], y[low_x_mask]],
+                                    positions=[1, -1], widths=0.5, 
+                                    # labels=['High X', 'Low X'], 
+                                        showfliers=False,
+                                    patch_artist=True, notch=True)
+                        axs[i].hlines(y[high_x_mask].mean(), -4, 4, colors='red', linestyles='dashed')
+                        axs[i].hlines(y[low_x_mask].mean(), -4, 4, colors='blue', linestyles='dashed',
+                                    label='** p = {:.3f}'.format(p_val) if p_val < 0.05 else '')
+                        axs[i].set_title(f'{encodes_col}, n={len(y):,}')
+                        axs[i].tick_params(axis='both', which='major', labelsize=6)
+                        # plt.legend(fontsize=12)
+                        if p_val < 0.05:
+                            axs[i].legend(fontsize=12, edgecolor='black',)
+
+                    # Plot regression line (sorted for clarity)
+                    # sort_idx = np.argsort(x)
+                    # ax.plot(x.iloc[sort_idx], y_pred[sort_idx], color='red', linewidth=2, label='Regression line')
+
+                    # ax.set_xlabel(f'{ensemble}', fontsize=8)
+                    # ax.set_ylabel(encodes_col)
+                    # ax.set_title(f'R^2: {r2:.3f}')
+                    # ax.legend(fontsize=6)
+            # if ensemble == 'Assembly003':
+                
+        # plt.tight_layout()
+        # plt.show()    
+        
+        # if s_id == 3:
+        #     aggr_results = pd.concat(aggr_results, axis=1).T
+        #     print(aggr_results)
+        #     aggr_results.index.rename(('session_id', 'ephys_timestamp', 'ensemble', 'behavior_variable'), inplace=True)
+        #     print(aggr_results)
+        #     print(aggr_results.iloc[20])
+        #     aggr_results = aggr_results.reset_index()
+    return aggr_results
+
+    
+    # # Assign each kinematics row to a bin
+    # kinematics = kinematics.copy()
+    # kinematics['ephys_bin'] = ensemble_proj.index.get_indexer(kinematics.index)
+    # kinematics_grouped = kinematics.groupby('ephys_bin').mean().round(3)
+    # # Only keep bins that exist in ensemble_proj
+    # kinematics_grouped = kinematics_grouped.loc[kinematics_grouped.index >= 0]
+    # # Optionally select kinematic variables
+    # if kinematic_vars is None:
+    #     kinematic_vars = [col for col in kinematics_grouped.columns if col.startswith('frame_')]
+    # # Prepare result DataFrame
+    # r2_results = pd.DataFrame(index=ensemble_proj.columns, columns=kinematic_vars, dtype=float)
+    # model = LinearRegression()
+    # # For each ensemble
+    # for ens in ensemble_proj.columns:
+    #     y = ensemble_proj[ens].iloc[kinematics_grouped.index]
+    #     for regre in kinematic_vars:
+    #         x = kinematics_grouped[regre]
+    #         # Fit regression
+    #         model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+    #         r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+    #         r2_results.loc[ens, regre] = r2
+    #         if verbose and r2 > 0.03:
+    #             print(f"Ensemble {ens} - {regre} R^2: {r2:.3f}")
+    # return r2_results
+
+def get_ConcatenatedPCA40ms(fr_hz):
     # fill 0 firing rate neurons with the minimum firing rate of the session (0 Hz)
-    fr_z = fr_z.groupby(level='session_id').apply(lambda x: x.fillna(x.min().min()))
-    fr_z = fr_z.set_index(["from_ephys_timestamp","to_ephys_timestamp"], append=True)
-    fr_z.reset_index(level=(0,1,2,4), inplace=True, drop=True)
-    print(f"Firing rate shape: {fr_z}")
+    # print(fr_z)
+    # print(fr_z.isna().sum().sum()   )
+    # fr_z = fr_z.groupby(level='session_id').apply(lambda x: x.fillna(x.min().min()))
+    # fr_z = fr_z.apply(lambda unit_fr: unit_fr.fillna(unit_fr.min()))
+    
+    fr_hz = fr_hz.set_index(["from_ephys_timestamp","to_ephys_timestamp"], append=True)
+    fr_hz.reset_index(level=(0,1,2,4), inplace=True, drop=True)
+
+    fr_z = fr_hz.apply(lambda unit_fr: ((unit_fr - unit_fr.mean()) / unit_fr.std()))
+
+    # print(f"Firing rate shape: {fr_z}")
+    # print(fr_z)
+    # exit()
+    # print(fr_z.isna().sum().sum()   )
+    # exit()
     
     Z = fr_z.values.T  # transpose to have neurons in rows, time bins in columns
     
@@ -647,12 +850,21 @@ def get_ConcatenatedPCA40ms(fr_z):
     eigenval_sum = np.sum(eigenvals)
     expl_var = eigenvals / eigenval_sum
     
-    # # calculate projection of the data onto the eigenvectors
-    # Z_pca =  eigenvecs @ Z
-    # PC_embeddings = pd.DataFrame(Z_pca.T, index=fr_z.index,
-    #                              columns=[f"PC{i+1}" for i in range(Z_pca.shape[0])])
-    # print(PC_embeddings)
+    # calculate projection of the data onto the eigenvectors
+    Z_pca =  eigenvecs @ Z
+    PC_embeddings = pd.DataFrame(Z_pca.T, index=fr_z.index,
+                                 columns=[f"PC{i+1}" for i in range(Z_pca.shape[0])])
+    print(PC_embeddings)
     
+    for i in range(PC_embeddings.shape[1]):
+        plt.figure(figsize=(10, 6))
+        plt.hist(np.clip(PC_embeddings.iloc[:, i], a_min=-5, a_max=5), bins=100, alpha=0.5, label=f'PC{i+1}')
+        plt.xlabel(f'PC{i+1}')
+        plt.ylabel('Frequency')
+        plt.title(f'Distribution of PC{i+1}')
+        plt.legend()
+        plt.show()
+
     PCs = pd.DataFrame(eigenvecs, columns=[f"PC{i+1}" for i in range(eigenvecs.shape[1])])
     PCs = pd.concat([PCs, pd.Series(eigenvals, name='eigenvalues')], axis=1)
     PCs = pd.concat([PCs, pd.Series(expl_var, name='explained_variance')], axis=1)
@@ -683,17 +895,19 @@ def _compute_assembly_activity_numba(assembly_templates, fr_data):
     
     return assembly_activity
 
-def get_ConcatenatedEnsambles40ms(PCs, all_fr_z):
+def get_ConcatenatedEnsambles40ms(PCs, all_fr_hz):
     eigenvalues = PCs.pop('eigenvalues')
     explained_variance = PCs.pop('explained_variance')
     print(PCs)
     
-    from_ephys_timestamp = all_fr_z.pop('from_ephys_timestamp',)
-    to_ephys_timestamp = all_fr_z.pop('to_ephys_timestamp',)
-    session_id = all_fr_z.index.get_level_values('session_id')
-    all_fr_z = all_fr_z.groupby(level='session_id').apply(lambda x: x.fillna(x.min().min()))
-    print(all_fr_z)
-    
+    from_ephys_timestamp = all_fr_hz.pop('from_ephys_timestamp',)
+    to_ephys_timestamp = all_fr_hz.pop('to_ephys_timestamp',)
+    session_id = all_fr_hz.index.get_level_values('session_id')
+    # fill NaN z scores where no spike is detected in a session with the min value across all sessions
+    # all_fr_z = all_fr_z.apply(lambda unit_fr: unit_fr.fillna(unit_fr.min()))
+    all_fr_z = all_fr_hz.apply(lambda unit_fr: ((unit_fr - unit_fr.mean()) / unit_fr.std()))
+
+
     n_bins = all_fr_z.shape[0]
     n_neurons = PCs.shape[0]
     # Determine statistical threshold
@@ -723,6 +937,19 @@ def get_ConcatenatedEnsambles40ms(PCs, all_fr_z):
     assembly_activity = pd.DataFrame(assembly_activity.T,
                                      columns=[f"Assembly{i+1:03d}" for i in range(n_assemblies)],
                                      index=idx)
+    print(assembly_activity)
+
+    session_stop_t = np.cumsum(assembly_activity.groupby('session_id').apply(lambda x: x.iloc[-1].name[1]))
+    print(session_stop_t)
+    
+    for i in range(n_assemblies):
+        plt.plot(np.cumsum(assembly_activity[f"Assembly{i+1:03d}"].index.get_level_values('from_ephys_timestamp')),
+                 assembly_activity[f"Assembly{i+1:03d}"].values, 
+                 label=f"Assembly {i+1:03d}")
+        plt.vlines(session_stop_t, ymin=0, ymax=assembly_activity[f"Assembly{i+1:03d}"].max(),
+                   colors='red', linestyles='dashed', label=f"Session {i+1:03d} stop")
+        plt.xlabel('Ephys Timestamp')
+        plt.show()
     return assembly_templates, assembly_activity.reset_index()
 
 

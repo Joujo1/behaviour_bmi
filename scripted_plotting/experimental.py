@@ -17,6 +17,7 @@ from dashsrc.plot_components.plots import plot_RawSpikes
 from dashsrc.plot_components.plots import plot_rawEvents
 from dashsrc.plot_components.plots import plot_fr
 from dashsrc.plot_components.plots import plot_EvolvingPCSubspace
+from dashsrc.plot_components.plots import plot_EnsambleEncondings
 from analytics_processing import analytics
 import analytics_processing.analytics_constants as C
 from CustomLogger import CustomLogger as Logger
@@ -117,21 +118,42 @@ session_ids = None
 width = 1400
 height = 1400
 group_by = None
-data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
-                                         paradigm_ids=paradigm_ids,
-                                         animal_ids=animal_ids,
-                                         session_ids=session_ids)
-data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
+# data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
+#                                          paradigm_ids=paradigm_ids,
+#                                          animal_ids=animal_ids,
+#                                          session_ids=session_ids)
+data['Ensamble40msProjEncodings'] = analytics.get_analytics('Ensamble40msProjEncodings', mode='set',
                                                     paradigm_ids=paradigm_ids,
                                                     animal_ids=animal_ids,
                                                     session_ids=session_ids)
 
 
-fig = plot_unit_fr_stability.render_plot(data['SpikeClusterMetadata'])
+fig = plot_EnsambleEncondings.render_plot(data['Ensamble40msProjEncodings'])
 fig.show()
-fig = plot_SessionWaveforms.render_plot(data['SpikeClusterMetadata'], data['SessionMetadata'],
-                                        width, height,)
-fig.show()
+
+
+# animal_ids = [6]
+# session_ids = None
+# # session_ids = [1,2,3]
+# # session_names = ['2025-01-22_17-51_rYL006_P1100_LinearTrackStop_5min']
+# width = 1400
+# height = 1400
+# group_by = None
+# data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
+#                                          paradigm_ids=paradigm_ids,
+#                                          animal_ids=animal_ids,
+#                                          session_ids=session_ids)
+# data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
+#                                                     paradigm_ids=paradigm_ids,
+#                                                     animal_ids=animal_ids,
+#                                                     session_ids=session_ids)
+
+
+# fig = plot_unit_fr_stability.render_plot(data['SpikeClusterMetadata'])
+# fig.show()
+# fig = plot_SessionWaveforms.render_plot(data['SpikeClusterMetadata'], data['SessionMetadata'],
+#                                         width, height,)
+# fig.show()
 
 
 

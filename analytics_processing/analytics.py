@@ -33,22 +33,22 @@ def _get_animal_analytic_fname(animal_dir, analytic):
 def _compute_animal_analytic(analytic, all_sessions_ffnames):
     L = Logger()
     
-    if set(analytic.split("-")) == {"ConcatenatedPCs40ms", "ConcatenatedPCembeddings40ms"}:
-        all_fr_z = get_analytics(analytic="FiringRate40msZ",
+    if analytic == "ConcatenatedPCs40ms":
+        all_fr_Hz = get_analytics(analytic="FiringRate40msHz",
                                  session_names=sp.fullfnames2snames(all_sessions_ffnames))
-        if all_fr_z is None:
+        if all_fr_Hz is None:
             L.logger.warning("Missing lower level analytic")
             return None
-        data = ephys.get_ConcatenatedPCA40ms(all_fr_z)
+        data = ephys.get_ConcatenatedPCA40ms(all_fr_Hz)
         # TODO
         # schema = C.SCHEMA_ConcatenatedPCs40ms
         
     # elif analytic == "ConcatenatedEnsambles40ms":
     elif set(analytic.split("-")) == {"ConcatenatedEnsambles40ms", "ConcatenatedEnsambleProj40ms"}:
         
-        all_fr_z = get_analytics(analytic="FiringRate40msZ",
+        all_fr_hz = get_analytics(analytic="FiringRate40msHz",
                                 session_names=sp.fullfnames2snames(all_sessions_ffnames))
-        if all_fr_z is None:
+        if all_fr_hz is None:
             L.logger.warning("Missing lower level analytic")
             return None
         
@@ -60,7 +60,7 @@ def _compute_animal_analytic(analytic, all_sessions_ffnames):
             return None
         
         # assembly_templates, assembly_activity
-        data = ephys.get_ConcatenatedEnsambles40ms(PCs, all_fr_z)
+        data = ephys.get_ConcatenatedEnsambles40ms(PCs, all_fr_hz)
         
     elif analytic == "SessionPCs40msCAs":
         PCs = get_analytics(analytic='SessionPCs40ms',
@@ -69,6 +69,35 @@ def _compute_animal_analytic(analytic, all_sessions_ffnames):
             L.logger.warning("Missing lower level analytic `SessionPCs40ms`")
         
         data = ephys.get_SessionPCs40msCAs(PCs)
+        
+    # TODO should be sesssion analytic...    
+    elif analytic ==  "Ensamble40msProjEncodings":
+        ensemble_proj = get_analytics('ConcatenatedEnsambleProj40ms',
+                                      session_names=sp.fullfnames2snames(all_sessions_ffnames))
+
+        if ensemble_proj is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+
+        # kinematics = get_analytics('TrackKinematics', 
+        kinematics = get_analytics('BehaviorFramewise', 
+                                   columns=['frame_ephys_timestamp', 'frame_raw', 'frame_yaw', 
+                                            'frame_pitch', 'frame_acceleration', 'frame_velocity',
+                                            'lick_count', 'frame_position', 'reward-sound_count',
+                                            'reward-valve-open_count', # 'reward-removed_count',
+                                              ],
+                                   session_names=sp.fullfnames2snames(all_sessions_ffnames))
+        if kinematics is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        
+        data = ephys.get_Ensamble40msProjEncodings(ensemble_proj, kinematics)
+        # data_table = C.ENSAMBLE_40MS_PROJ_ENCODING_TABLE
+        
+        
+        
+        
+    
         
     return data
     
@@ -248,25 +277,25 @@ def _compute_sess_analytic(analytic, session_fullfname):
         
         
         
-    elif analytic == "SpikeClusterMetadata":
-        data = ephys.get_SpikeClusterMetadata(session_fullfname)
-        print(data)
-        data_table = C.SPIKES_CLUSTER_METADATA_TABLE
+    # elif analytic == "SpikeClusterMetadata":
+    #     data = ephys.get_SpikeClusterMetadata(session_fullfname)
+    #     print(data)
+    #     data_table = C.SPIKES_CLUSTER_METADATA_TABLE
     
-    elif analytic == "Spikes":
-        sp_clust_metadata = get_analytics('SpikeClusterMetadata',
-                                          session_names=[session_name],
-                                          columns=['cluster_id_ssbatch', 'cluster_id', 
-                                                   'cluster_color', 'cluster_type',
-                                                   'unit_count', 'ss_batch_id',
-                                                   'session_nsamples']
-                                          )
-        if sp_clust_metadata is None:
-            return None
-        data = ephys.get_Spikes(session_fullfname, sp_clust_metadata)
-        data_table = C.SPIKES_TABLE
-        # print(get_analytics('Spikes', session_names=[session_name],
-        #                        columns=['sample_id', 'cluster_id']))
+    # elif analytic == "Spikes":
+    #     sp_clust_metadata = get_analytics('SpikeClusterMetadata',
+    #                                       session_names=[session_name],
+    #                                       columns=['cluster_id_ssbatch', 'cluster_id', 
+    #                                                'cluster_color', 'cluster_type',
+    #                                                'unit_count', 'ss_batch_id',
+    #                                                'session_nsamples']
+    #                                       )
+    #     if sp_clust_metadata is None:
+    #         return None
+    #     data = ephys.get_Spikes(session_fullfname, sp_clust_metadata)
+    #     data_table = C.SPIKES_TABLE
+    #     # print(get_analytics('Spikes', session_names=[session_name],
+    #     #                        columns=['sample_id', 'cluster_id']))
     
     elif analytic == "FiringRate40msHz":
         spikes = get_analytics('Spikes', session_names=[session_name],
@@ -297,7 +326,7 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         # return PCs, Z_proj
         data = ephys.get_sessionPCA(fr_z)    
-    
+
     elif analytic == "FiringRateTrackwiseHz":
         fr_data = get_analytics('FiringRate40msHz', session_names=[session_name])
         if fr_data is None:
@@ -401,10 +430,10 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
                                                                       excl_session_names,
                                                                       from_date, to_date)
     ANIMAL_ANALYTICS = ('ConcatenatedEnsambles40ms-ConcatenatedEnsambleProj40ms', 
-                        "ConcatenatedPCs40ms-ConcatenatedPCembeddings40ms",
                         'ConcatenatedPCs40ms', 'ConcatenatedEnsambleProj40ms',
                         'ConcatenatedEnsambles40ms',
-                        'SessionPCs40msCAs')
+                        'SessionPCs40msCAs',
+                        'Ensamble40msProjEncodings')
     aggr = []
     
     if analytic in ANIMAL_ANALYTICS:
@@ -530,15 +559,3 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
         aggr = np.array(aggr)
         L.logger.debug(f"Returning {analytic}:\n{aggr}")
         return aggr
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
