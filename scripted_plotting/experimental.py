@@ -109,29 +109,8 @@ pio.renderers.default = "browser"
 # fig.show()
 
 
-# ephys
-paradigm_ids = [1100]
-animal_ids = [6]
-session_ids = None
-# session_ids = [1,2,3]
-# session_names = ['2025-01-22_17-51_rYL006_P1100_LinearTrackStop_5min']
-width = 1400
-height = 1400
-group_by = None
-# data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
-#                                          paradigm_ids=paradigm_ids,
-#                                          animal_ids=animal_ids,
-#                                          session_ids=session_ids)
-data['Ensamble40msProjEncodings'] = analytics.get_analytics('Ensamble40msProjEncodings', mode='set',
-                                                    paradigm_ids=paradigm_ids,
-                                                    animal_ids=animal_ids,
-                                                    session_ids=session_ids)
-
-
-fig = plot_EnsambleEncondings.render_plot(data['Ensamble40msProjEncodings'])
-fig.show()
-
-
+# # ephys
+# paradigm_ids = [1100]
 # animal_ids = [6]
 # session_ids = None
 # # session_ids = [1,2,3]
@@ -139,18 +118,46 @@ fig.show()
 # width = 1400
 # height = 1400
 # group_by = None
-# data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
-#                                          paradigm_ids=paradigm_ids,
-#                                          animal_ids=animal_ids,
-#                                          session_ids=session_ids)
-# data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
+# # data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
+# #                                          paradigm_ids=paradigm_ids,
+# #                                          animal_ids=animal_ids,
+# #                                          session_ids=session_ids)
+# data['Ensamble40msProjEncodings'] = analytics.get_analytics('Ensamble40msProjEncodings', mode='set',
 #                                                     paradigm_ids=paradigm_ids,
 #                                                     animal_ids=animal_ids,
 #                                                     session_ids=session_ids)
 
 
-# fig = plot_unit_fr_stability.render_plot(data['SpikeClusterMetadata'])
+# fig = plot_EnsambleEncondings.render_plot(data['Ensamble40msProjEncodings'])
 # fig.show()
+
+
+animal_ids = [6]
+session_ids = None
+paradigm_ids = [1100]
+# session_ids = [1,2,3]
+# session_names = ['2025-01-22_17-51_rYL006_P1100_LinearTrackStop_5min']
+excl_session_names = ['2024-11-29_17-21_rYL006_P1100_LinearTrackStop_28min', '2025-01-21_18-49_rYL006_P1100_LinearTrackStop_30min']
+cols = ["session_spike_count", "session_nsamples", "cluster_id", "unit_snr", "unit_Vpp"]
+width = 1400
+height = 1400
+group_by = None
+
+data["SessionMetadata"] = analytics.get_analytics('SessionMetadata', mode='set',
+                                         paradigm_ids=paradigm_ids,
+                                         animal_ids=animal_ids,
+                                         excl_session_names=excl_session_names,
+                                         session_ids=session_ids)
+data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
+                                                       columns = cols,
+                                                    paradigm_ids=paradigm_ids,
+                                                    animal_ids=animal_ids,
+                                                    excl_session_names=excl_session_names,
+                                                    session_ids=session_ids)
+
+
+fig = plot_unit_fr_stability.render_plot(data['SpikeClusterMetadata'])
+fig.show()
 # fig = plot_SessionWaveforms.render_plot(data['SpikeClusterMetadata'], data['SessionMetadata'],
 #                                         width, height,)
 # fig.show()
