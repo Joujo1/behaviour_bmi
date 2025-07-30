@@ -16,6 +16,7 @@ from scipy.stats import ttest_ind
 
 from scipy.signal import butter
 from scipy.signal import filtfilt
+from scipy import stats
 
 # slow imports requing C compilation
 from sklearn.decomposition import FastICA
@@ -160,6 +161,12 @@ def extract_jrc_spikes(session_fullfname): #, get_spikes=False,
         # open jrc output to read single spikes in a the interval matching the session
         with h5py.File(ss_res_fullfname, 'r') as f:
             ss_spike_times = f['spikeTimes'][0]
+            L.logger.debug(f"Session samples within concatenated data conext go"
+                        f" from {session_from_smple:,} to {session_to_smple:,}." 
+                        f"All spike ({len(ss_spike_times):,}) go from sample {ss_spike_times[0]:,} to {ss_spike_times[-1]:,}.")
+                        # f" This session's spikes are at: [{ss_spike_times[ss_from_spike_i]:,} ... {ss_spike_times[ss_to_spike_i]:,}]")
+            
+            
             ss_from_spike_i = np.where((session_from_smple < ss_spike_times))[0][0]
             ss_to_spike_i = np.where((session_to_smple < ss_spike_times))[0]
             if len(ss_to_spike_i) != 0:
@@ -586,71 +593,108 @@ def get_SessionPCs40msCAs(PCs):
     angle_aggr.index.names = ['from_session_id', 'to_session_id']
     return angle_aggr.reset_index()
 
-def get_Ensamble40msProjEncodings(ensemble_proj, kinematics, time_interval_sec=5*60,stride_sec=1*60, kinematic_vars=None, verbose=True):
-    """
-    For each ensemble, fit a linear regression to predict its activity from each kinematic variable.
-    Returns a DataFrame with R² scores for each ensemble/kinematic pair.
-    
-    ensemble_proj: DataFrame, index should be IntervalIndex (time bins), columns are ensemble names
-    kinematics: DataFrame, indexed by 'frame_ephys_timestamp'
-    kinematic_vars: list of str, which kinematic columns to use (default: all except index)
-    verbose: bool, print R² > 0.03
-    
-    Returns: DataFrame (rows: ensemble, columns: kinematic variable, values: R²)
-    """
-
-    # convert session_id to a column in kinematics, make ephys timestamp the index
-    kinematics['session_id'] = kinematics.index.get_level_values('session_id')
-    kinematics.reset_index(inplace=True, drop=True)
-    kinematics.set_index('frame_ephys_timestamp', inplace=True)
+def get_Ensemble40msProjEncodings(ensemble_proj, behavior):
+    # convert session_id to a column in behavior, make ephys timestamp the index
+    behavior['session_id'] = behavior.index.get_level_values('session_id')
+    behavior.reset_index(inplace=True, drop=True)
+    behavior.set_index('frame_ephys_timestamp', inplace=True)
+    # print(behavior)
     
     # index by ephys timestamp intervals
     ensemble_proj.index = pd.IntervalIndex.from_arrays(ensemble_proj.pop("from_ephys_timestamp"),
                                                        ensemble_proj.pop("to_ephys_timestamp"))
+    # print(ensemble_proj)
+    # exit()
 
     bin_size_us = ensemble_proj.index[0].right - ensemble_proj.index[0].left
-    time_interval_nbins = int(time_interval_sec * 1_000_000 / bin_size_us)
-    stride_nbins = int(stride_sec * 1_000_000 / bin_size_us)
+    # time_interval_nbins = int(time_interval_sec * 1_000_000 / bin_size_us)
+    # stride_nbins = int(stride_sec * 1_000_000 / bin_size_us)
     
     aggr_results = []
     for s_id in ensemble_proj.session_id.unique():
-        sess_kinematics = kinematics[kinematics.session_id == s_id]
-        sess_ensemble_proj = ensemble_proj[ensemble_proj.session_id == s_id]
-        if sess_kinematics.empty or sess_ensemble_proj.empty:
-            print(f"Skipping session {s_id} due to empty kinematics or ensemble projection.")
-            exit(0)
-            
-        print((0, len(sess_ensemble_proj), stride_nbins))
-        # bin_edges = []
-        for from_bin_i in range(0, len(sess_ensemble_proj)-2*stride_nbins, stride_nbins):
-            to_bin_i = from_bin_i + time_interval_nbins
-            print(f"\nProcessing session {s_id} from bin {from_bin_i} to {to_bin_i}, of {sess_ensemble_proj.shape} bins.", end=' ', flush=True)
-            # bin_edges.append((from_bin_i, to_bin_i))
-            # print(f"Session {s_id} - from {from_bin_i} to {to_bin_i}; ({to_bin_i - from_bin_i} bins)")
+        sess_behavior = behavior[behavior.session_id == s_id].drop(columns='session_id')
+        sess_ensemble_proj = ensemble_proj[ensemble_proj.session_id == s_id].drop(columns='session_id')
+        print(sess_behavior)
+        print(sess_ensemble_proj)
+        
+        if s_id < 12:
+            continue
 
-            # block_sess_kinematics = sess_kinematics.iloc[from_bin_i:to_bin_i]
-            # print(block_sess_kinematics)
-            block_sess_ensemble_proj = sess_ensemble_proj.iloc[from_bin_i:to_bin_i]
-            if block_sess_ensemble_proj.empty:
-                print(f"Skipping empty ensemble projection for session {s_id} "
-                      f"from bin {from_bin_i} to {to_bin_i}.")
-                continue
+        time_chunks = "full_duration", 
+        for time_chunk in time_chunks:
+            if time_chunk == "full_duration":
+                # use the full session duration
+                from_session_t = sess_behavior.index[0]
+                to_session_t = sess_behavior.index[-1]
             
-            block_t = block_sess_ensemble_proj.index[block_sess_ensemble_proj.shape[0]-1].mid
-            block_sess_kinematics = sess_kinematics.copy()
+            # elif time_chunk == "first_8min":
+            #     # use the first 8 minutes of the session
+            #     from_session_t = sess_behavior.index[0]
+            #     to_session_t = from_session_t + 8*60*1_000_000 # 8 minutes in us
+            #     if to_session_t > sess_ensemble_proj.index[-1]:
+            #         continue # skip if the session is shorter than 8 minutes
+            # elif time_chunk == "last_8min":
+            #     # use the last 8 minutes of the session
+            #     to_session_t = sess_behavior.index[-1]
+            #     from_session_t = to_session_t - 8*60*1_000_000
+            #     if from_session_t < sess_ensemble_proj.index[0]:
+            #         continue # skip if the session is shorter than 8 minutes
+            
+            # elif time_chunk == "middle":
+            #     # use the middle of the session, 8 minutes before and after the start, end
+            #     from_session_t = sess_behavior.index[0] + 8*60*1_000_000
+            #     to_session_t = sess_behavior.index[-1] - 8*60*1_000_000
+            #     if from_session_t >= to_session_t:
+            #         continue # skip if the session is shorter than 16 minutes
+
+            sess_tchunk_behavior = sess_behavior.loc[from_session_t:to_session_t].copy()
+            sess_tchunk_ensemble_proj = sess_ensemble_proj.loc[from_session_t:to_session_t].copy()
+            
+            print(f"\nProcessing session {s_id} for time chunk {time_chunk} "
+                  f"from bin {sess_ensemble_proj.shape} bins.", end=' ', flush=True)
+
+
             # assign each row/timestamp to its 40ms interval bin
-            block_sess_kinematics['ephys_bin'] = block_sess_ensemble_proj.index.get_indexer(block_sess_kinematics.index)
+            sess_tchunk_behavior['ephys_bin'] = sess_tchunk_ensemble_proj.index.get_indexer(sess_tchunk_behavior.index)
+
+            # trial ids very sparsly have errors, filter out invalid values
+            categoc_agg = sess_tchunk_behavior[['ephys_bin', 'trial_id']].groupby('ephys_bin').agg(lambda x: x.mode())
+            valid_trial_mask = [True if isinstance(v, np.int16) and v >= 1 else False for v in categoc_agg['trial_id']]
+            categoc_agg[~np.array(valid_trial_mask)] = np.nan
+            
             # then group by this index and take the mean
-            block_sess_kinematics = block_sess_kinematics.groupby('ephys_bin').mean().round(3)
+            sess_tchunk_behavior = sess_tchunk_behavior.groupby('ephys_bin').mean().round(3)
+            # overwrite the mean with the mode agg for categorical variables
+            sess_tchunk_behavior['trial_id'] = categoc_agg['trial_id']
             # drop -1 bin
-            block_sess_kinematics = block_sess_kinematics.loc[block_sess_kinematics.index >= 0]
+            sess_tchunk_behavior = sess_tchunk_behavior.loc[sess_tchunk_behavior.index >= 0]
             # slice to bins for which there is behavior (eg missing before unity launches)
+            sess_tchunk_ensemble_proj = sess_tchunk_ensemble_proj.iloc[sess_tchunk_behavior.index]
+            sess_tchunk_behavior.index = sess_tchunk_ensemble_proj.index.mid.values.astype(np.int64)
+            sess_tchunk_ensemble_proj.index = sess_tchunk_behavior.index
+
+            # fig, axs = plt.subplots(nrows=2, figsize=(5, 11))
+            # axs[1].scatter(sess_tchunk_behavior['frame_raw'], sess_tchunk_ensemble_proj['Assembly003'],  alpha=.2, )
+            # plt.savefig("quickviz.png")
+    
+            print(sess_tchunk_behavior)
+            print(sess_tchunk_ensemble_proj)
+            zones = {
+                'beforeCueZone': (-168, -100),
+                'cueZone': (-80, 25),
+                'afterCueZone': (25, 50),
+                'reward1Zone': (50, 110),
+                'betweenRewardsZone': (110, 170),
+                'reward2Zone': (170, 230),
+                'postRewardZone': (230, 260),
+                'wholeTrack': (-168, 260),
+            }
+    
+    
             
             
-            
-            # clip the acceleration to +-5 std, outliers from recording start
-            acc = block_sess_kinematics['frame_acceleration']
-            # print(acc.sort_values())
+            # kinematics
+            acc = sess_tchunk_behavior['frame_acceleration']
             acc.loc[:] = np.clip(acc, -15, 15)
             # print(acc.sort_values())
             forward_acc_positive_only = acc.copy()
@@ -672,12 +716,54 @@ def get_Ensamble40msProjEncodings(ensemble_proj, kinematics, time_interval_sec=5
             forward_acc_negative_only_in1sec = forward_acc_in1sec.copy()
             forward_acc_negative_only_in1sec[forward_acc_negative_only_in1sec >= 0] = np.nan
 
+            # locations per trial
+            trial_cue_entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
+                                    np.abs(x['frame_position']-zones['cueZone'][0]).sort_values().index[0])
+            trial_cue_entry_t = trial_cue_entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+            
+            trial_postcue_entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
+                                    np.abs(x['frame_position']-zones['cueZone'][1]).sort_values().index[0])
+            trial_postcue_entry_t = trial_postcue_entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+            
+            trial_R1entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
+                                    np.abs(x['frame_position']-zones['reward1Zone'][0]).sort_values().index[0])
+            trial_R1entry_t = trial_R1entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+
+            trial_R2entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
+                                    np.abs(x['frame_position']-zones['reward2Zone'][0]).sort_values().index[0])
+            trial_R2entry_t = trial_R2entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+
+            print('---------')
+            # print(sess_tchunk_behavior.index)
+            print(sess_tchunk_behavior)
+            print()
+            
+            trial_postcue_entry_t_outcome = sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'trial_outcome']>1
+            trial_postcue_entry_t_losses = trial_postcue_entry_t_outcome[trial_postcue_entry_t_outcome == False]
+            trial_postcue_entry_t_wins = trial_postcue_entry_t_outcome[trial_postcue_entry_t_outcome == True]
+            
+            trial_R1entry_t_outcomes = sess_tchunk_behavior.loc[trial_R1entry_t.index, 'trial_outcome']>1
+            trial_R1entry_t_losses = trial_R1entry_t_outcomes[trial_R1entry_t_outcomes == False]
+            trial_R1entry_t_wins = trial_R1entry_t_outcomes[trial_R1entry_t_outcomes == True]
+            
+            trial_R2entry_t_outcomes = sess_tchunk_behavior.loc[trial_R2entry_t.index, 'trial_outcome']>1
+            trial_R2entry_t_losses = trial_R2entry_t_outcomes[trial_R2entry_t_outcomes == False]
+            trial_R2entry_t_wins = trial_R2entry_t_outcomes[trial_R2entry_t_outcomes == True]
+            
+            # exit()
+            # print(trial_cue_entry_t.to_string())
+            
+            # print(sess_tchunk_behavior.columns)
+            # print(sess_tchunk_behavior['frame_raw'])
+            # exit()
+            
+            
             Y = pd.DataFrame({
-             'forward_vel': block_sess_kinematics['frame_raw'],
-             'sideway_vel': block_sess_kinematics['frame_yaw'],
-             'sideway_vel_abs': np.abs(block_sess_kinematics['frame_yaw']),
-             'rotation_vel': block_sess_kinematics['frame_pitch'],
-             'rotation_vel_abs': np.abs(block_sess_kinematics['frame_pitch']),
+                
+            # kinematic variables
+             'forward_vel':  sess_tchunk_behavior['frame_raw'],
+             'sideway_vel':  sess_tchunk_behavior['frame_yaw'],
+             'rotation_vel': sess_tchunk_behavior['frame_pitch'],
              
              'forward_acc': acc,
              'forward_acc_abs': np.abs(acc),
@@ -685,91 +771,380 @@ def get_Ensamble40msProjEncodings(ensemble_proj, kinematics, time_interval_sec=5
              'forward_acc_negative_only': forward_acc_negative_only,
             
              'forward_acc_in1sec': forward_acc_in1sec,
-             'forward_acc_abs_in1sec': np.abs(forward_acc_in1sec),
-             'forward_acc_positive_only_in1sec': forward_acc_positive_only_in1sec,
-             'forward_acc_negative_only_in1sec': forward_acc_negative_only_in1sec,
-                
+             'forward_acc_in1sec_abs': np.abs(forward_acc_in1sec),
+             'forward_acc_in1sec_positive_only': forward_acc_positive_only_in1sec,
+             'forward_acc_in1sec_negative_only': forward_acc_negative_only_in1sec,                
+            
+             # event based
+             'lick': sess_tchunk_behavior['lick_count']>0, # slice ephys later around event
+             'reward_sound': sess_tchunk_behavior['reward-sound_count']>0, # slice ephys later around event
+             'reward_valve': sess_tchunk_behavior['reward-valve-open_count']>0, # slice ephys later around event
+             
+             'cue_entry': trial_cue_entry_t,  # slice ephys later around this t
+             'cue1_vs_cue2': sess_tchunk_behavior.loc[trial_cue_entry_t.index, 'cue'], # slice ephys later around this t
+             
+             'cue1_vs_cue2_post': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
+             'cue1_vs_cue2_post_wins': sess_tchunk_behavior.loc[trial_postcue_entry_t_wins.index, 'cue'], # slice ephys later around this t
+             'cue1_vs_cue2_post_losses': sess_tchunk_behavior.loc[trial_postcue_entry_t_losses.index, 'cue'], # slice ephys later around this t
+
+            #  'post_cue_outcome': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'trial_outcome'], # slice ephys later around this t
+            #  'post_cue1_outcome': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
+            #  'post_cue2_outcome': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
+
+             'R1choice_entry': sess_tchunk_behavior.loc[trial_R1entry_t.index, 'choice_R1'], # slice ephys later around this t
+             'R1choice_entry_wins': sess_tchunk_behavior.loc[trial_R1entry_t_wins.index, 'choice_R1'], # slice ephys later around this t
+             'R1choice_entry_losses': sess_tchunk_behavior.loc[trial_R1entry_t_losses.index, 'choice_R1'], # slice ephys later around this t
+
+             'R2choice_entry': sess_tchunk_behavior.loc[trial_R2entry_t.index, 'choice_R2'], # slice ephys later around this t
+             'R2choice_entry_wins': sess_tchunk_behavior.loc[trial_R2entry_t_wins.index, 'choice_R2'], # slice ephys later around this t
+             'R2choice_entry_losses': sess_tchunk_behavior.loc[trial_R2entry_t_losses.index, 'choice_R2'], # slice ephys later around this t
              })
-            
-            # make a 4x4 grid matplotlib figure, one hist for each variable
-            # for i, (col_name, col_data) in enumerate(Y.items()):
-            #     ax = axs[i // 4, i % 4]
-            #     ax.hist(col_data.dropna(), bins=50, alpha=0.7, label=f"n={col_data.dropna().count()}")
-            #     ax.set_title(col_name)
-            #     ax.set_xlabel('Value')
-            #     ax.set_ylabel('Frequency')
-            #     ax.legend()
-            # plt.tight_layout()
-            # plt.show()
-            
-            
-            # for regre in kinematic_vars:
-            # x = kinematics_grouped[regre]
-            # # Fit regression
-            # model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-            # r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-            # r2_results.loc[ens, regre] = r2
-            # if verbose and r2 > 0.03:
 
-            for ensemble in [col for col in block_sess_ensemble_proj.columns if col.startswith("Assembly")]:
+   
+   
+   
+   
+   
+   
+            print("-=------------=------")
+   
+            # for ensemble in [col for col in sess_tchunk_ensemble_proj.columns if col.startswith("Assembly")]:
+            for ensemble in sess_tchunk_ensemble_proj.columns:
+                if True:
+                # if ensemble == 'Assembly001':
+                    # Create a grid with 11 rows and 2 columns, but make right column 1/5 width of left
+
+                    fig = plt.figure(figsize=(16, 16))
+                    fig.suptitle(f'Session {s_id} - {ensemble}', fontsize=16, y=0.95)
+                    gs = GridSpec(15, 2, width_ratios=[6, 1], figure=fig)
+                    axs = np.empty((15, 2), dtype=object)
+                    # Create first column with shared x/y axes
+                    axs[0, 0] = fig.add_subplot(gs[0, 0])
+                    for row in range(1, 15):
+                        axs[row, 0] = fig.add_subplot(gs[row, 0], sharex=axs[0, 0], )
+                    # Create second column with shared x/y axes
+                    axs[0, 1] = fig.add_subplot(gs[0, 1])
+                    for row in range(1, 15):
+                        axs[row, 1] = fig.add_subplot(gs[row, 1], )#sharex=axs[0, 1], )
+                    plt.subplots_adjust(hspace=0.001, wspace=0.001)
+                    for ax_row in axs:
+                        for ax in ax_row:
+                            ax.set_xlabel('')
+                            # ax.set_ylabel('')
+                            ax.tick_params(axis='x', labelbottom=False)
+                            # ax.tick_params(axis='y', labelleft=False)
+
+                ephys = sess_tchunk_ensemble_proj[ensemble].to_frame(name=ensemble)
+                smoothed = ephys.iloc[:,0].rolling(window=6, center=True, min_periods=6).mean()
+                axs[0, 0].plot(ephys.iloc[:,0].rolling(window=25*5, center=True, min_periods=25*5).mean().index, 
+                               ephys.iloc[:,0].rolling(window=25*5, center=True, min_periods=25*5).mean().values, '-', markersize=1, alpha=1, color='black')
+                axs[0, 0].set_ylim((-.4, 1.6))
                 
-                if ensemble == 'Assembly003':
-                    fig, axs = plt.subplots(4, 4, figsize=(16, 12))
-                    fig.suptitle(f"Session {s_id} - {from_bin_i}-{to_bin_i}; {block_t:,} - Ensemble: {ensemble}", fontsize=12)
-                    axs = axs.flatten()
-                
+                row = 1
+                color_cycle = itertools.cycle(['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan'])
                 for i, encodes_col in enumerate(Y.columns):
+                    if (encodes_col.startswith('forward_') or encodes_col.startswith('rotation_') or encodes_col.startswith('sideway_')):
+                        continue
+                        
+                    print(f'\n\n----{encodes_col}----')
                     y = Y[encodes_col]
-                    y = y.dropna()
-                    x = (block_sess_ensemble_proj[ensemble].iloc[y.index])
                     
-                    if x.isna().all() or y.isna().all():
+                        
+                        
+                        
+                        
+                        
+                        
+                    # events
+                    if encodes_col in ['lick', 'reward_sound', 'reward_valve']:
+                        y = y[y.values]
+                    else:
+                        y = y[y.notna()].astype(int)
+                        print(y)
+                        y = y[y.index<ephys.index[-1]-1_000_000]
+                        print(y)
+                    if y.empty:
                         continue
+                    
+                    # color = next(color_cycle)
 
-                    model = LinearRegression()
-                    model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-                    # y_pred = model.predict(x.values.reshape(-1, 1))
-                    r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-                    # print(f"Ensemble {ensemble} - {encodes_col} R^2: {r2:.3f}")
+                    # if encodes_col in ['reward_sound', ]:
+                    #     axs[0, 0].scatter(y.index, np.ones_like(y)*smoothed.mean(), marker='|', s=1000, alpha=0.4, color=color)
+                    axs[row, 0].set_title(f'{encodes_col}', fontsize=10, loc='left')
+                    
+                    # lick count
+                    ymin, ymax = 0, 0
+                    if encodes_col == 'lick':
+                        axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='blue')
+                        y = y.groupby(y.index).count()
+                        
+                        # lick_tpoints = smoothed.copy()
+                        other_y_ephys = smoothed.reindex(y.index)
+                        one_y_ephys = smoothed.reindex(smoothed.index.difference(y.index))
+
+                        axs[row, 1].scatter(-0.2*np.ones_like(other_y_ephys)+np.random.normal(scale=0.01, size=other_y_ephys.shape), 
+                                            other_y_ephys.values, marker='.', s=1, alpha=.5, color='blue')
+                        axs[row, 1].axhline(other_y_ephys.mean(), color='blue', linestyle='--', linewidth=1, alpha=0.8)
+                        axs[row, 1].scatter(0.2*np.ones_like(one_y_ephys)+np.random.normal(scale=0.01, size=one_y_ephys.shape), 
+                                            one_y_ephys.values, marker='.', s=1, alpha=.5, color='gray')
+                        axs[row, 1].axhline(one_y_ephys.mean(), color='gray', linestyle='--', linewidth=3, alpha=0.2)
+                        axs[row, 1].set_title(f'Lick count: {y.sum()}', fontsize=10, loc='left')
+                        axs[row, 1].set_xlim(-0.5, 0.5)
+
+                    # before after variables
+                    if encodes_col in ['reward_sound', 'reward_valve', 
+                                       'cue_entry', 'cue1_vs_cue2', 'cue1_vs_cue2_post',
+                                       'cue1_vs_cue2_post_wins', 'cue1_vs_cue2_post_losses',
+                                    
+                                    'R1choice_entry', 'R1choice_entry_wins', 'R1choice_entry_losses',
+                                    'R2choice_entry', 'R2choice_entry_wins', 'R2choice_entry_losses',
+                                    
+                                    ]:
+                        
+                        if encodes_col in ['reward_sound', 'reward_valve']:
+                            interv_s = .5 # seconds, half a second before and after the event
+                        else:
+                            interv_s = 1
+                        
+                        one_y_tpoints = pd.IntervalIndex.from_arrays(y.index.values-interv_s*1_000_000, # half a second before the event, us
+                                                                     y.index.values)
+                        other_y_tpoints = pd.IntervalIndex.from_arrays(y.index.values,
+                                                                       y.index.values+interv_s*1_000_000,) # half a second after the event, us
+                        
+                        # before
+                        bef_ephys = smoothed.to_frame().copy()
+                        bef_ephys['event_i'] = one_y_tpoints.get_indexer(bef_ephys.index)
+                        # get the ephys before a single event and rest to count index (order before event)
+                        bef_ephys = bef_ephys[bef_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
+                        # then use this order to groupby the single timepoints before the event
+                        bef_ephys = bef_ephys.drop(columns='event_i').unstack()
+                        # add the input info, like cue outcome choice
+                        bef_ephys['input'] = y.values
+                        print()
+                        print()
+                        print(bef_ephys)
+                        print(y)
+                        bef_ephys.set_index('input', inplace=True, append=True)
+                        
+                        # the same for after the event
+                        aft_ephys = smoothed.to_frame().copy()
+                        aft_ephys['event_i'] = other_y_tpoints.get_indexer(aft_ephys.index)
+                        # get the ephys after a single event and rest to count index (order after event)
+                        aft_ephys = aft_ephys[aft_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
+                        # then use this order to groupby the single timepoints after the event
+                        aft_ephys = aft_ephys.drop(columns='event_i').unstack()
+                        # add the input info, like cue outcome choice
+                        print(aft_ephys)
+                        print(y)
+                        aft_ephys['input'] = y.values
+                        aft_ephys.set_index('input', inplace=True, append=True)
+                        
+                        axs[row, 1].axvline(0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+                        
+                        
+                        if encodes_col in ['reward_sound', 'reward_valve', 'cue_entry']:
+                            if encodes_col != 'cue_entry':
+                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='green')
+                            else:
+                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='gray')
+                                
+                            
+                            axs[row, 1].plot(np.arange(-bef_ephys.shape[1],0), bef_ephys.values.mean(axis=0), alpha=0.9, color='gray', label='Mean Before')
+                            axs[row, 1].plot(np.arange(aft_ephys.shape[1]), aft_ephys.values.mean(axis=0), alpha=0.9, color='green', label='Mean After')
+
+                            # Add shaded area for std
+                            bef_mean = bef_ephys.values.mean(axis=0)
+                            bef_std = bef_ephys.values.std(axis=0)/2
+                            bef_x = np.arange(-bef_ephys.shape[1],0)
+                            axs[row, 1].fill_between(bef_x, bef_mean-bef_std, bef_mean+bef_std, color='gray', alpha=0.2, label='Std Before')
+
+                            aft_mean = aft_ephys.values.mean(axis=0)
+                            aft_std = aft_ephys.values.std(axis=0)/2
+                            aft_x = np.arange(aft_ephys.shape[1])
+                            axs[row, 1].fill_between(aft_x, aft_mean-aft_std, aft_mean+aft_std, color='green', alpha=0.2, label='Std After')
+                            
+                            all_vals = np.concatenate([aft_mean-aft_std, aft_mean+aft_std,
+                                                       bef_mean-bef_std, bef_mean+bef_std])
+                            min_here, max_here = all_vals.min(), all_vals.max()
+                            if min_here < ymin:
+                                ymin = min_here
+                            if max_here > ymax:
+                                ymax = max_here
+
+                        elif encodes_col in ['cue1_vs_cue2', 'cue1_vs_cue2_post', 'cue1_vs_cue2_post_wins', 'cue1_vs_cue2_post_losses']:
+                            axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color=['purple' if v == 1 else 'orange' for v in y.values])
+                            if encodes_col.endswith('_wins'):
+                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='green')
+                            elif encodes_col.endswith('_losses'):
+                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='red')
+                            # merge the before and after ephys data
+                            both_ephys = pd.concat([bef_ephys, aft_ephys], axis=1)
+                            if both_ephys.empty or y.unique().size < 2:
+                                print("missing one cue")
+                                continue
+                            x = np.arange(-both_ephys.shape[1]//2, both_ephys.shape[1]//2)
+                            cue1_mean = both_ephys.loc[(slice(None), 1),:].mean(axis=0)
+                            cue2_mean = both_ephys.loc[(slice(None), 2),:].mean(axis=0)
+                            axs[row, 1].plot(x, cue1_mean, alpha=0.9, color='purple', label=f'n={both_ephys.loc[(slice(None), 1),:].shape[0]} cue1')
+                            axs[row, 1].plot(x, cue2_mean, alpha=0.9, color='orange', label=f'n={both_ephys.loc[(slice(None), 2),:].shape[0]} cue2')
+                            axs[row, 1].legend(loc='best', fontsize=6)
+
+                            # in between std part
+                            cue1_std = both_ephys.loc[(slice(None), 1),:].std(axis=0)/2
+                            axs[row, 1].fill_between(x, cue1_mean-cue1_std, cue1_mean+cue1_std, color='purple', alpha=0.2)
+
+                            cue2_std = both_ephys.loc[(slice(None), 2),:].std(axis=0)/2
+                            axs[row, 1].fill_between(x, cue2_mean-cue2_std, cue2_mean+cue2_std, color='orange', alpha=0.2)
+
+                            all_vals = np.concatenate([cue1_mean-cue1_std, cue2_mean+cue2_std,])
+                            min_here, max_here = all_vals.min(), all_vals.max()
+                            if min_here < ymin:
+                                ymin = min_here
+                            if max_here > ymax:
+                                ymax = max_here
+
+                        elif encodes_col in ['R1choice_entry', 'R2choice_entry', 'R1choice_entry_wins', 'R1choice_entry_losses', 'R2choice_entry_wins', 'R2choice_entry_losses']:
+                            axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.8, color=['black' if v == 1 else 'gray' for v in y.values])
+                            if encodes_col.endswith('_wins'):
+                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='green')
+                            elif encodes_col.endswith('_losses'):
+                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='red')
+                            # merge the before and after ephys data
+                            both_ephys = pd.concat([bef_ephys, aft_ephys], axis=1)
+                            if y.unique().size < 2:
+                                continue
+                            
+                            x = np.arange(-both_ephys.shape[1]//2, both_ephys.shape[1]//2)
+                            stopped_mean = both_ephys.loc[(slice(None), 1),:].mean(axis=0)
+                            not_stopped_mean = both_ephys.loc[(slice(None), 0),:].mean(axis=0)
+                            axs[row, 1].plot(x, stopped_mean, alpha=0.9, color='black', label=f'n={both_ephys.loc[(slice(None), 1),:].shape[0]} stopped')
+                            axs[row, 1].plot(x, not_stopped_mean, alpha=1, color='gray', label=f'n={both_ephys.loc[(slice(None), 0),:].shape[0]} skipped')
+                            axs[row, 1].legend(loc='best', fontsize=6)
+
+                            # in between std part
+                            stopped_std = both_ephys.loc[(slice(None), 1),:].std(axis=0)/4
+                            axs[row, 1].fill_between(x, stopped_mean-stopped_std, stopped_mean+stopped_std, color='black', alpha=0.2)
+                            not_stopped_std = both_ephys.loc[(slice(None), 0),:].std(axis=0)/4
+                            axs[row, 1].fill_between(x, not_stopped_mean-not_stopped_std, not_stopped_mean+not_stopped_std, color='gray', alpha=0.2)
+
+                            all_vals = np.concatenate([stopped_mean-stopped_std, not_stopped_mean+not_stopped_std,])
+                            min_here, max_here = all_vals.min(), all_vals.max()
+                            if min_here < ymin:
+                                ymin = min_here
+                            if max_here > ymax:
+                                ymax = max_here
+
+                        for ax in axs[:, 2:].flatten():
+                            ax.set_ylim(ymin, ymax)
+
+                        # labels
+                        axs[row, 1].set_xticks(np.arange(-bef_ephys.shape[1], aft_ephys.shape[1]+1, 4))
+                        axs[row, 1].set_xticklabels(np.arange(-bef_ephys.shape[1], aft_ephys.shape[1]+1, 4) * bin_size_us / 1_000_000, 
+                                                    rotation=45, ha='right', fontsize=8)
+                        axs[row, 1].set_xlabel('t=0')
+
+                    row += 1
+                    continue
+
+
+
+
+
 
                     
-                    # see if outliers encode high versus low y metric
-                    high_x_mask = (x >x.std()).values
-                    low_x_mask = (x < -x.std()).values
-                    high_y = y[high_x_mask]
-                    low_y = y[low_x_mask]
+                    #kinematics:
+                    # y = y.dropna()
+                    # x = sess_tchunk_ensemble_proj[ensemble] #.iloc[y.index]
+
+                    # print(x)
+                    axs[row, 0].plot(y.index, y.values, '-', markersize=1, alpha=0.2)
+                    axs[row, 0].set_title(f'{encodes_col}', fontsize=10, loc='left')
+
+                    one_y = y[y >= y.quantile(0.8)]      # upper 20% values
+                    other_y = y[y <= y.quantile(0.2)]    # lower 20% values
+                    axs[row, 0].plot(one_y.index, one_y.values, '.', markersize=1, alpha=0.5, color='red')
+                    axs[row, 0].plot(other_y.index, other_y.values, '.', markersize=1, alpha=0.5, color='blue')
+
+                    # axs[i, 1].hist(y.values, bins=40, orientation='horizontal',)
+                    # axs[i, 1].axhline(y.quantile(0.8), color='red', linestyle='--', label='80% quantile')
+                    # axs[i, 1].axhline(y.quantile(0.2), color='blue', linestyle='--', label='20% quantile')
+                    # #set log x axis
                     
-                    _, p_val = ttest_ind(high_y, low_y, equal_var=False)
-                    if low_x_mask.sum() < 50 or high_x_mask.sum() < 50:
-                        print(f"{low_x_mask.sum():_},{high_x_mask.sum():_},skipping", end='   ')
-                        continue
+                    # axs[i, 1].scatter(sess_tchunk_ensemble_proj[ensemble], y, s=1, alpha=0.3)
+                    ephys_one_y = sess_tchunk_ensemble_proj.loc[one_y.index, ensemble]
+                    ephys_other_y = sess_tchunk_ensemble_proj.loc[other_y.index, ensemble]
+                    axs[row, 1].scatter(ephys_one_y, one_y.values, s=1, alpha=0.3, color='red',)
+                    axs[row, 1].axvline(ephys_one_y.mean(), color='red', linestyle='--')
+                    axs[row, 1].scatter(ephys_other_y, other_y.values, s=1, alpha=0.3, color='blue',)
+                    axs[row, 1].axvline(ephys_other_y.mean(), color='blue', linestyle='--')
+                    axs[i, 1].set_xscale('log')
+                    
+                    pvalue = ttest_ind(ephys_one_y, ephys_other_y, equal_var=False).pvalue
+                    axs[row, 1].set_title(f'* - p={pvalue:.5f}' if pvalue < 0.05 else '', fontsize=10)
 
-                    aggr_results.append(pd.Series({ #"x": x.tolist(), "y": y.tolist(), 
-                                                   "n": len(x), "r2": 
-                     r2, "p_val_highlow_activation": p_val, 'avg_activation': x.mean(),
-                    }, name=(s_id, block_t, ensemble, encodes_col)))
+                    # if x.isna().all() or y.isna().all():
+                    #     continue
+                    row += 1
+                    
+                plt.tight_layout()
+                plt.savefig('quickviz.png', dpi=300)
+                plt.savefig('outputs/ens_enc/ensemble_encodings_latents_S{}_A{}.svg'.format(s_id, ensemble))
+                # plt.savefig('outputs/ens_enc/ensemble_encodings_kinematics_S{}_A{}.png'.format(s_id, ensemble))
+                # time.sleep(20)
+                
+
+                # exit()
 
 
-                    if ensemble == 'Assembly003':
 
-                        axs[i].set_xlim(-4.2,4.2)
-                        axs[i].scatter(np.clip(x[high_x_mask], -4,4), y[high_x_mask], s=1, alpha=0.3, color='red', )
-                        axs[i].scatter(np.clip(x[low_x_mask], -4,4), y[low_x_mask], s=1, alpha=0.3, color='blue', )
 
-                        # draw boxplot of high and low x values, without outlier points
-                        axs[i].boxplot([y[high_x_mask], y[low_x_mask]],
-                                    positions=[1, -1], widths=0.5, 
-                                    # labels=['High X', 'Low X'], 
-                                        showfliers=False,
-                                    patch_artist=True, notch=True)
-                        axs[i].hlines(y[high_x_mask].mean(), -4, 4, colors='red', linestyles='dashed')
-                        axs[i].hlines(y[low_x_mask].mean(), -4, 4, colors='blue', linestyles='dashed',
-                                    label='** p = {:.3f}'.format(p_val) if p_val < 0.05 else '')
-                        axs[i].set_title(f'{encodes_col}, n={len(y):,}')
-                        axs[i].tick_params(axis='both', which='major', labelsize=6)
-                        # plt.legend(fontsize=12)
-                        if p_val < 0.05:
-                            axs[i].legend(fontsize=12, edgecolor='black',)
+
+                    # model = LinearRegression()
+                    # model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+                    # # y_pred = model.predict(x.values.reshape(-1, 1))
+                    # r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+                    # # print(f"Ensemble {ensemble} - {encodes_col} R^2: {r2:.3f}")
+
+                    
+                    # # see if outliers encode high versus low y metric
+                    # high_x_mask = (x >x.std()).values
+                    # low_x_mask = (x < -x.std()).values
+                    # high_y = y[high_x_mask]
+                    # low_y = y[low_x_mask]
+                    
+                    # _, p_val = ttest_ind(high_y, low_y, equal_var=False)
+                    # n_low = low_x_mask.sum()
+                    # n_high = high_x_mask.sum()
+                    # if n_low < 50 or n_high < 50:
+                    #     print(f"{n_low:_},{n_high:_},skipping{encodes_col}", end='   ')
+                    #     continue
+
+                    # aggr_results.append(pd.Series({ #"x": x.tolist(), "y": y.tolist(), 
+                    # "n_low": n_low, "n_high": n_high, "r2": 
+                    #  r2, "p_val_highlow_activation": p_val, 'avg_activation': x.mean(),
+                    # }, name=(s_id, block_t, ensemble, encodes_col)))
+
+
+                    # if ensemble == 'Assembly003':
+
+                    #     axs[i].set_xlim(-4.2,4.2)
+                    #     axs[i].scatter(np.clip(x[high_x_mask], -4,4), y[high_x_mask], s=1, alpha=0.3, color='red', )
+                    #     axs[i].scatter(np.clip(x[low_x_mask], -4,4), y[low_x_mask], s=1, alpha=0.3, color='blue', )
+
+                    #     # draw boxplot of high and low x values, without outlier points
+                    #     axs[i].boxplot([y[high_x_mask], y[low_x_mask]],
+                    #                 positions=[1, -1], widths=0.5, 
+                    #                 # labels=['High X', 'Low X'], 
+                    #                     showfliers=False,
+                    #                 patch_artist=True, notch=True)
+                    #     axs[i].hlines(y[high_x_mask].mean(), -4, 4, colors='red', linestyles='dashed')
+                    #     axs[i].hlines(y[low_x_mask].mean(), -4, 4, colors='blue', linestyles='dashed',
+                    #                 label='** p = {:.3f}'.format(p_val) if p_val < 0.05 else '')
+                    #     axs[i].set_title(f'{encodes_col}, n={len(y):,}')
+                    #     axs[i].tick_params(axis='both', which='major', labelsize=6)
+                    #     # plt.legend(fontsize=12)
+                    #     if p_val < 0.05:
+                    #         axs[i].legend(fontsize=12, edgecolor='black',)
 
                     # Plot regression line (sorted for clarity)
                     # sort_idx = np.argsort(x)
@@ -791,26 +1166,34 @@ def get_Ensamble40msProjEncodings(ensemble_proj, kinematics, time_interval_sec=5
         #     print(aggr_results)
         #     print(aggr_results.iloc[20])
         #     aggr_results = aggr_results.reset_index()
+    
+    
+    aggr_results = pd.concat(aggr_results, axis=1).T
+    print(aggr_results)
+    aggr_results.index.rename(('session_id', 'ephys_timestamp', 'ensemble', 'behavior_variable'), inplace=True)
+    print(aggr_results)
+    print(aggr_results.iloc[20])
+    aggr_results = aggr_results.reset_index()
     return aggr_results
 
     
-    # # Assign each kinematics row to a bin
-    # kinematics = kinematics.copy()
-    # kinematics['ephys_bin'] = ensemble_proj.index.get_indexer(kinematics.index)
-    # kinematics_grouped = kinematics.groupby('ephys_bin').mean().round(3)
+    # # Assign each behavior row to a bin
+    # behavior = behavior.copy()
+    # behavior['ephys_bin'] = ensemble_proj.index.get_indexer(behavior.index)
+    # behavior_grouped = behavior.groupby('ephys_bin').mean().round(3)
     # # Only keep bins that exist in ensemble_proj
-    # kinematics_grouped = kinematics_grouped.loc[kinematics_grouped.index >= 0]
+    # behavior_grouped = behavior_grouped.loc[behavior_grouped.index >= 0]
     # # Optionally select kinematic variables
     # if kinematic_vars is None:
-    #     kinematic_vars = [col for col in kinematics_grouped.columns if col.startswith('frame_')]
+    #     kinematic_vars = [col for col in behavior_grouped.columns if col.startswith('frame_')]
     # # Prepare result DataFrame
     # r2_results = pd.DataFrame(index=ensemble_proj.columns, columns=kinematic_vars, dtype=float)
     # model = LinearRegression()
     # # For each ensemble
     # for ens in ensemble_proj.columns:
-    #     y = ensemble_proj[ens].iloc[kinematics_grouped.index]
+    #     y = ensemble_proj[ens].iloc[behavior_grouped.index]
     #     for regre in kinematic_vars:
-    #         x = kinematics_grouped[regre]
+    #         x = behavior_grouped[regre]
     #         # Fit regression
     #         model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
     #         r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
@@ -871,6 +1254,8 @@ def get_ConcatenatedPCA40ms(fr_hz):
     return PCs
 
 from numba import jit, prange
+from matplotlib.gridspec import GridSpec
+import itertools
 
 @jit(nopython=True, parallel=True)
 def _compute_assembly_activity_numba(assembly_templates, fr_data):

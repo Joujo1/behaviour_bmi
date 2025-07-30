@@ -84,14 +84,16 @@ def _compute_animal_analytic(analytic, all_sessions_ffnames):
                                    columns=['frame_ephys_timestamp', 'frame_raw', 'frame_yaw', 
                                             'frame_pitch', 'frame_acceleration', 'frame_velocity',
                                             'lick_count', 'frame_position', 'reward-sound_count',
-                                            'reward-valve-open_count', # 'reward-removed_count',
+                                            'reward-valve-open_count', 'cue', 'trial_id', 'trial_outcome',
+                                            'choice_R1', 'choice_R2',
+                                            # 'reward-removed_count',
                                               ],
                                    session_names=sp.fullfnames2snames(all_sessions_ffnames))
         if kinematics is None:
             L.logger.warning("Missing lower level analytic")
             return None
         
-        data = ephys.get_Ensamble40msProjEncodings(ensemble_proj, kinematics)
+        data = ephys.get_Ensemble40msProjEncodings(ensemble_proj, kinematics)
         # data_table = C.ENSAMBLE_40MS_PROJ_ENCODING_TABLE
         
         
