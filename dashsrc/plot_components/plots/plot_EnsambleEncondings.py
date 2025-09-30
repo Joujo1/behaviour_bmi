@@ -4,193 +4,176 @@ import pandas as pd
 import numpy as np
 from dash import dcc, html
 from plotly.subplots import make_subplots
+from .general_plot_helpers import make_discr_trial_cmap
 
-def render_plot(encoding_data):
-    print(encoding_data)
+from dashsrc.components.dashvis_constants import *
 
-    # Define color mapping for behavioral variables
-    color_mapping = {
-        # Velocity group (warm colors)
-        'forward_vel': '#FFD700',      # Gold yellow
-        'sideway_vel': '#FF4444',      # Bright red
-        'sideway_vel_abs': "#FF6E6E",  # Light red
-        'rotation_vel': '#FF8C00',     # Dark orange
-        'rotation_vel_abs': "#FFAF4E",  # Light orange
-        
-        # Current acceleration group (cool colors)
-        'forward_acc': "#2587C8",      # Strong blue
-        'forward_acc_abs': "#4E80A0",  # Light blue
-        'forward_acc_positive_only': '#1ABC9C',  # Turquoise
-        'forward_acc_negative_only': "#125F50",  # Light turquoise
-        
-        # Future acceleration group (purple/violet shades)
-        'forward_acc_in1sec': "#A01ADA",       # Strong purple
-        'forward_acc_abs_in1sec': "#AE60CD",   # Light purple
-        'forward_acc_positive_only_in1sec': "#FF00B3",  # Violet
-        'forward_acc_negative_only_in1sec': "#650052",  # Light violet
-    }
-    
-    behavior_variables = encoding_data['behavior_variable'].unique() 
-    ensembles = sorted(encoding_data['ensemble'].unique())
-    # Create subplot pairs for each ensemble
-    n_ensembles = len(ensembles)
-    
-    # Calculate vertical spacing based on number of ensembles
-    # v_space = min(0.015, 1.0 / (2*n_ensembles - 1))  # Ensure spacing doesn't exceed maximum
-    # print(v_space)
-    # v_space_between_pairs = min(0.03, 2.0 / (2*n_ensembles - 1))  # Larger spacing between pairs
-    # print(v_space_between_pairs)
-
-    # Create custom row heights: slightly smaller for pairs, larger gaps between pairs
-    row_heights = []
-    for i in range(n_ensembles):
-        # Add pair of subplot heights with spacer
-        row_heights.extend([.35/n_ensembles, .5/n_ensembles, 0.5/n_ensembles])  # Last one is spacer row
-    
-    # # Create titles only for actual plots (not spacers)
-    # subplot_titles = []
-    # for ens in ensembles:
-    #     subplot_titles.extend([f'Ensemble {ens} - Baseline', f'Ensemble {ens} - Behavior Correlations', None])
-    
-    fig = make_subplots(
-        rows=3*n_ensembles, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=.001,
-        # subplot_titles=subplot_titles,
-        row_heights=row_heights
+def draw_group(fig, dat, i, j, event_name, session_id, var_viz, group_name=None, 
+               color='#000000', transp_color='rgba(50, 50, 50, 0.3)'):
+    # Plot the data for the selected ensemble and event
+    m = dat.mean(axis=0)
+    fig.add_trace(
+        go.Scatter(
+            x=dat.columns,
+            y=m,
+            mode='lines',
+            name=group_name,
+            legendgroup=group_name,
+            showlegend=True if i == 0 and j == 0 else False,
+            # name=f"{event_name} - {session_id}",
+            line=dict(color=color, width=2),
+        ),
+        row=i + 1, col=j + 1
     )
+    
+    if var_viz == '50th perc.':
+        # vis variability
+        upper_perc = dat.quantile(0.75, axis=0)
+        lower_perc = dat.quantile(0.25, axis=0)
+        fig.add_trace(go.Scatter(
+            x=upper_perc.index.tolist() + lower_perc.index.tolist()[::-1],
+            y=upper_perc.tolist() + lower_perc.tolist()[::-1],
+            fill='toself',
+            fillcolor=transp_color,
+            mode='lines',
+            line=dict(color='rgba(0,0,0,0)'),
+            showlegend=True if i == 0 and j == 0 else False,
+            name='50th perc.',
+            legendgroup='50th perc.',
+        ), row=i + 1, col=j + 1)
+                    
+def render_plot(encoding_data, group_by, group_by_values, ens_selection,):
+    print(encoding_data)
+    if group_by == 'Cue':
+        group_by_col = 'cue'
+        cmap = CUE_COL_MAP
+    elif group_by == 'Outcome':
+        group_by_col = 'trial_outcome'
+        cmap = OUTCOME_COL_MAP
+    elif group_by == 'Part of session':
+        group_by_col = 'trial_id'
+        cmap = make_discr_trial_cmap(encoding_data['trial_id'].nunique(), TRIAL_COL_MAP)
+    elif group_by == 'R1 choice':
+        group_by_col = 'choice_R1'
+        cmap = R1_CHOICE_CMAP
+    elif group_by == 'R2 choice':
+        group_by_col = 'choice_R2'
+        cmap = R2_CHOICE_CMAP
+    else:
+        group_by_col = None
+        
+        print("No group_by selected, using 'None'")
+        print(group_by)
+        
+    print('--------------------------')
+    print(f"Group by: {group_by} ({group_by_col}) ")
+    print('--------------------------')
+    
+    var_viz = '50th perc.'  # Default visualization variable, can be changed later
+    smooth = 6
+    yrange = [-0.4, 3]    
+    event_names = encoding_data['t0_event_name'].unique()
+    session_ids = encoding_data.index.unique('session_id')
+    
+    # Create subplot titles for the first column in each row
+    subplot_titles = []
+    for i, event_name in enumerate(event_names):
+        for j, session_id in enumerate(session_ids):
+            if j == 0:
+                title = event_name.replace('_', ' ').capitalize().replace("zone", '') + ' over Sessions'
+                subplot_titles.append(title)
+            else:
+                subplot_titles.append(None)
+
+    fig = make_subplots(
+        rows=event_names.size, cols=session_ids.size,
+        shared_xaxes=True,
+        shared_yaxes=True,
+        vertical_spacing=.1,
+        horizontal_spacing=.1/session_ids.size,
+        subplot_titles=subplot_titles,
+        # row_heights=row_heights
+    )
+
+    fig.update_layout(height=350*event_names.size,
+                    #   width=350*session_ids.size,
+                      template="plotly_white",
+                      margin=dict(t=50, b=20, l=100, r=20),
+                    #   font=dict(size=10),
+                      title_font=dict(size=28, color='black'),  # Make subplot titles big
+                      )  
 
     # Add gaps between ensemble pairs
-    fig.update_layout(height=250*n_ensembles)  # Scale height with number of ensembles, min 300px
     
-    for i, ensemble in enumerate(ensembles):
-        ensemble_data = encoding_data[encoding_data['ensemble'] == ensemble]
-        base_row = 3*i + 1  # First row of the trio (plot, plot, spacer)
-        
-        # Plot baseline activation
-        # shift timestamps to start from previous session, for one long timeline
-        session_t_offset = ensemble_data.groupby('session_id').apply(lambda x: x.iloc[-1]).ephys_timestamp
-        s_ids = session_t_offset.index
-        session_t_offset = [0, *session_t_offset.iloc[:-1].tolist()]
-        session_t_offset = np.cumsum(pd.Series(session_t_offset, index=s_ids))
-        ensemble_data.loc[:, 'ephys_timestamp'] = ensemble_data.loc[:, ['session_id', 'ephys_timestamp']].apply(
-            lambda x: x['ephys_timestamp'] + session_t_offset[x['session_id']],
-            axis=1
+    # iterate rows
+    for i, event_name in enumerate(event_names):
+        fig.update_yaxes(
+            title_text="Ensemble Activation [a.u.]",
+            row=i + 1, col=1,
+            title_standoff=10,
+            title_font=dict(size=18, color='black'),  # Make label bigger
+            tickfont=dict(size=18, color='black'),
+            tickvals=[0],
+            
+            showgrid=True, gridcolor='grey',
+            zeroline=True,
+            zerolinecolor='lightgrey',
+            zerolinewidth=1,
+            range=yrange,  # Adjust range as needed
         )
-        
-        for s_id in ensemble_data['session_id'].unique():
-            session_data = ensemble_data[ensemble_data['session_id'] == s_id]
-            
-            
-            print(session_data)
-            
-            # Plot baseline activity
-            first_var_data = session_data[session_data['behavior_variable'] == 'forward_vel']
-            
-            x = first_var_data['ephys_timestamp'].values
-            baseline_data = first_var_data.avg_activation.values
-        
-        # first_var_data = ensemble_data[ensemble_data['behavior_variable'] == 'forward_vel']
 
-        # x = first_var_data['ephys_timestamp'].values#[:-3]
-        # baseline_data = first_var_data.avg_activation.values#[:-3]
-        # baseline_data[np.abs(baseline_data) > 1.3] = np.nan  # Filter out extreme values
-        
-            fig.add_trace(
-                go.Scatter(
-                    x=x, 
-                    y=baseline_data, 
-                    mode='lines', 
-                    name='Baseline Activity',
-                    legendgroup='baseline',  # Add legendgroup for baseline
-                    line=dict(color='black'),
-                    showlegend=bool(i==0 and s_id == session_data['session_id'].unique()[0])  # Show legend only once, convert to Python bool
-                ),
-                row=base_row, col=1
+        # iterate columns
+        for j, session_id in enumerate(session_ids):
+            
+            dat = encoding_data[encoding_data['t0_event_name'] == event_name]
+            ens_dat = dat.loc[session_id, ens_selection].unstack(level='interval_t')
+            
+            if smooth is not None:
+                ens_dat = ens_dat.T.rolling(window=smooth, center=True, min_periods=smooth).median().dropna(how='all').T
+
+            fig.update_xaxes(
+                title_text="entry time (ms)",
+                title_font=dict(size=14, color='black'),  # Make label bigger
+                tickfont=dict(size=14, color='black'),
+                tickvals=[12, 25, 38],
+                ticktext=['-500', '0', '500'],
+                showticklabels=True,
+                row=i + 1, col=j + 1,
+            )
+            
+            # 0 line
+            fig.add_vline(
+                x=25,line=dict(color='black', width=2, dash='dash'),
+            )
+            fig.add_hline(
+                y=0,line=dict(color='lightgray', width=2),
             )
             fig.add_annotation(
-                # xref='x domain', yref='y domain',
-                x=x[0], y=baseline_data.max(),  # Centered above the plot
-                text=f"S{s_id:02}",
-                showarrow=False,
-                font=dict(size=12),
-                row=base_row, col=1  # Place annotation in the correct row
+                x=35, y=1.45, text=f"S{session_id:02}", showarrow=False,
+                font=dict(size=16, color='black'),
+                row=i + 1, col=j + 1,
             )
             
-            # Plot behavioral correlations
-            for behavior_variable in behavior_variables:
-                ensemble_behavior_data = session_data[session_data['behavior_variable'] == behavior_variable]
-                # y = ensemble_behavior_data.r2.values[:-3]  # or p_val_highlow_activation
-                y = ensemble_behavior_data.p_val_highlow_activation.values#[:-3]
-                
-                # smooth the data
-                y = pd.Series(y).rolling(window=8, min_periods=2).median().values
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=x, 
-                        y=y, 
-                        mode='lines', 
-                        name=behavior_variable,  # Name must match legendgroup
-                        legendgroup=behavior_variable,  # Group traces by behavior variable
-                        line=dict(color=color_mapping.get(behavior_variable, '#808080')),  # Use defined color or gray if not found
-                        showlegend=bool(i==0 and s_id == session_data['session_id'].unique()[0]),  # Show legend only once, convert to Python bool
-                        legendgrouptitle_text=behavior_variable if bool(i==0 and s_id == session_data['session_id'].unique()[0]) else None,
-                    ),
-                    row=base_row+1, col=1
-                )
-                
-            # spacer plot (empty, invisible)
-            fig.add_trace(
-                go.Scatter(
-                    x=[x[0], x[-1]], 
-                    y=[0, 0],  # Just two points for minimal data
-                    mode='lines',
-                    line=dict(width=0),  # Invisible line
-                    showlegend=False,
-                    hoverinfo='skip'  # Disable hover information
-                ),
-                row=base_row+2, col=1
-            )
             
-            # Update axes for this ensemble pair
-            # fig.update_yaxes(title_text='Activity', row=base_row, col=1)
-            fig.update_yaxes(title_text=ensemble, row=base_row+1, col=1, range=[0, .1])
+            if group_by == 'None':
+                draw_group(fig, ens_dat, i, j, event_name, session_id, var_viz)
+            else:
+                for group_name, group_vals in group_by_values.items():
+                    group_dat_vals = dat.loc[session_id, group_by_col].unstack(level='interval_t').iloc[:,0]
 
-            if i == n_ensembles-1:  # Last ensemble
-                fig.update_xaxes(title_text='Time (s)', row=base_row+1, col=1)
-                
-            # Set x-range consistently for all subplots
-            # fig.update_xaxes(range=[x.min(), x.max()], row=base_row, col=1)
-            # fig.update_xaxes(range=[x.min(), x.max()], row=base_row+1, col=1)
-            
-        
-    # Update layout
-    fig.update_layout(
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=1.02,
-            bgcolor="rgba(255, 255, 255, 0.8)",  # Semi-transparent white background
-        ),
-        margin=dict(r=150, t=50, l=50, b=50),  # Adjust margins
-        font=dict(size=10),  # Smaller font size for better fit
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        # width=3000
-    )
-    
-    
-    # Update all subplot properties for better visibility
-    for i in range(1, 3*n_ensembles + 1):
-        # For actual plots (not spacers)
-        if i % 3 != 0:  # If not a spacer row
-            fig.update_yaxes(gridcolor='lightgrey', showgrid=True, row=i, col=1)
-            fig.update_xaxes(gridcolor='lightgrey', showgrid=True, row=i, col=1)
-        else:  # For spacer rows
-            fig.update_yaxes(visible=False, row=i, col=1)
-            fig.update_xaxes(visible=False, row=i, col=1)
-        
+                    mask = group_dat_vals.isin(group_vals)
+                    if mask.any():
+                        print(group_name, group_vals, group_by)
+                        group_dat = ens_dat[mask]
+                        color = cmap[group_vals[0]]
+                        cmap_transparent = {k: v.replace("rgb","rgba")[:-1]+f', {MULTI_TRACES_ALPHA})' 
+                                            for k,v in cmap.items()}
+                        transp_color = cmap_transparent[group_vals[0]]
+                        draw_group(fig, group_dat, i, j, event_name, session_id, 
+                                   var_viz,
+                                   group_name,
+                                   color=color, transp_color=transp_color)
+
+
     return fig
+    

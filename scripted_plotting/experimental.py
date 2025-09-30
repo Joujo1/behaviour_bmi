@@ -156,7 +156,7 @@ data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', m
                                                     session_ids=session_ids)
 
 
-fig = plot_unit_fr_stability.render_plot(data['SpikeClusterMetadata'])
+fig = plot_unit_fr_stability.render_plot_heatmap(data['SpikeClusterMetadata'])
 fig.show()
 # fig = plot_SessionWaveforms.render_plot(data['SpikeClusterMetadata'], data['SessionMetadata'],
 #                                         width, height,)

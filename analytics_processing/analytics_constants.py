@@ -46,7 +46,7 @@ def device_paths():
         nas_dir, local_data_dir, project_dir = None, None, None
         raise ValueError("Unknown OS or user: ", which_os, user)
     
-    if not os.path.exists(nas_dir):
+    if not os.path.exists(nas_dir) or os.listdir(nas_dir) == []:
         msg = f"NAS directory not found: {nas_dir} - VPN connected?"
         # raise FileNotFoundError(msg)
     return nas_dir, local_data_dir, project_dir

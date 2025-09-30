@@ -166,6 +166,10 @@ def _load_all_data(selected_analytics, loaded_analytics, loaded_raw_traces, sele
                                       paradigm_ids=selected_paradigms,
                                       animal_ids=selected_animals,)
                                     #   session_ids=np.arange(1,4))
+        # TODO dirty, should be fixed later, animal level analytics are no good indices
+        if analytic == 'Ensemble40msProjEventAligned':
+            dat.set_index(['session_id', 't0', 'interval_t'], inplace=True,)
+            print(dat)
         loaded_analytics[analytic] = dat
         
         # check if also raw_traces was in the passed selected_analytics list

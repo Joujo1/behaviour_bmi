@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 from dashsrc.plot_components.plot_utils import make_discr_cluster_id_cmap
 
 # from ../../ephysVR.git
-from mea1k_modules.mea1k_raw_preproc import mea1k_raw2decompressed_dat_file
+from mea1k_modules.mea1k_post_processing import mea1k_raw2decompressed_dat_file
 
 def postprocess_ephys(**kwargs):
     L = Logger()
@@ -538,6 +538,14 @@ def run_pca(Z, skip_projection=False):
     PCs = pd.concat([PCs, pd.Series(expl_var, name='explained_variance')], axis=1)
     return PCs, Z_proj
     
+    
+    
+    
+    
+    
+    
+    
+    
 def get_sessionPCA(fr_z):
     fr_z = fr_z.groupby(level='session_id').apply(lambda x: x.fillna(x.min().min()))
     fr_z = fr_z.set_index(["from_ephys_timestamp","to_ephys_timestamp"], append=True)
@@ -557,9 +565,6 @@ def get_sessionPCA(fr_z):
     Z_proj['from_ephys_timestamp'] = fr_z.index.get_level_values('from_ephys_timestamp')
     Z_proj['to_ephys_timestamp'] = fr_z.index.get_level_values('to_ephys_timestamp')
     return PCs, Z_proj
-
-
-
 
 def get_SessionPCs40msCAs(PCs):
     angle_aggr = []
@@ -593,458 +598,630 @@ def get_SessionPCs40msCAs(PCs):
     angle_aggr.index.names = ['from_session_id', 'to_session_id']
     return angle_aggr.reset_index()
 
-def get_Ensemble40msProjEncodings(ensemble_proj, behavior):
+
+
+
+
+
+
+
+
+
+
+def get_Ensemble40msProjEventAligned(ensemble_proj, behavior):
     # convert session_id to a column in behavior, make ephys timestamp the index
     behavior['session_id'] = behavior.index.get_level_values('session_id')
     behavior.reset_index(inplace=True, drop=True)
     behavior.set_index('frame_ephys_timestamp', inplace=True)
-    # print(behavior)
     
     # index by ephys timestamp intervals
     ensemble_proj.index = pd.IntervalIndex.from_arrays(ensemble_proj.pop("from_ephys_timestamp"),
                                                        ensemble_proj.pop("to_ephys_timestamp"))
-    # print(ensemble_proj)
-    # exit()
 
     bin_size_us = ensemble_proj.index[0].right - ensemble_proj.index[0].left
-    # time_interval_nbins = int(time_interval_sec * 1_000_000 / bin_size_us)
-    # stride_nbins = int(stride_sec * 1_000_000 / bin_size_us)
     
-    aggr_results = []
+    all_sess_aggr = []
     for s_id in ensemble_proj.session_id.unique():
         sess_behavior = behavior[behavior.session_id == s_id].drop(columns='session_id')
         sess_ensemble_proj = ensemble_proj[ensemble_proj.session_id == s_id].drop(columns='session_id')
-        print(sess_behavior)
-        print(sess_ensemble_proj)
         
-        if s_id < 12:
-            continue
-
-        time_chunks = "full_duration", 
-        for time_chunk in time_chunks:
-            if time_chunk == "full_duration":
-                # use the full session duration
-                from_session_t = sess_behavior.index[0]
-                to_session_t = sess_behavior.index[-1]
-            
-            # elif time_chunk == "first_8min":
-            #     # use the first 8 minutes of the session
-            #     from_session_t = sess_behavior.index[0]
-            #     to_session_t = from_session_t + 8*60*1_000_000 # 8 minutes in us
-            #     if to_session_t > sess_ensemble_proj.index[-1]:
-            #         continue # skip if the session is shorter than 8 minutes
-            # elif time_chunk == "last_8min":
-            #     # use the last 8 minutes of the session
-            #     to_session_t = sess_behavior.index[-1]
-            #     from_session_t = to_session_t - 8*60*1_000_000
-            #     if from_session_t < sess_ensemble_proj.index[0]:
-            #         continue # skip if the session is shorter than 8 minutes
-            
-            # elif time_chunk == "middle":
-            #     # use the middle of the session, 8 minutes before and after the start, end
-            #     from_session_t = sess_behavior.index[0] + 8*60*1_000_000
-            #     to_session_t = sess_behavior.index[-1] - 8*60*1_000_000
-            #     if from_session_t >= to_session_t:
-            #         continue # skip if the session is shorter than 16 minutes
-
-            sess_tchunk_behavior = sess_behavior.loc[from_session_t:to_session_t].copy()
-            sess_tchunk_ensemble_proj = sess_ensemble_proj.loc[from_session_t:to_session_t].copy()
-            
-            print(f"\nProcessing session {s_id} for time chunk {time_chunk} "
-                  f"from bin {sess_ensemble_proj.shape} bins.", end=' ', flush=True)
+        print(f"\nProcessing session {s_id} "
+                f"from bin {sess_ensemble_proj.shape} bins.", flush=True)
 
 
-            # assign each row/timestamp to its 40ms interval bin
-            sess_tchunk_behavior['ephys_bin'] = sess_tchunk_ensemble_proj.index.get_indexer(sess_tchunk_behavior.index)
+        # assign each row/timestamp to its 40ms interval bin
+        sess_behavior['ephys_bin'] = sess_ensemble_proj.index.get_indexer(sess_behavior.index)
 
-            # trial ids very sparsly have errors, filter out invalid values
-            categoc_agg = sess_tchunk_behavior[['ephys_bin', 'trial_id']].groupby('ephys_bin').agg(lambda x: x.mode())
-            valid_trial_mask = [True if isinstance(v, np.int16) and v >= 1 else False for v in categoc_agg['trial_id']]
-            categoc_agg[~np.array(valid_trial_mask)] = np.nan
-            
-            # then group by this index and take the mean
-            sess_tchunk_behavior = sess_tchunk_behavior.groupby('ephys_bin').mean().round(3)
-            # overwrite the mean with the mode agg for categorical variables
-            sess_tchunk_behavior['trial_id'] = categoc_agg['trial_id']
-            # drop -1 bin
-            sess_tchunk_behavior = sess_tchunk_behavior.loc[sess_tchunk_behavior.index >= 0]
-            # slice to bins for which there is behavior (eg missing before unity launches)
-            sess_tchunk_ensemble_proj = sess_tchunk_ensemble_proj.iloc[sess_tchunk_behavior.index]
-            sess_tchunk_behavior.index = sess_tchunk_ensemble_proj.index.mid.values.astype(np.int64)
-            sess_tchunk_ensemble_proj.index = sess_tchunk_behavior.index
+        # trial ids very sparsly have errors, filter out invalid values
+        categoc_agg = sess_behavior[['ephys_bin', 'trial_id']].groupby('ephys_bin').agg(lambda x: x.mode())
+        valid_trial_mask = [True if isinstance(v, np.int16) and v >= 1 else False for v in categoc_agg['trial_id']]
+        categoc_agg[~np.array(valid_trial_mask)] = np.nan
+        
+        # then group by this index and take the mean
+        sess_behavior = sess_behavior.groupby('ephys_bin').mean().round(3)
+        # overwrite the mean with the mode agg for categorical variables
+        sess_behavior['trial_id'] = categoc_agg['trial_id']
+        # drop -1 bin
+        sess_behavior = sess_behavior.loc[sess_behavior.index >= 0]
+        # slice to bins for which there is behavior (eg missing before unity launches)
+        sess_ensemble_proj = sess_ensemble_proj.iloc[sess_behavior.index]
+        sess_behavior.index = sess_ensemble_proj.index.mid.values.astype(np.int64)
+        sess_ensemble_proj.index = sess_behavior.index
 
-            # fig, axs = plt.subplots(nrows=2, figsize=(5, 11))
-            # axs[1].scatter(sess_tchunk_behavior['frame_raw'], sess_tchunk_ensemble_proj['Assembly003'],  alpha=.2, )
-            # plt.savefig("quickviz.png")
-    
-            print(sess_tchunk_behavior)
-            print(sess_tchunk_ensemble_proj)
-            zones = {
-                'beforeCueZone': (-168, -100),
-                'cueZone': (-80, 25),
-                'afterCueZone': (25, 50),
-                'reward1Zone': (50, 110),
-                'betweenRewardsZone': (110, 170),
-                'reward2Zone': (170, 230),
-                'postRewardZone': (230, 260),
-                'wholeTrack': (-168, 260),
-            }
-    
-    
-            
-            
-            # kinematics
-            acc = sess_tchunk_behavior['frame_acceleration']
-            acc.loc[:] = np.clip(acc, -15, 15)
-            # print(acc.sort_values())
-            forward_acc_positive_only = acc.copy()
-            forward_acc_positive_only[forward_acc_positive_only <= 0] = np.nan
-            
-            forward_acc_negative_only = acc.copy()
-            forward_acc_negative_only[forward_acc_negative_only >= 0] = np.nan
+        # fig, axs = plt.subplots(nrows=2, figsize=(5, 11))
+        # axs[1].scatter(sess_behavior['frame_raw'], sess_ensemble_proj['Assembly003'],  alpha=.2, )
+        # plt.savefig("quickviz.png")
 
-            # shift down the ephys index by one second, predict future acceleration
-            forward_acc_in1sec = acc.copy()
-            nbins_1sec = int(1 * 1_000_000 / bin_size_us)
-            idx = forward_acc_in1sec.index.values[:-nbins_1sec]
-            forward_acc_in1sec = forward_acc_in1sec.iloc[nbins_1sec:]
-            forward_acc_in1sec.index = idx
+        # print(sess_behavior)
+        # print(sess_ensemble_proj)
+        # zones = {
+        #     'beforeCueZone': (-168, -100),
+        #     'cueZone': (-80, 25),
+        #     'afterCueZone': (25, 50),
+        #     'reward1Zone': (50, 110),
+        #     'betweenRewardsZone': (110, 170),
+        #     'reward2Zone': (170, 230),
+        #     'postRewardZone': (230, 260),
+        #     'wholeTrack': (-168, 260),
+        # }
+        zones = {
+            'enter_cueZone': -80,
+            'enter_afterCueZone': 25,
+            'enter_reward1Zone': 50,
+            'enter_reward2Zone': 170,
+        }
+        zones_t_interval_s = {
+            'enter_cueZone': 1,
+            'enter_afterCueZone': 1,
+            'enter_reward1Zone': 1,
+            'enter_reward2Zone': 1,
+        }
 
-            forward_acc_positive_only_in1sec = forward_acc_in1sec.copy()
-            forward_acc_positive_only_in1sec[forward_acc_positive_only_in1sec <= 0] = np.nan
-            
-            forward_acc_negative_only_in1sec = forward_acc_in1sec.copy()
-            forward_acc_negative_only_in1sec[forward_acc_negative_only_in1sec >= 0] = np.nan
 
-            # locations per trial
-            trial_cue_entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
-                                    np.abs(x['frame_position']-zones['cueZone'][0]).sort_values().index[0])
-            trial_cue_entry_t = trial_cue_entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
-            
-            trial_postcue_entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
-                                    np.abs(x['frame_position']-zones['cueZone'][1]).sort_values().index[0])
-            trial_postcue_entry_t = trial_postcue_entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
-            
-            trial_R1entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
-                                    np.abs(x['frame_position']-zones['reward1Zone'][0]).sort_values().index[0])
-            trial_R1entry_t = trial_R1entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+        
+        
+        # kinematics
+        # TODO find t points of specific acceleration events, and deceleration events
+        # acc = sess_behavior['frame_acceleration']
+        # acc.loc[:] = np.clip(acc, -15, 15)
 
-            trial_R2entry_t = sess_tchunk_behavior.groupby('trial_id').apply(lambda x: 
-                                    np.abs(x['frame_position']-zones['reward2Zone'][0]).sort_values().index[0])
-            trial_R2entry_t = trial_R2entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+        # TODO find t points of specific acceleration events, and deceleration events also here
+        # # shift down the ephys index by one second, predict future acceleration
+        # forward_acc_in1sec = acc.copy()
+        # nbins_1sec = int(1 * 1_000_000 / bin_size_us)
+        # idx = forward_acc_in1sec.index.values[:-nbins_1sec]
+        # forward_acc_in1sec = forward_acc_in1sec.iloc[nbins_1sec:]
+        # forward_acc_in1sec.index = idx
+        
+        def select_t0_events(trial_beh):
+            # print(trial_beh)
+            base_info = trial_beh[['cue', 'trial_outcome', 'choice_R1', 'choice_R2']].iloc[0].to_dict()
 
-            print('---------')
-            # print(sess_tchunk_behavior.index)
-            print(sess_tchunk_behavior)
-            print()
+            zone_ts = []
+            for zone_name, zone_x in zones.items():
+                t = np.abs(trial_beh['frame_position']-zone_x).sort_values()
+                if t.iloc[0]<3: # a valid location should be within 3 cm of the zone
+                    t = t.index[0]
+                else:
+                    print(f"Warning: No t0 event found for {zone_name}, was {t.iloc[0]} cm away")
+                    continue    
+                interv_s = zones_t_interval_s[zone_name]
+                interv_us = pd.Interval(left=t-interv_s*1_000_000, 
+                                        right=t+interv_s*1_000_000,)
+
+                zone_ts.append({**base_info, 't0_event_name': zone_name, 
+                                't0': t, 't_interval': interv_us})
+            zone_ts = pd.DataFrame(zone_ts)
+            return zone_ts
+        
+        # make a table where every row is a t0 event, keep info like cue, outcome, choice, trial_id
+        t0_events = sess_behavior.groupby('trial_id').apply(select_t0_events, 
+                                                    include_groups=False).reset_index().drop(columns='level_1')
+
+
+
+
+
+
+
+
+        #TODO should be somewhere else
+        def make_non_overlapping_intervals(intervals):
+            # make sure the intervals are non-overlapping, 
+            # if they are overlapping, add them the iloc to a new list
+            # make new lists if there is no list that wouldn't have overlapping intervals
             
-            trial_postcue_entry_t_outcome = sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'trial_outcome']>1
-            trial_postcue_entry_t_losses = trial_postcue_entry_t_outcome[trial_postcue_entry_t_outcome == False]
-            trial_postcue_entry_t_wins = trial_postcue_entry_t_outcome[trial_postcue_entry_t_outcome == True]
-            
-            trial_R1entry_t_outcomes = sess_tchunk_behavior.loc[trial_R1entry_t.index, 'trial_outcome']>1
-            trial_R1entry_t_losses = trial_R1entry_t_outcomes[trial_R1entry_t_outcomes == False]
-            trial_R1entry_t_wins = trial_R1entry_t_outcomes[trial_R1entry_t_outcomes == True]
-            
-            trial_R2entry_t_outcomes = sess_tchunk_behavior.loc[trial_R2entry_t.index, 'trial_outcome']>1
-            trial_R2entry_t_losses = trial_R2entry_t_outcomes[trial_R2entry_t_outcomes == False]
-            trial_R2entry_t_wins = trial_R2entry_t_outcomes[trial_R2entry_t_outcomes == True]
-            
-            # exit()
-            # print(trial_cue_entry_t.to_string())
-            
-            # print(sess_tchunk_behavior.columns)
-            # print(sess_tchunk_behavior['frame_raw'])
-            # exit()
-            
-            
-            Y = pd.DataFrame({
+            def merge_interval_indices(index1, index2):
+                # Extract the left and right endpoints from both indices
+                left_endpoints = list(index1.left) + list(index2.left)
+                right_endpoints = list(index1.right) + list(index2.right)
                 
-            # kinematic variables
-             'forward_vel':  sess_tchunk_behavior['frame_raw'],
-             'sideway_vel':  sess_tchunk_behavior['frame_yaw'],
-             'rotation_vel': sess_tchunk_behavior['frame_pitch'],
-             
-             'forward_acc': acc,
-             'forward_acc_abs': np.abs(acc),
-             'forward_acc_positive_only': forward_acc_positive_only,
-             'forward_acc_negative_only': forward_acc_negative_only,
+                # Create a new IntervalIndex from the combined endpoints
+                return pd.IntervalIndex.from_arrays(
+                    left_endpoints,
+                    right_endpoints,
+                    closed=index1.closed  # Use the closed parameter from the first index
+                )
             
-             'forward_acc_in1sec': forward_acc_in1sec,
-             'forward_acc_in1sec_abs': np.abs(forward_acc_in1sec),
-             'forward_acc_in1sec_positive_only': forward_acc_positive_only_in1sec,
-             'forward_acc_in1sec_negative_only': forward_acc_negative_only_in1sec,                
-            
-             # event based
-             'lick': sess_tchunk_behavior['lick_count']>0, # slice ephys later around event
-             'reward_sound': sess_tchunk_behavior['reward-sound_count']>0, # slice ephys later around event
-             'reward_valve': sess_tchunk_behavior['reward-valve-open_count']>0, # slice ephys later around event
-             
-             'cue_entry': trial_cue_entry_t,  # slice ephys later around this t
-             'cue1_vs_cue2': sess_tchunk_behavior.loc[trial_cue_entry_t.index, 'cue'], # slice ephys later around this t
-             
-             'cue1_vs_cue2_post': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
-             'cue1_vs_cue2_post_wins': sess_tchunk_behavior.loc[trial_postcue_entry_t_wins.index, 'cue'], # slice ephys later around this t
-             'cue1_vs_cue2_post_losses': sess_tchunk_behavior.loc[trial_postcue_entry_t_losses.index, 'cue'], # slice ephys later around this t
-
-            #  'post_cue_outcome': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'trial_outcome'], # slice ephys later around this t
-            #  'post_cue1_outcome': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
-            #  'post_cue2_outcome': sess_tchunk_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
-
-             'R1choice_entry': sess_tchunk_behavior.loc[trial_R1entry_t.index, 'choice_R1'], # slice ephys later around this t
-             'R1choice_entry_wins': sess_tchunk_behavior.loc[trial_R1entry_t_wins.index, 'choice_R1'], # slice ephys later around this t
-             'R1choice_entry_losses': sess_tchunk_behavior.loc[trial_R1entry_t_losses.index, 'choice_R1'], # slice ephys later around this t
-
-             'R2choice_entry': sess_tchunk_behavior.loc[trial_R2entry_t.index, 'choice_R2'], # slice ephys later around this t
-             'R2choice_entry_wins': sess_tchunk_behavior.loc[trial_R2entry_t_wins.index, 'choice_R2'], # slice ephys later around this t
-             'R2choice_entry_losses': sess_tchunk_behavior.loc[trial_R2entry_t_losses.index, 'choice_R2'], # slice ephys later around this t
-             })
-
-   
-   
-   
-   
-   
-   
-            print("-=------------=------")
-   
-            # for ensemble in [col for col in sess_tchunk_ensemble_proj.columns if col.startswith("Assembly")]:
-            for ensemble in sess_tchunk_ensemble_proj.columns:
-                if True:
-                # if ensemble == 'Assembly001':
-                    # Create a grid with 11 rows and 2 columns, but make right column 1/5 width of left
-
-                    fig = plt.figure(figsize=(16, 16))
-                    fig.suptitle(f'Session {s_id} - {ensemble}', fontsize=16, y=0.95)
-                    gs = GridSpec(15, 2, width_ratios=[6, 1], figure=fig)
-                    axs = np.empty((15, 2), dtype=object)
-                    # Create first column with shared x/y axes
-                    axs[0, 0] = fig.add_subplot(gs[0, 0])
-                    for row in range(1, 15):
-                        axs[row, 0] = fig.add_subplot(gs[row, 0], sharex=axs[0, 0], )
-                    # Create second column with shared x/y axes
-                    axs[0, 1] = fig.add_subplot(gs[0, 1])
-                    for row in range(1, 15):
-                        axs[row, 1] = fig.add_subplot(gs[row, 1], )#sharex=axs[0, 1], )
-                    plt.subplots_adjust(hspace=0.001, wspace=0.001)
-                    for ax_row in axs:
-                        for ax in ax_row:
-                            ax.set_xlabel('')
-                            # ax.set_ylabel('')
-                            ax.tick_params(axis='x', labelbottom=False)
-                            # ax.tick_params(axis='y', labelleft=False)
-
-                ephys = sess_tchunk_ensemble_proj[ensemble].to_frame(name=ensemble)
-                smoothed = ephys.iloc[:,0].rolling(window=6, center=True, min_periods=6).mean()
-                axs[0, 0].plot(ephys.iloc[:,0].rolling(window=25*5, center=True, min_periods=25*5).mean().index, 
-                               ephys.iloc[:,0].rolling(window=25*5, center=True, min_periods=25*5).mean().values, '-', markersize=1, alpha=1, color='black')
-                axs[0, 0].set_ylim((-.4, 1.6))
-                
-                row = 1
-                color_cycle = itertools.cycle(['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan'])
-                for i, encodes_col in enumerate(Y.columns):
-                    if (encodes_col.startswith('forward_') or encodes_col.startswith('rotation_') or encodes_col.startswith('sideway_')):
-                        continue
-                        
-                    print(f'\n\n----{encodes_col}----')
-                    y = Y[encodes_col]
+            def add_interval_to_batch(interv):
+                batch_id = 0
+                while True:
+                    # create a new batch if the current one doesn't exist yet
+                    if len(non_overlapping_interv_batches) <= batch_id:
+                        # init with a single interval
+                        non_overlapping_interv_batches.append(interv)
+                        # print(f"Batch {batch_id} is empty, adding interval {interv}, {type(interv)}")
+                        return batch_id
                     
-                        
-                        
-                        
-                        
-                        
-                        
-                    # events
-                    if encodes_col in ['lick', 'reward_sound', 'reward_valve']:
-                        y = y[y.values]
                     else:
-                        y = y[y.notna()].astype(int)
-                        print(y)
-                        y = y[y.index<ephys.index[-1]-1_000_000]
-                        print(y)
-                    if y.empty:
-                        continue
+                        hpyth_index = merge_interval_indices(
+                            non_overlapping_interv_batches[batch_id], interv
+                        )
+                    # check if the new interval overlaps with the current batch
+                    if not hpyth_index.is_overlapping:
+                        # if not, the merged interval becomes the new batch
+                        non_overlapping_interv_batches[batch_id] = hpyth_index
+                        # print(f"Batch {batch_id} is not overlapping, adding interval {interv}")
+                        return batch_id
                     
-                    # color = next(color_cycle)
+                    else:
+                        # if it does, create a new batch and try again
+                        batch_id += 1
+                        # print(f"Batch {batch_id} is overlapping, creating a new one")
+                        # print(non_overlapping_interv_batches)
+                        # print(interv)
+                        # print()
 
-                    # if encodes_col in ['reward_sound', ]:
-                    #     axs[0, 0].scatter(y.index, np.ones_like(y)*smoothed.mean(), marker='|', s=1000, alpha=0.4, color=color)
-                    axs[row, 0].set_title(f'{encodes_col}', fontsize=10, loc='left')
+            non_overlapping_interv_batches = []
+            batch_assinments = {}
+            for i in range(len(intervals)):
+                cur_interv = intervals[i]
+                batch_id = add_interval_to_batch(pd.IntervalIndex([cur_interv]))
+                batch_assinments[i] = batch_id
+
+            lengths = [len(batch) for batch in non_overlapping_interv_batches]
+            print(f"Made {len(non_overlapping_interv_batches)} non-overlapping"
+                    f" batches of intervals of lengths: {lengths}")
+            return pd.Series(batch_assinments, name='interval_batch_id',)
+                
+                
+                
+                
+                
+                
+                
+                
+                
+        intervals = pd.IntervalIndex(t0_events.t_interval)
+        # intervals cannot overlap for followup analysis, so we need to make 
+        # batches of non-overlapping intervals
+        batch_assinments = make_non_overlapping_intervals(intervals)
+        t0_events = pd.merge(t0_events, batch_assinments, left_index=True, right_index=True)
+        
+        aggr = []
+        for interv_batch_id in t0_events.interval_batch_id.unique():
+            # get the t0 events for this batch, reset the index for merging later
+            t0_events_batch = t0_events[t0_events.interval_batch_id == interv_batch_id].reset_index(drop=True)
+            t0_events_batch.index.name = 'event_assignm'
+            print(f"Processing t0 events batch {interv_batch_id} with {len(t0_events_batch)} events")
+            
+            # use the intervals to assign each ephys t point to a t0 event
+            intervals = pd.IntervalIndex(t0_events_batch.t_interval)
+            event_assignm = intervals.get_indexer(sess_ensemble_proj.index)
+            
+            t0_ensemble_proj_batch = sess_ensemble_proj.copy()
+            t0_ensemble_proj_batch['event_assignm'] = event_assignm
+            t0_ensemble_proj_batch[t0_ensemble_proj_batch['event_assignm'] != -1]
+            # put the ephys t and event assignm into columns, reset the index
+            t0_ensemble_proj_batch = t0_ensemble_proj_batch.reset_index().rename(columns={'index': 'ephys_bin_t'})
+
+            # groupby the event assigment and stack the ephys t points
+            # length depdends on the interval; Assemblies are columns, + one t column
+            t0_ensemble_proj_batch = t0_ensemble_proj_batch.groupby('event_assignm').apply(lambda x:
+                                            (x.reset_index(drop=True).stack()),
+                                            include_groups=False).unstack(level=2)
+            # print(t0_ensemble_proj_batch)
+            t0_ensemble_proj_batch.index.names = ['event_assignm', 'interval_t']
+
+            # merge behavior and ensemble projection, using event assignm as index
+            t0_events_batch = pd.merge(t0_events_batch, t0_ensemble_proj_batch, 
+                                        left_index=True, right_index=True, how='left')
+            # keep only the t_interval (eg 50 points for 2 seconds, 40ms bins)
+            t0_events_batch = t0_events_batch.reset_index().drop(columns='event_assignm')
+            aggr.append(t0_events_batch)
+            
+        # concat all t0 events batches
+        sess_t0_events = pd.concat(aggr, axis=0).sort_values(['t0','interval_t']).reset_index(drop=True)
+        sess_t0_events['session_id'] = s_id
+        all_sess_aggr.append(sess_t0_events)
+        # print(all_sess_aggr)
+        
+    all_sess_aggr = pd.concat(all_sess_aggr, axis=0).reset_index(drop=True)
+    print(all_sess_aggr)
+    return all_sess_aggr
+        
+        
+        
+        
+        
+        
+        
+        
+        
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+    #         # before
+    #         bef_ephys = smoothed.to_frame().copy()
+    #         bef_ephys['event_i'] = one_y_tpoints.get_indexer(bef_ephys.index)
+    #         # get the ephys before a single event and rest to count index (order before event)
+    #         bef_ephys = bef_ephys[bef_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
+    #         # then use this order to groupby the single timepoints before the event
+    #         bef_ephys = bef_ephys.drop(columns='event_i').unstack()
+    #         # add the input info, like cue outcome choice
+    #         bef_ephys['input'] = y.values
+    #         print()
+    #         print()
+    #         print(bef_ephys)
+    #         print(y)
+    #         bef_ephys.set_index('input', inplace=True, append=True)
+            
+    #         # the same for after the event
+    #         aft_ephys = smoothed.to_frame().copy()
+    #         aft_ephys['event_i'] = other_y_tpoints.get_indexer(aft_ephys.index)
+    #         # get the ephys after a single event and rest to count index (order after event)
+    #         aft_ephys = aft_ephys[aft_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
+    #         # then use this order to groupby the single timepoints after the event
+    #         aft_ephys = aft_ephys.drop(columns='event_i').unstack()
+    #         # add the input info, like cue outcome choice
+    #         print(aft_ephys)
+    #         print(y)
+    #         aft_ephys['input'] = y.values
+    #         aft_ephys.set_index('input', inplace=True, append=True)
+            
+            
+            
+    #         exit()
+            
+    #         # locations per trial, find the in a trial where the x position is closest to the zone entry or exit
+    #         trial_cue_entry_t = sess_behavior.groupby('trial_id').apply(lambda x: 
+    #                                 np.abs(x['frame_position']-zones['cueZone'][0]).sort_values().index[0])
+    #         trial_cue_entry_t = trial_cue_entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+            
+    #         trial_postcue_entry_t = sess_behavior.groupby('trial_id').apply(lambda x: 
+    #                                 np.abs(x['frame_position']-zones['cueZone'][1]).sort_values().index[0])
+    #         trial_postcue_entry_t = trial_postcue_entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+            
+    #         trial_R1entry_t = sess_behavior.groupby('trial_id').apply(lambda x: 
+    #                                 np.abs(x['frame_position']-zones['reward1Zone'][0]).sort_values().index[0])
+    #         trial_R1entry_t = trial_R1entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+
+    #         trial_R2entry_t = sess_behavior.groupby('trial_id').apply(lambda x: 
+    #                                 np.abs(x['frame_position']-zones['reward2Zone'][0]).sort_values().index[0])
+    #         trial_R2entry_t = trial_R2entry_t.reset_index().set_index(0).squeeze() # flip index and values, t is index again
+
+    #         print('---------')
+    #         # print(sess_behavior.index)
+    #         print()
+            
+    #         trial_postcue_entry_t_outcome = sess_behavior.loc[trial_postcue_entry_t.index, 'trial_outcome']>1
+    #         trial_postcue_entry_t_losses = trial_postcue_entry_t_outcome[trial_postcue_entry_t_outcome == False]
+    #         trial_postcue_entry_t_wins = trial_postcue_entry_t_outcome[trial_postcue_entry_t_outcome == True]
+            
+    #         trial_R1entry_t_outcomes = sess_behavior.loc[trial_R1entry_t.index, 'trial_outcome']>1
+    #         trial_R1entry_t_losses = trial_R1entry_t_outcomes[trial_R1entry_t_outcomes == False]
+    #         trial_R1entry_t_wins = trial_R1entry_t_outcomes[trial_R1entry_t_outcomes == True]
+            
+    #         trial_R2entry_t_outcomes = sess_behavior.loc[trial_R2entry_t.index, 'trial_outcome']>1
+    #         trial_R2entry_t_losses = trial_R2entry_t_outcomes[trial_R2entry_t_outcomes == False]
+    #         trial_R2entry_t_wins = trial_R2entry_t_outcomes[trial_R2entry_t_outcomes == True]
+            
+    #         # exit()
+    #         # print(trial_cue_entry_t.to_string())
+            
+    #         # print(sess_behavior.columns)
+    #         # print(sess_behavior['frame_raw'])
+    #         # exit()
+            
+            
+    #         Y = pd.DataFrame({
+                
+    #         # kinematic variables
+    #          'forward_vel':  sess_behavior['frame_raw'],
+    #          'sideway_vel':  sess_behavior['frame_yaw'],
+    #          'rotation_vel': sess_behavior['frame_pitch'],
+             
+    #          'forward_acc': acc,
+    #          'forward_acc_abs': np.abs(acc),
+    #          'forward_acc_positive_only': forward_acc_positive_only,
+    #          'forward_acc_negative_only': forward_acc_negative_only,
+            
+    #          'forward_acc_in1sec': forward_acc_in1sec,
+    #          'forward_acc_in1sec_abs': np.abs(forward_acc_in1sec),
+    #          'forward_acc_in1sec_positive_only': forward_acc_positive_only_in1sec,
+    #          'forward_acc_in1sec_negative_only': forward_acc_negative_only_in1sec,                
+            
+    #          # event based
+    #          'lick': sess_behavior['lick_count']>0, # slice ephys later around event
+    #          'reward_sound': sess_behavior['reward-sound_count']>0, # slice ephys later around event
+    #          'reward_valve': sess_behavior['reward-valve-open_count']>0, # slice ephys later around event
+             
+    #          'cue_entry': trial_cue_entry_t,  # slice ephys later around this t
+    #          'cue1_vs_cue2': sess_behavior.loc[trial_cue_entry_t.index, 'cue'], # slice ephys later around this t
+             
+    #          'cue1_vs_cue2_post': sess_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
+    #          'cue1_vs_cue2_post_wins': sess_behavior.loc[trial_postcue_entry_t_wins.index, 'cue'], # slice ephys later around this t
+    #          'cue1_vs_cue2_post_losses': sess_behavior.loc[trial_postcue_entry_t_losses.index, 'cue'], # slice ephys later around this t
+
+    #         #  'post_cue_outcome': sess_behavior.loc[trial_postcue_entry_t.index, 'trial_outcome'], # slice ephys later around this t
+    #         #  'post_cue1_outcome': sess_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
+    #         #  'post_cue2_outcome': sess_behavior.loc[trial_postcue_entry_t.index, 'cue'], # slice ephys later around this t
+
+    #          'R1choice_entry': sess_behavior.loc[trial_R1entry_t.index, 'choice_R1'], # slice ephys later around this t
+    #          'R1choice_entry_wins': sess_behavior.loc[trial_R1entry_t_wins.index, 'choice_R1'], # slice ephys later around this t
+    #          'R1choice_entry_losses': sess_behavior.loc[trial_R1entry_t_losses.index, 'choice_R1'], # slice ephys later around this t
+
+    #          'R2choice_entry': sess_behavior.loc[trial_R2entry_t.index, 'choice_R2'], # slice ephys later around this t
+    #          'R2choice_entry_wins': sess_behavior.loc[trial_R2entry_t_wins.index, 'choice_R2'], # slice ephys later around this t
+    #          'R2choice_entry_losses': sess_behavior.loc[trial_R2entry_t_losses.index, 'choice_R2'], # slice ephys later around this t
+    #          })
+
+   
+   
+   
+   
+   
+   
+    #         print("-=------------=------")
+   
+    #         # for ensemble in [col for col in sess_ensemble_proj.columns if col.startswith("Assembly")]:
+    #         for ensemble in sess_ensemble_proj.columns:
+    #             if True:
+    #             # if ensemble == 'Assembly001':
+    #                 # Create a grid with 11 rows and 2 columns, but make right column 1/5 width of left
+
+    #                 fig = plt.figure(figsize=(16, 16))
+    #                 fig.suptitle(f'Session {s_id} - {ensemble}', fontsize=16, y=0.95)
+    #                 gs = GridSpec(15, 2, width_ratios=[6, 1], figure=fig)
+    #                 axs = np.empty((15, 2), dtype=object)
+    #                 # Create first column with shared x/y axes
+    #                 axs[0, 0] = fig.add_subplot(gs[0, 0])
+    #                 for row in range(1, 15):
+    #                     axs[row, 0] = fig.add_subplot(gs[row, 0], sharex=axs[0, 0], )
+    #                 # Create second column with shared x/y axes
+    #                 axs[0, 1] = fig.add_subplot(gs[0, 1])
+    #                 for row in range(1, 15):
+    #                     axs[row, 1] = fig.add_subplot(gs[row, 1], )#sharex=axs[0, 1], )
+    #                 plt.subplots_adjust(hspace=0.001, wspace=0.001)
+    #                 for ax_row in axs:
+    #                     for ax in ax_row:
+    #                         ax.set_xlabel('')
+    #                         # ax.set_ylabel('')
+    #                         ax.tick_params(axis='x', labelbottom=False)
+    #                         # ax.tick_params(axis='y', labelleft=False)
+
+    #             ephys = sess_ensemble_proj[ensemble].to_frame(name=ensemble)
+    #             smoothed = ephys.iloc[:,0].rolling(window=6, center=True, min_periods=6).mean()
+    #             axs[0, 0].plot(ephys.iloc[:,0].rolling(window=25*5, center=True, min_periods=25*5).mean().index, 
+    #                            ephys.iloc[:,0].rolling(window=25*5, center=True, min_periods=25*5).mean().values, '-', markersize=1, alpha=1, color='black')
+    #             axs[0, 0].set_ylim((-.4, 1.6))
+                
+    #             row = 1
+    #             color_cycle = itertools.cycle(['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan'])
+    #             for i, encodes_col in enumerate(Y.columns):
+    #                 if (encodes_col.startswith('forward_') or encodes_col.startswith('rotation_') or encodes_col.startswith('sideway_')):
+    #                     continue
+                        
+    #                 print(f'\n\n----{encodes_col}----')
+    #                 y = Y[encodes_col]
                     
-                    # lick count
-                    ymin, ymax = 0, 0
-                    if encodes_col == 'lick':
-                        axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='blue')
-                        y = y.groupby(y.index).count()
                         
-                        # lick_tpoints = smoothed.copy()
-                        other_y_ephys = smoothed.reindex(y.index)
-                        one_y_ephys = smoothed.reindex(smoothed.index.difference(y.index))
+                        
+                        
+                        
+                        
+                        
+    #                 # events
+    #                 if encodes_col in ['lick', 'reward_sound', 'reward_valve']:
+    #                     y = y[y.values]
+    #                 else:
+    #                     y = y[y.notna()].astype(int)
+    #                     print(y)
+    #                     y = y[y.index<ephys.index[-1]-1_000_000]
+    #                     print(y)
+    #                 if y.empty:
+    #                     continue
+                    
+    #                 # color = next(color_cycle)
 
-                        axs[row, 1].scatter(-0.2*np.ones_like(other_y_ephys)+np.random.normal(scale=0.01, size=other_y_ephys.shape), 
-                                            other_y_ephys.values, marker='.', s=1, alpha=.5, color='blue')
-                        axs[row, 1].axhline(other_y_ephys.mean(), color='blue', linestyle='--', linewidth=1, alpha=0.8)
-                        axs[row, 1].scatter(0.2*np.ones_like(one_y_ephys)+np.random.normal(scale=0.01, size=one_y_ephys.shape), 
-                                            one_y_ephys.values, marker='.', s=1, alpha=.5, color='gray')
-                        axs[row, 1].axhline(one_y_ephys.mean(), color='gray', linestyle='--', linewidth=3, alpha=0.2)
-                        axs[row, 1].set_title(f'Lick count: {y.sum()}', fontsize=10, loc='left')
-                        axs[row, 1].set_xlim(-0.5, 0.5)
+    #                 # if encodes_col in ['reward_sound', ]:
+    #                 #     axs[0, 0].scatter(y.index, np.ones_like(y)*smoothed.mean(), marker='|', s=1000, alpha=0.4, color=color)
+    #                 axs[row, 0].set_title(f'{encodes_col}', fontsize=10, loc='left')
+                    
+    #                 # lick count
+    #                 ymin, ymax = 0, 0
+    #                 if encodes_col == 'lick':
+    #                     axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='blue')
+    #                     y = y.groupby(y.index).count()
+                        
+    #                     # lick_tpoints = smoothed.copy()
+    #                     other_y_ephys = smoothed.reindex(y.index)
+    #                     one_y_ephys = smoothed.reindex(smoothed.index.difference(y.index))
 
-                    # before after variables
-                    if encodes_col in ['reward_sound', 'reward_valve', 
-                                       'cue_entry', 'cue1_vs_cue2', 'cue1_vs_cue2_post',
-                                       'cue1_vs_cue2_post_wins', 'cue1_vs_cue2_post_losses',
+    #                     axs[row, 1].scatter(-0.2*np.ones_like(other_y_ephys)+np.random.normal(scale=0.01, size=other_y_ephys.shape), 
+    #                                         other_y_ephys.values, marker='.', s=1, alpha=.5, color='blue')
+    #                     axs[row, 1].axhline(other_y_ephys.mean(), color='blue', linestyle='--', linewidth=1, alpha=0.8)
+    #                     axs[row, 1].scatter(0.2*np.ones_like(one_y_ephys)+np.random.normal(scale=0.01, size=one_y_ephys.shape), 
+    #                                         one_y_ephys.values, marker='.', s=1, alpha=.5, color='gray')
+    #                     axs[row, 1].axhline(one_y_ephys.mean(), color='gray', linestyle='--', linewidth=3, alpha=0.2)
+    #                     axs[row, 1].set_title(f'Lick count: {y.sum()}', fontsize=10, loc='left')
+    #                     axs[row, 1].set_xlim(-0.5, 0.5)
+
+    #                 # before after variables
+    #                 if encodes_col in ['reward_sound', 'reward_valve', 
+    #                                    'cue_entry', 'cue1_vs_cue2', 'cue1_vs_cue2_post',
+    #                                    'cue1_vs_cue2_post_wins', 'cue1_vs_cue2_post_losses',
                                     
-                                    'R1choice_entry', 'R1choice_entry_wins', 'R1choice_entry_losses',
-                                    'R2choice_entry', 'R2choice_entry_wins', 'R2choice_entry_losses',
+    #                                 'R1choice_entry', 'R1choice_entry_wins', 'R1choice_entry_losses',
+    #                                 'R2choice_entry', 'R2choice_entry_wins', 'R2choice_entry_losses',
                                     
-                                    ]:
+    #                                 ]:
                         
-                        if encodes_col in ['reward_sound', 'reward_valve']:
-                            interv_s = .5 # seconds, half a second before and after the event
-                        else:
-                            interv_s = 1
+    #                     if encodes_col in ['reward_sound', 'reward_valve']:
+    #                         interv_s = .5 # seconds, half a second before and after the event
+    #                     else:
+    #                         interv_s = 1
                         
-                        one_y_tpoints = pd.IntervalIndex.from_arrays(y.index.values-interv_s*1_000_000, # half a second before the event, us
-                                                                     y.index.values)
-                        other_y_tpoints = pd.IntervalIndex.from_arrays(y.index.values,
-                                                                       y.index.values+interv_s*1_000_000,) # half a second after the event, us
+    #                     one_y_tpoints = pd.IntervalIndex.from_arrays(y.index.values-interv_s*1_000_000, # half a second before the event, us
+    #                                                                  y.index.values)
+    #                     other_y_tpoints = pd.IntervalIndex.from_arrays(y.index.values,
+    #                                                                    y.index.values+interv_s*1_000_000,) # half a second after the event, us
                         
-                        # before
-                        bef_ephys = smoothed.to_frame().copy()
-                        bef_ephys['event_i'] = one_y_tpoints.get_indexer(bef_ephys.index)
-                        # get the ephys before a single event and rest to count index (order before event)
-                        bef_ephys = bef_ephys[bef_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
-                        # then use this order to groupby the single timepoints before the event
-                        bef_ephys = bef_ephys.drop(columns='event_i').unstack()
-                        # add the input info, like cue outcome choice
-                        bef_ephys['input'] = y.values
-                        print()
-                        print()
-                        print(bef_ephys)
-                        print(y)
-                        bef_ephys.set_index('input', inplace=True, append=True)
+    #                     # before
+    #                     bef_ephys = smoothed.to_frame().copy()
+    #                     bef_ephys['event_i'] = one_y_tpoints.get_indexer(bef_ephys.index)
+    #                     # get the ephys before a single event and rest to count index (order before event)
+    #                     bef_ephys = bef_ephys[bef_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
+    #                     # then use this order to groupby the single timepoints before the event
+    #                     bef_ephys = bef_ephys.drop(columns='event_i').unstack()
+    #                     # add the input info, like cue outcome choice
+    #                     bef_ephys['input'] = y.values
+    #                     print()
+    #                     print()
+    #                     print(bef_ephys)
+    #                     print(y)
+    #                     bef_ephys.set_index('input', inplace=True, append=True)
                         
-                        # the same for after the event
-                        aft_ephys = smoothed.to_frame().copy()
-                        aft_ephys['event_i'] = other_y_tpoints.get_indexer(aft_ephys.index)
-                        # get the ephys after a single event and rest to count index (order after event)
-                        aft_ephys = aft_ephys[aft_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
-                        # then use this order to groupby the single timepoints after the event
-                        aft_ephys = aft_ephys.drop(columns='event_i').unstack()
-                        # add the input info, like cue outcome choice
-                        print(aft_ephys)
-                        print(y)
-                        aft_ephys['input'] = y.values
-                        aft_ephys.set_index('input', inplace=True, append=True)
+    #                     # the same for after the event
+    #                     aft_ephys = smoothed.to_frame().copy()
+    #                     aft_ephys['event_i'] = other_y_tpoints.get_indexer(aft_ephys.index)
+    #                     # get the ephys after a single event and rest to count index (order after event)
+    #                     aft_ephys = aft_ephys[aft_ephys['event_i'] != -1].groupby('event_i').apply(lambda x: x.reset_index(drop=True))
+    #                     # then use this order to groupby the single timepoints after the event
+    #                     aft_ephys = aft_ephys.drop(columns='event_i').unstack()
+    #                     # add the input info, like cue outcome choice
+    #                     print(aft_ephys)
+    #                     print(y)
+    #                     aft_ephys['input'] = y.values
+    #                     aft_ephys.set_index('input', inplace=True, append=True)
                         
-                        axs[row, 1].axvline(0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    #                     axs[row, 1].axvline(0, color='black', linestyle='--', linewidth=1, alpha=0.5)
                         
                         
-                        if encodes_col in ['reward_sound', 'reward_valve', 'cue_entry']:
-                            if encodes_col != 'cue_entry':
-                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='green')
-                            else:
-                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='gray')
+    #                     if encodes_col in ['reward_sound', 'reward_valve', 'cue_entry']:
+    #                         if encodes_col != 'cue_entry':
+    #                             axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='green')
+    #                         else:
+    #                             axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color='gray')
                                 
                             
-                            axs[row, 1].plot(np.arange(-bef_ephys.shape[1],0), bef_ephys.values.mean(axis=0), alpha=0.9, color='gray', label='Mean Before')
-                            axs[row, 1].plot(np.arange(aft_ephys.shape[1]), aft_ephys.values.mean(axis=0), alpha=0.9, color='green', label='Mean After')
+    #                         axs[row, 1].plot(np.arange(-bef_ephys.shape[1],0), bef_ephys.values.mean(axis=0), alpha=0.9, color='gray', label='Mean Before')
+    #                         axs[row, 1].plot(np.arange(aft_ephys.shape[1]), aft_ephys.values.mean(axis=0), alpha=0.9, color='green', label='Mean After')
 
-                            # Add shaded area for std
-                            bef_mean = bef_ephys.values.mean(axis=0)
-                            bef_std = bef_ephys.values.std(axis=0)/2
-                            bef_x = np.arange(-bef_ephys.shape[1],0)
-                            axs[row, 1].fill_between(bef_x, bef_mean-bef_std, bef_mean+bef_std, color='gray', alpha=0.2, label='Std Before')
+    #                         # Add shaded area for std
+    #                         bef_mean = bef_ephys.values.mean(axis=0)
+    #                         bef_std = bef_ephys.values.std(axis=0)/2
+    #                         bef_x = np.arange(-bef_ephys.shape[1],0)
+    #                         axs[row, 1].fill_between(bef_x, bef_mean-bef_std, bef_mean+bef_std, color='gray', alpha=0.2, label='Std Before')
 
-                            aft_mean = aft_ephys.values.mean(axis=0)
-                            aft_std = aft_ephys.values.std(axis=0)/2
-                            aft_x = np.arange(aft_ephys.shape[1])
-                            axs[row, 1].fill_between(aft_x, aft_mean-aft_std, aft_mean+aft_std, color='green', alpha=0.2, label='Std After')
+    #                         aft_mean = aft_ephys.values.mean(axis=0)
+    #                         aft_std = aft_ephys.values.std(axis=0)/2
+    #                         aft_x = np.arange(aft_ephys.shape[1])
+    #                         axs[row, 1].fill_between(aft_x, aft_mean-aft_std, aft_mean+aft_std, color='green', alpha=0.2, label='Std After')
                             
-                            all_vals = np.concatenate([aft_mean-aft_std, aft_mean+aft_std,
-                                                       bef_mean-bef_std, bef_mean+bef_std])
-                            min_here, max_here = all_vals.min(), all_vals.max()
-                            if min_here < ymin:
-                                ymin = min_here
-                            if max_here > ymax:
-                                ymax = max_here
+    #                         all_vals = np.concatenate([aft_mean-aft_std, aft_mean+aft_std,
+    #                                                    bef_mean-bef_std, bef_mean+bef_std])
+    #                         min_here, max_here = all_vals.min(), all_vals.max()
+    #                         if min_here < ymin:
+    #                             ymin = min_here
+    #                         if max_here > ymax:
+    #                             ymax = max_here
 
-                        elif encodes_col in ['cue1_vs_cue2', 'cue1_vs_cue2_post', 'cue1_vs_cue2_post_wins', 'cue1_vs_cue2_post_losses']:
-                            axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color=['purple' if v == 1 else 'orange' for v in y.values])
-                            if encodes_col.endswith('_wins'):
-                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='green')
-                            elif encodes_col.endswith('_losses'):
-                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='red')
-                            # merge the before and after ephys data
-                            both_ephys = pd.concat([bef_ephys, aft_ephys], axis=1)
-                            if both_ephys.empty or y.unique().size < 2:
-                                print("missing one cue")
-                                continue
-                            x = np.arange(-both_ephys.shape[1]//2, both_ephys.shape[1]//2)
-                            cue1_mean = both_ephys.loc[(slice(None), 1),:].mean(axis=0)
-                            cue2_mean = both_ephys.loc[(slice(None), 2),:].mean(axis=0)
-                            axs[row, 1].plot(x, cue1_mean, alpha=0.9, color='purple', label=f'n={both_ephys.loc[(slice(None), 1),:].shape[0]} cue1')
-                            axs[row, 1].plot(x, cue2_mean, alpha=0.9, color='orange', label=f'n={both_ephys.loc[(slice(None), 2),:].shape[0]} cue2')
-                            axs[row, 1].legend(loc='best', fontsize=6)
+    #                     elif encodes_col in ['cue1_vs_cue2', 'cue1_vs_cue2_post', 'cue1_vs_cue2_post_wins', 'cue1_vs_cue2_post_losses']:
+    #                         axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.6, color=['purple' if v == 1 else 'orange' for v in y.values])
+    #                         if encodes_col.endswith('_wins'):
+    #                             axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='green')
+    #                         elif encodes_col.endswith('_losses'):
+    #                             axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='red')
+    #                         # merge the before and after ephys data
+    #                         both_ephys = pd.concat([bef_ephys, aft_ephys], axis=1)
+    #                         if both_ephys.empty or y.unique().size < 2:
+    #                             print("missing one cue")
+    #                             continue
+    #                         x = np.arange(-both_ephys.shape[1]//2, both_ephys.shape[1]//2)
+    #                         cue1_mean = both_ephys.loc[(slice(None), 1),:].mean(axis=0)
+    #                         cue2_mean = both_ephys.loc[(slice(None), 2),:].mean(axis=0)
+    #                         axs[row, 1].plot(x, cue1_mean, alpha=0.9, color='purple', label=f'n={both_ephys.loc[(slice(None), 1),:].shape[0]} cue1')
+    #                         axs[row, 1].plot(x, cue2_mean, alpha=0.9, color='orange', label=f'n={both_ephys.loc[(slice(None), 2),:].shape[0]} cue2')
+    #                         axs[row, 1].legend(loc='best', fontsize=6)
 
-                            # in between std part
-                            cue1_std = both_ephys.loc[(slice(None), 1),:].std(axis=0)/2
-                            axs[row, 1].fill_between(x, cue1_mean-cue1_std, cue1_mean+cue1_std, color='purple', alpha=0.2)
+    #                         # in between std part
+    #                         cue1_std = both_ephys.loc[(slice(None), 1),:].std(axis=0)/2
+    #                         axs[row, 1].fill_between(x, cue1_mean-cue1_std, cue1_mean+cue1_std, color='purple', alpha=0.2)
 
-                            cue2_std = both_ephys.loc[(slice(None), 2),:].std(axis=0)/2
-                            axs[row, 1].fill_between(x, cue2_mean-cue2_std, cue2_mean+cue2_std, color='orange', alpha=0.2)
+    #                         cue2_std = both_ephys.loc[(slice(None), 2),:].std(axis=0)/2
+    #                         axs[row, 1].fill_between(x, cue2_mean-cue2_std, cue2_mean+cue2_std, color='orange', alpha=0.2)
 
-                            all_vals = np.concatenate([cue1_mean-cue1_std, cue2_mean+cue2_std,])
-                            min_here, max_here = all_vals.min(), all_vals.max()
-                            if min_here < ymin:
-                                ymin = min_here
-                            if max_here > ymax:
-                                ymax = max_here
+    #                         all_vals = np.concatenate([cue1_mean-cue1_std, cue2_mean+cue2_std,])
+    #                         min_here, max_here = all_vals.min(), all_vals.max()
+    #                         if min_here < ymin:
+    #                             ymin = min_here
+    #                         if max_here > ymax:
+    #                             ymax = max_here
 
-                        elif encodes_col in ['R1choice_entry', 'R2choice_entry', 'R1choice_entry_wins', 'R1choice_entry_losses', 'R2choice_entry_wins', 'R2choice_entry_losses']:
-                            axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.8, color=['black' if v == 1 else 'gray' for v in y.values])
-                            if encodes_col.endswith('_wins'):
-                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='green')
-                            elif encodes_col.endswith('_losses'):
-                                axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='red')
-                            # merge the before and after ephys data
-                            both_ephys = pd.concat([bef_ephys, aft_ephys], axis=1)
-                            if y.unique().size < 2:
-                                continue
+    #                     elif encodes_col in ['R1choice_entry', 'R2choice_entry', 'R1choice_entry_wins', 'R1choice_entry_losses', 'R2choice_entry_wins', 'R2choice_entry_losses']:
+    #                         axs[row, 0].scatter(y.index, np.zeros_like(y), marker='|', s=1000, alpha=0.8, color=['black' if v == 1 else 'gray' for v in y.values])
+    #                         if encodes_col.endswith('_wins'):
+    #                             axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='green')
+    #                         elif encodes_col.endswith('_losses'):
+    #                             axs[row, 0].scatter(y.index, np.zeros_like(y), marker='.', s=100, alpha=0.6, color='red')
+    #                         # merge the before and after ephys data
+    #                         both_ephys = pd.concat([bef_ephys, aft_ephys], axis=1)
+    #                         if y.unique().size < 2:
+    #                             continue
                             
-                            x = np.arange(-both_ephys.shape[1]//2, both_ephys.shape[1]//2)
-                            stopped_mean = both_ephys.loc[(slice(None), 1),:].mean(axis=0)
-                            not_stopped_mean = both_ephys.loc[(slice(None), 0),:].mean(axis=0)
-                            axs[row, 1].plot(x, stopped_mean, alpha=0.9, color='black', label=f'n={both_ephys.loc[(slice(None), 1),:].shape[0]} stopped')
-                            axs[row, 1].plot(x, not_stopped_mean, alpha=1, color='gray', label=f'n={both_ephys.loc[(slice(None), 0),:].shape[0]} skipped')
-                            axs[row, 1].legend(loc='best', fontsize=6)
+    #                         x = np.arange(-both_ephys.shape[1]//2, both_ephys.shape[1]//2)
+    #                         stopped_mean = both_ephys.loc[(slice(None), 1),:].mean(axis=0)
+    #                         not_stopped_mean = both_ephys.loc[(slice(None), 0),:].mean(axis=0)
+    #                         axs[row, 1].plot(x, stopped_mean, alpha=0.9, color='black', label=f'n={both_ephys.loc[(slice(None), 1),:].shape[0]} stopped')
+    #                         axs[row, 1].plot(x, not_stopped_mean, alpha=1, color='gray', label=f'n={both_ephys.loc[(slice(None), 0),:].shape[0]} skipped')
+    #                         axs[row, 1].legend(loc='best', fontsize=6)
 
-                            # in between std part
-                            stopped_std = both_ephys.loc[(slice(None), 1),:].std(axis=0)/4
-                            axs[row, 1].fill_between(x, stopped_mean-stopped_std, stopped_mean+stopped_std, color='black', alpha=0.2)
-                            not_stopped_std = both_ephys.loc[(slice(None), 0),:].std(axis=0)/4
-                            axs[row, 1].fill_between(x, not_stopped_mean-not_stopped_std, not_stopped_mean+not_stopped_std, color='gray', alpha=0.2)
+    #                         # in between std part
+    #                         stopped_std = both_ephys.loc[(slice(None), 1),:].std(axis=0)/4
+    #                         axs[row, 1].fill_between(x, stopped_mean-stopped_std, stopped_mean+stopped_std, color='black', alpha=0.2)
+    #                         not_stopped_std = both_ephys.loc[(slice(None), 0),:].std(axis=0)/4
+    #                         axs[row, 1].fill_between(x, not_stopped_mean-not_stopped_std, not_stopped_mean+not_stopped_std, color='gray', alpha=0.2)
 
-                            all_vals = np.concatenate([stopped_mean-stopped_std, not_stopped_mean+not_stopped_std,])
-                            min_here, max_here = all_vals.min(), all_vals.max()
-                            if min_here < ymin:
-                                ymin = min_here
-                            if max_here > ymax:
-                                ymax = max_here
+    #                         all_vals = np.concatenate([stopped_mean-stopped_std, not_stopped_mean+not_stopped_std,])
+    #                         min_here, max_here = all_vals.min(), all_vals.max()
+    #                         if min_here < ymin:
+    #                             ymin = min_here
+    #                         if max_here > ymax:
+    #                             ymax = max_here
 
-                        for ax in axs[:, 2:].flatten():
-                            ax.set_ylim(ymin, ymax)
+    #                     for ax in axs[:, 2:].flatten():
+    #                         ax.set_ylim(ymin, ymax)
 
-                        # labels
-                        axs[row, 1].set_xticks(np.arange(-bef_ephys.shape[1], aft_ephys.shape[1]+1, 4))
-                        axs[row, 1].set_xticklabels(np.arange(-bef_ephys.shape[1], aft_ephys.shape[1]+1, 4) * bin_size_us / 1_000_000, 
-                                                    rotation=45, ha='right', fontsize=8)
-                        axs[row, 1].set_xlabel('t=0')
+    #                     # labels
+    #                     axs[row, 1].set_xticks(np.arange(-bef_ephys.shape[1], aft_ephys.shape[1]+1, 4))
+    #                     axs[row, 1].set_xticklabels(np.arange(-bef_ephys.shape[1], aft_ephys.shape[1]+1, 4) * bin_size_us / 1_000_000, 
+    #                                                 rotation=45, ha='right', fontsize=8)
+    #                     axs[row, 1].set_xlabel('t=0')
 
-                    row += 1
-                    continue
+    #                 row += 1
+    #                 continue
 
 
 
@@ -1052,155 +1229,182 @@ def get_Ensemble40msProjEncodings(ensemble_proj, behavior):
 
 
                     
-                    #kinematics:
-                    # y = y.dropna()
-                    # x = sess_tchunk_ensemble_proj[ensemble] #.iloc[y.index]
+    #                 #kinematics:
+    #                 # y = y.dropna()
+    #                 # x = sess_ensemble_proj[ensemble] #.iloc[y.index]
 
-                    # print(x)
-                    axs[row, 0].plot(y.index, y.values, '-', markersize=1, alpha=0.2)
-                    axs[row, 0].set_title(f'{encodes_col}', fontsize=10, loc='left')
+    #                 # print(x)
+    #                 axs[row, 0].plot(y.index, y.values, '-', markersize=1, alpha=0.2)
+    #                 axs[row, 0].set_title(f'{encodes_col}', fontsize=10, loc='left')
 
-                    one_y = y[y >= y.quantile(0.8)]      # upper 20% values
-                    other_y = y[y <= y.quantile(0.2)]    # lower 20% values
-                    axs[row, 0].plot(one_y.index, one_y.values, '.', markersize=1, alpha=0.5, color='red')
-                    axs[row, 0].plot(other_y.index, other_y.values, '.', markersize=1, alpha=0.5, color='blue')
+    #                 one_y = y[y >= y.quantile(0.8)]      # upper 20% values
+    #                 other_y = y[y <= y.quantile(0.2)]    # lower 20% values
+    #                 axs[row, 0].plot(one_y.index, one_y.values, '.', markersize=1, alpha=0.5, color='red')
+    #                 axs[row, 0].plot(other_y.index, other_y.values, '.', markersize=1, alpha=0.5, color='blue')
 
-                    # axs[i, 1].hist(y.values, bins=40, orientation='horizontal',)
-                    # axs[i, 1].axhline(y.quantile(0.8), color='red', linestyle='--', label='80% quantile')
-                    # axs[i, 1].axhline(y.quantile(0.2), color='blue', linestyle='--', label='20% quantile')
-                    # #set log x axis
+    #                 # axs[i, 1].hist(y.values, bins=40, orientation='horizontal',)
+    #                 # axs[i, 1].axhline(y.quantile(0.8), color='red', linestyle='--', label='80% quantile')
+    #                 # axs[i, 1].axhline(y.quantile(0.2), color='blue', linestyle='--', label='20% quantile')
+    #                 # #set log x axis
                     
-                    # axs[i, 1].scatter(sess_tchunk_ensemble_proj[ensemble], y, s=1, alpha=0.3)
-                    ephys_one_y = sess_tchunk_ensemble_proj.loc[one_y.index, ensemble]
-                    ephys_other_y = sess_tchunk_ensemble_proj.loc[other_y.index, ensemble]
-                    axs[row, 1].scatter(ephys_one_y, one_y.values, s=1, alpha=0.3, color='red',)
-                    axs[row, 1].axvline(ephys_one_y.mean(), color='red', linestyle='--')
-                    axs[row, 1].scatter(ephys_other_y, other_y.values, s=1, alpha=0.3, color='blue',)
-                    axs[row, 1].axvline(ephys_other_y.mean(), color='blue', linestyle='--')
-                    axs[i, 1].set_xscale('log')
+    #                 # axs[i, 1].scatter(sess_ensemble_proj[ensemble], y, s=1, alpha=0.3)
+    #                 ephys_one_y = sess_ensemble_proj.loc[one_y.index, ensemble]
+    #                 ephys_other_y = sess_ensemble_proj.loc[other_y.index, ensemble]
+    #                 axs[row, 1].scatter(ephys_one_y, one_y.values, s=1, alpha=0.3, color='red',)
+    #                 axs[row, 1].axvline(ephys_one_y.mean(), color='red', linestyle='--')
+    #                 axs[row, 1].scatter(ephys_other_y, other_y.values, s=1, alpha=0.3, color='blue',)
+    #                 axs[row, 1].axvline(ephys_other_y.mean(), color='blue', linestyle='--')
+    #                 axs[i, 1].set_xscale('log')
                     
-                    pvalue = ttest_ind(ephys_one_y, ephys_other_y, equal_var=False).pvalue
-                    axs[row, 1].set_title(f'* - p={pvalue:.5f}' if pvalue < 0.05 else '', fontsize=10)
+    #                 pvalue = ttest_ind(ephys_one_y, ephys_other_y, equal_var=False).pvalue
+    #                 axs[row, 1].set_title(f'* - p={pvalue:.5f}' if pvalue < 0.05 else '', fontsize=10)
 
-                    # if x.isna().all() or y.isna().all():
-                    #     continue
-                    row += 1
+    #                 # if x.isna().all() or y.isna().all():
+    #                 #     continue
+    #                 row += 1
                     
-                plt.tight_layout()
-                plt.savefig('quickviz.png', dpi=300)
-                plt.savefig('outputs/ens_enc/ensemble_encodings_latents_S{}_A{}.svg'.format(s_id, ensemble))
-                # plt.savefig('outputs/ens_enc/ensemble_encodings_kinematics_S{}_A{}.png'.format(s_id, ensemble))
-                # time.sleep(20)
+    #             plt.tight_layout()
+    #             plt.savefig('quickviz.png', dpi=300)
+    #             plt.savefig('outputs/ens_enc/ensemble_encodings_latents_S{}_A{}.svg'.format(s_id, ensemble))
+    #             # plt.savefig('outputs/ens_enc/ensemble_encodings_kinematics_S{}_A{}.png'.format(s_id, ensemble))
+    #             # time.sleep(20)
                 
 
-                # exit()
+    #             # exit()
 
 
 
 
 
-                    # model = LinearRegression()
-                    # model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-                    # # y_pred = model.predict(x.values.reshape(-1, 1))
-                    # r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-                    # # print(f"Ensemble {ensemble} - {encodes_col} R^2: {r2:.3f}")
+    #                 # model = LinearRegression()
+    #                 # model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+    #                 # # y_pred = model.predict(x.values.reshape(-1, 1))
+    #                 # r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+    #                 # # print(f"Ensemble {ensemble} - {encodes_col} R^2: {r2:.3f}")
 
                     
-                    # # see if outliers encode high versus low y metric
-                    # high_x_mask = (x >x.std()).values
-                    # low_x_mask = (x < -x.std()).values
-                    # high_y = y[high_x_mask]
-                    # low_y = y[low_x_mask]
+    #                 # # see if outliers encode high versus low y metric
+    #                 # high_x_mask = (x >x.std()).values
+    #                 # low_x_mask = (x < -x.std()).values
+    #                 # high_y = y[high_x_mask]
+    #                 # low_y = y[low_x_mask]
                     
-                    # _, p_val = ttest_ind(high_y, low_y, equal_var=False)
-                    # n_low = low_x_mask.sum()
-                    # n_high = high_x_mask.sum()
-                    # if n_low < 50 or n_high < 50:
-                    #     print(f"{n_low:_},{n_high:_},skipping{encodes_col}", end='   ')
-                    #     continue
+    #                 # _, p_val = ttest_ind(high_y, low_y, equal_var=False)
+    #                 # n_low = low_x_mask.sum()
+    #                 # n_high = high_x_mask.sum()
+    #                 # if n_low < 50 or n_high < 50:
+    #                 #     print(f"{n_low:_},{n_high:_},skipping{encodes_col}", end='   ')
+    #                 #     continue
 
-                    # aggr_results.append(pd.Series({ #"x": x.tolist(), "y": y.tolist(), 
-                    # "n_low": n_low, "n_high": n_high, "r2": 
-                    #  r2, "p_val_highlow_activation": p_val, 'avg_activation': x.mean(),
-                    # }, name=(s_id, block_t, ensemble, encodes_col)))
+    #                 # aggr_results.append(pd.Series({ #"x": x.tolist(), "y": y.tolist(), 
+    #                 # "n_low": n_low, "n_high": n_high, "r2": 
+    #                 #  r2, "p_val_highlow_activation": p_val, 'avg_activation': x.mean(),
+    #                 # }, name=(s_id, block_t, ensemble, encodes_col)))
 
 
-                    # if ensemble == 'Assembly003':
+    #                 # if ensemble == 'Assembly003':
 
-                    #     axs[i].set_xlim(-4.2,4.2)
-                    #     axs[i].scatter(np.clip(x[high_x_mask], -4,4), y[high_x_mask], s=1, alpha=0.3, color='red', )
-                    #     axs[i].scatter(np.clip(x[low_x_mask], -4,4), y[low_x_mask], s=1, alpha=0.3, color='blue', )
+    #                 #     axs[i].set_xlim(-4.2,4.2)
+    #                 #     axs[i].scatter(np.clip(x[high_x_mask], -4,4), y[high_x_mask], s=1, alpha=0.3, color='red', )
+    #                 #     axs[i].scatter(np.clip(x[low_x_mask], -4,4), y[low_x_mask], s=1, alpha=0.3, color='blue', )
 
-                    #     # draw boxplot of high and low x values, without outlier points
-                    #     axs[i].boxplot([y[high_x_mask], y[low_x_mask]],
-                    #                 positions=[1, -1], widths=0.5, 
-                    #                 # labels=['High X', 'Low X'], 
-                    #                     showfliers=False,
-                    #                 patch_artist=True, notch=True)
-                    #     axs[i].hlines(y[high_x_mask].mean(), -4, 4, colors='red', linestyles='dashed')
-                    #     axs[i].hlines(y[low_x_mask].mean(), -4, 4, colors='blue', linestyles='dashed',
-                    #                 label='** p = {:.3f}'.format(p_val) if p_val < 0.05 else '')
-                    #     axs[i].set_title(f'{encodes_col}, n={len(y):,}')
-                    #     axs[i].tick_params(axis='both', which='major', labelsize=6)
-                    #     # plt.legend(fontsize=12)
-                    #     if p_val < 0.05:
-                    #         axs[i].legend(fontsize=12, edgecolor='black',)
+    #                 #     # draw boxplot of high and low x values, without outlier points
+    #                 #     axs[i].boxplot([y[high_x_mask], y[low_x_mask]],
+    #                 #                 positions=[1, -1], widths=0.5, 
+    #                 #                 # labels=['High X', 'Low X'], 
+    #                 #                     showfliers=False,
+    #                 #                 patch_artist=True, notch=True)
+    #                 #     axs[i].hlines(y[high_x_mask].mean(), -4, 4, colors='red', linestyles='dashed')
+    #                 #     axs[i].hlines(y[low_x_mask].mean(), -4, 4, colors='blue', linestyles='dashed',
+    #                 #                 label='** p = {:.3f}'.format(p_val) if p_val < 0.05 else '')
+    #                 #     axs[i].set_title(f'{encodes_col}, n={len(y):,}')
+    #                 #     axs[i].tick_params(axis='both', which='major', labelsize=6)
+    #                 #     # plt.legend(fontsize=12)
+    #                 #     if p_val < 0.05:
+    #                 #         axs[i].legend(fontsize=12, edgecolor='black',)
 
-                    # Plot regression line (sorted for clarity)
-                    # sort_idx = np.argsort(x)
-                    # ax.plot(x.iloc[sort_idx], y_pred[sort_idx], color='red', linewidth=2, label='Regression line')
+    #                 # Plot regression line (sorted for clarity)
+    #                 # sort_idx = np.argsort(x)
+    #                 # ax.plot(x.iloc[sort_idx], y_pred[sort_idx], color='red', linewidth=2, label='Regression line')
 
-                    # ax.set_xlabel(f'{ensemble}', fontsize=8)
-                    # ax.set_ylabel(encodes_col)
-                    # ax.set_title(f'R^2: {r2:.3f}')
-                    # ax.legend(fontsize=6)
-            # if ensemble == 'Assembly003':
+    #                 # ax.set_xlabel(f'{ensemble}', fontsize=8)
+    #                 # ax.set_ylabel(encodes_col)
+    #                 # ax.set_title(f'R^2: {r2:.3f}')
+    #                 # ax.legend(fontsize=6)
+    #         # if ensemble == 'Assembly003':
                 
-        # plt.tight_layout()
-        # plt.show()    
+    #     # plt.tight_layout()
+    #     # plt.show()    
         
-        # if s_id == 3:
-        #     aggr_results = pd.concat(aggr_results, axis=1).T
-        #     print(aggr_results)
-        #     aggr_results.index.rename(('session_id', 'ephys_timestamp', 'ensemble', 'behavior_variable'), inplace=True)
-        #     print(aggr_results)
-        #     print(aggr_results.iloc[20])
-        #     aggr_results = aggr_results.reset_index()
+    #     # if s_id == 3:
+    #     #     aggr_results = pd.concat(aggr_results, axis=1).T
+    #     #     print(aggr_results)
+    #     #     aggr_results.index.rename(('session_id', 'ephys_timestamp', 'ensemble', 'behavior_variable'), inplace=True)
+    #     #     print(aggr_results)
+    #     #     print(aggr_results.iloc[20])
+    #     #     aggr_results = aggr_results.reset_index()
     
     
-    aggr_results = pd.concat(aggr_results, axis=1).T
-    print(aggr_results)
-    aggr_results.index.rename(('session_id', 'ephys_timestamp', 'ensemble', 'behavior_variable'), inplace=True)
-    print(aggr_results)
-    print(aggr_results.iloc[20])
-    aggr_results = aggr_results.reset_index()
-    return aggr_results
+    # aggr_results = pd.concat(aggr_results, axis=1).T
+    # print(aggr_results)
+    # aggr_results.index.rename(('session_id', 'ephys_timestamp', 'ensemble', 'behavior_variable'), inplace=True)
+    # print(aggr_results)
+    # print(aggr_results.iloc[20])
+    # aggr_results = aggr_results.reset_index()
+    # return aggr_results
 
     
-    # # Assign each behavior row to a bin
-    # behavior = behavior.copy()
-    # behavior['ephys_bin'] = ensemble_proj.index.get_indexer(behavior.index)
-    # behavior_grouped = behavior.groupby('ephys_bin').mean().round(3)
-    # # Only keep bins that exist in ensemble_proj
-    # behavior_grouped = behavior_grouped.loc[behavior_grouped.index >= 0]
-    # # Optionally select kinematic variables
-    # if kinematic_vars is None:
-    #     kinematic_vars = [col for col in behavior_grouped.columns if col.startswith('frame_')]
-    # # Prepare result DataFrame
-    # r2_results = pd.DataFrame(index=ensemble_proj.columns, columns=kinematic_vars, dtype=float)
-    # model = LinearRegression()
-    # # For each ensemble
-    # for ens in ensemble_proj.columns:
-    #     y = ensemble_proj[ens].iloc[behavior_grouped.index]
-    #     for regre in kinematic_vars:
-    #         x = behavior_grouped[regre]
-    #         # Fit regression
-    #         model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-    #         r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
-    #         r2_results.loc[ens, regre] = r2
-    #         if verbose and r2 > 0.03:
-    #             print(f"Ensemble {ens} - {regre} R^2: {r2:.3f}")
-    # return r2_results
+    # # # Assign each behavior row to a bin
+    # # behavior = behavior.copy()
+    # # behavior['ephys_bin'] = ensemble_proj.index.get_indexer(behavior.index)
+    # # behavior_grouped = behavior.groupby('ephys_bin').mean().round(3)
+    # # # Only keep bins that exist in ensemble_proj
+    # # behavior_grouped = behavior_grouped.loc[behavior_grouped.index >= 0]
+    # # # Optionally select kinematic variables
+    # # if kinematic_vars is None:
+    # #     kinematic_vars = [col for col in behavior_grouped.columns if col.startswith('frame_')]
+    # # # Prepare result DataFrame
+    # # r2_results = pd.DataFrame(index=ensemble_proj.columns, columns=kinematic_vars, dtype=float)
+    # # model = LinearRegression()
+    # # # For each ensemble
+    # # for ens in ensemble_proj.columns:
+    # #     y = ensemble_proj[ens].iloc[behavior_grouped.index]
+    # #     for regre in kinematic_vars:
+    # #         x = behavior_grouped[regre]
+    # #         # Fit regression
+    # #         model.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+    # #         r2 = model.score(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+    # #         r2_results.loc[ens, regre] = r2
+    # #         if verbose and r2 > 0.03:
+    # #             print(f"Ensemble {ens} - {regre} R^2: {r2:.3f}")
+    # # return r2_results
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def get_ConcatenatedPCA40ms(fr_hz):
     # fill 0 firing rate neurons with the minimum firing rate of the session (0 Hz)
@@ -1381,29 +1585,8 @@ def get_ConcatenatedEnsambles40ms(PCs, all_fr_hz):
 
 def get_FiringRateTrackwiseHz(fr, track_behavior_data):
     def time_bin_avg(posbin_data, ):
-        # cue = posbin_data.cue.iloc[0]
-        # trial_outcome = posbin_data.trial_outcome.iloc[0]
         pos_bin = posbin_data.from_position_bin.iloc[0]
         print(f"{pos_bin:04}", end='\r')
-        trial_aggr = []
-        # print("--------------------")
-        # print(f"{pos_bin=}, trial_id:")
-        # print(posbin_data.trial_id)
-        # print(posbin_data)
-        
-        
-        # for tr_id in posbin_data.trial_id:
-        #     trial_data = posbin_data.loc[posbin_data.trial_id==tr_id]
-        #     from_t, to_t = trial_data.loc[:, ['posbin_from_ephys_timestamp', 'posbin_to_ephys_timestamp']].values[0]
-        #     from_t = from_t - 40_000
-        #     to_t = to_t + 40_000
-            
-        #     # print(from_t, to_t)
-        #     # print(fr)
-        #     trial_d_track_bin_fr = fr.loc[(fr.index.left > from_t) & (fr.index.right < to_t)]
-        #     m = trial_d_track_bin_fr.mean(axis=0)
-        #     trial_aggr.append(pd.Series(m, index=fr.columns, name=(pos_bin,tr_id,cue,trial_outcome)))
-        
         
         # to_posbin_t = trial_data.posbin_from_ephys_timestamp
         from_posbin_t = posbin_data.posbin_from_ephys_timestamp.values
@@ -1413,8 +1596,6 @@ def get_FiringRateTrackwiseHz(fr, track_behavior_data):
             to_posbin_t+40_000,
             closed='both',
         )
-        # print(interval)
-        # print(fr.index.mid)
         assigned_bin = pd.cut(fr.index.mid,
                               bins=interval,
                               labels=posbin_data.trial_id[:-1],
@@ -1426,11 +1607,8 @@ def get_FiringRateTrackwiseHz(fr, track_behavior_data):
         trial_fr = fr[assigned_bin.notna()].copy().astype(np.float32)
         # add a column indicating the 
         trial_fr['posbin_t_edges'] = assigned_bin[assigned_bin.notna()]
-        # print(trial_fr.shape)
         posbin_trial_wise_fr = trial_fr.groupby('posbin_t_edges', observed=True).mean()
-        # print(posbin_trial_wise_fr.shape)
         posbin_trial_wise_fr /= interval.length.values[trials_exist_mask, None] /1e6 # us to s
-        # print(posbin_trial_wise_fr.shape)
 
         # add meta data, cue outcome, position bin, trial id        
         posbin_trial_wise_fr['cue'] = posbin_data[trials_exist_mask].cue.values
@@ -1439,9 +1617,6 @@ def get_FiringRateTrackwiseHz(fr, track_behavior_data):
         posbin_trial_wise_fr['choice_R2'] = posbin_data[trials_exist_mask].choice_R2.values
         posbin_trial_wise_fr['bin_length'] = interval.length.values[trials_exist_mask]/1e6
         posbin_trial_wise_fr.index = posbin_data.trial_id.values[trials_exist_mask]
-        # print(posbin_trial_wise_fr)
-        # print("---")
-        # exit()
         return posbin_trial_wise_fr        
 
     # recover interval index
@@ -1452,378 +1627,425 @@ def get_FiringRateTrackwiseHz(fr, track_behavior_data):
     fr_hz_averages = track_behavior_data.groupby(['from_position_bin']).apply(time_bin_avg)
     fr_hz_averages.index = fr_hz_averages.index.rename(['from_position_bin', 'trial_id'],)
     fr_hz_averages.reset_index(inplace=True, drop=False)
-    # print(fr_hz_averages)
-    # exit()
     return fr_hz_averages
 
-def get_PCsZonewise(fr, track_behavior_data):
-    L = Logger()
-    PCs_var_explained = .8
-    fr = fr.set_index(['trial_id', 'from_position_bin', 'cue', 'trial_outcome', 
-                       'choice_R1', 'choice_R2'], append=True, )
-    fr.index = fr.index.droplevel(3) # entry_id
+# def get_PCsZonewise(fr, track_behavior_data):
+#     L = Logger()
+#     PCs_var_explained = .8
+#     fr = fr.set_index(['trial_id', 'from_position_bin', 'cue', 'trial_outcome', 
+#                        'choice_R1', 'choice_R2'], append=True, )
+#     fr.index = fr.index.droplevel(3) # entry_id
 
-    fr.drop(columns=['bin_length', ], inplace=True)
-    fr.columns = fr.columns.astype(int)
-    fr = fr.reindex(columns=sorted(fr.columns))
+#     fr.drop(columns=['bin_length', ], inplace=True)
+#     fr.columns = fr.columns.astype(int)
+#     fr = fr.reindex(columns=sorted(fr.columns))
     
-    track_behavior_data = track_behavior_data.set_index(['trial_id', 'from_position_bin', 'cue', 'trial_outcome', 
-                                       'choice_R1', 'choice_R2'], append=True, )
-    track_behavior_data.index = track_behavior_data.index.droplevel(3) # entry_id
+#     track_behavior_data = track_behavior_data.set_index(['trial_id', 'from_position_bin', 'cue', 'trial_outcome', 
+#                                        'choice_R1', 'choice_R2'], append=True, )
+#     track_behavior_data.index = track_behavior_data.index.droplevel(3) # entry_id
     
-    zones = {
-        'beforeCueZone': (-168, -100),
-        'cueZone': (-80, 25),
-        'afterCueZone': (25, 50),
-        'reward1Zone': (50, 110),
-        'betweenRewardsZone': (110, 170),
-        'reward2Zone': (170, 230),
-        'postRewardZone': (230, 260),
-        'wholeTrack': (-168, 260),
-    }
+#     zones = {
+#         'beforeCueZone': (-168, -100),
+#         'cueZone': (-80, 25),
+#         'afterCueZone': (25, 50),
+#         'reward1Zone': (50, 110),
+#         'betweenRewardsZone': (110, 170),
+#         'reward2Zone': (170, 230),
+#         'postRewardZone': (230, 260),
+#         'wholeTrack': (-168, 260),
+#     }
     
-    aggr_embeds = []
-    aggr_subspace_basis = []
+#     aggr_embeds = []
+#     aggr_subspace_basis = []
 
-    #TODO each sessions has differnt number of neurons
-    fr = fr.reindex(np.arange(1,78), axis=1).fillna(0)
+#     #TODO each sessions has differnt number of neurons
+#     fr = fr.reindex(np.arange(1,78), axis=1).fillna(0)
 
-    for i in range(4):
-        # which modality to use for prediction
-        if i == 0:
-            predictor = fr.iloc[:, :20]
-            predictor_name = 'HP'
-        elif i == 1:   
-            predictor = fr.iloc[:, 20:]
-            predictor_name = 'mPFC'
-        elif i == 2:
-            predictor = track_behavior_data.loc[:, ['posbin_velocity', 'posbin_acceleration', 'lick_count',
-                                           'posbin_raw', 'posbin_yaw', 'posbin_pitch']]
-            predictor_name = 'behavior'
-        elif i == 3:
-            predictor = fr.iloc[:]
-            predictor_name = 'HP-mPFC'
+#     for i in range(4):
+#         # which modality to use for prediction
+#         if i == 0:
+#             predictor = fr.iloc[:, :20]
+#             predictor_name = 'HP'
+#         elif i == 1:   
+#             predictor = fr.iloc[:, 20:]
+#             predictor_name = 'mPFC'
+#         elif i == 2:
+#             predictor = track_behavior_data.loc[:, ['posbin_velocity', 'posbin_acceleration', 'lick_count',
+#                                            'posbin_raw', 'posbin_yaw', 'posbin_pitch']]
+#             predictor_name = 'behavior'
+#         elif i == 3:
+#             predictor = fr.iloc[:]
+#             predictor_name = 'HP-mPFC'
             
-        debug_msg = (f"Embedding {predictor_name} with PCA:\n")
-        for zone, (from_z, to_z) in zones.items():
-            zone_data = predictor.loc[pd.IndexSlice[:,:,:,:,np.arange(from_z,to_z)]].astype(float)
+#         debug_msg = (f"Embedding {predictor_name} with PCA:\n")
+#         for zone, (from_z, to_z) in zones.items():
+#             zone_data = predictor.loc[pd.IndexSlice[:,:,:,:,np.arange(from_z,to_z)]].astype(float)
             
-            # Standardize features
-            scaler = StandardScaler()
-            zone_data.loc[:,:] = scaler.fit_transform(zone_data)
+#             # Standardize features
+#             scaler = StandardScaler()
+#             zone_data.loc[:,:] = scaler.fit_transform(zone_data)
              
-            zone_data_Z_trialwise = zone_data.unstack(level='from_position_bin')
-            zone_data_Z_trialwise.index = zone_data_Z_trialwise.index.droplevel([0,1,2])
-            zone_data_Z_trialwise = zone_data_Z_trialwise.fillna(0).astype(float)
+#             zone_data_Z_trialwise = zone_data.unstack(level='from_position_bin')
+#             zone_data_Z_trialwise.index = zone_data_Z_trialwise.index.droplevel([0,1,2])
+#             zone_data_Z_trialwise = zone_data_Z_trialwise.fillna(0).astype(float)
             
-            pca = PCA(n_components=PCs_var_explained)
-            embedded = pca.fit_transform(zone_data_Z_trialwise)
+#             pca = PCA(n_components=PCs_var_explained)
+#             embedded = pca.fit_transform(zone_data_Z_trialwise)
             
-            debug_msg += (f"{embedded.shape[1]:3d} PCs capture {pca.explained_variance_ratio_.sum():.2f} "
-                          f" of variance of {zone_data_Z_trialwise.shape[1]:5d} "
-                          f"input dims in {embedded.shape[0]:3d} trials at "
-                          f"{zone} ({from_z}, {to_z})\n")
+#             debug_msg += (f"{embedded.shape[1]:3d} PCs capture {pca.explained_variance_ratio_.sum():.2f} "
+#                           f" of variance of {zone_data_Z_trialwise.shape[1]:5d} "
+#                           f"input dims in {embedded.shape[0]:3d} trials at "
+#                           f"{zone} ({from_z}, {to_z})\n")
 
-            embedded = np.round(embedded, 3)
-            aggr_embeds.append(pd.Series(embedded.tolist(), index=zone_data_Z_trialwise.index,
-                                         name=(zone, predictor_name)))
+#             embedded = np.round(embedded, 3)
+#             aggr_embeds.append(pd.Series(embedded.tolist(), index=zone_data_Z_trialwise.index,
+#                                          name=(zone, predictor_name)))
             
-            columns = pd.MultiIndex.from_product([[zone], [predictor_name], 
-                                                  np.arange(embedded.shape[1])])
-            aggr_subspace_basis.append(pd.DataFrame(pca.components_.round(3).T,
-                                                    columns=columns))
-        L.logger.debug(debug_msg)
+#             columns = pd.MultiIndex.from_product([[zone], [predictor_name], 
+#                                                   np.arange(embedded.shape[1])])
+#             aggr_subspace_basis.append(pd.DataFrame(pca.components_.round(3).T,
+#                                                     columns=columns))
+#         L.logger.debug(debug_msg)
 
-    aggr_embeds = pd.concat(aggr_embeds, axis=1).stack(level=0, future_stack=True)
-    aggr_embeds.reset_index(inplace=True, drop=False)
-    aggr_embeds.rename(columns={"level_5": "track_zone"}, inplace=True)
+#     aggr_embeds = pd.concat(aggr_embeds, axis=1).stack(level=0, future_stack=True)
+#     aggr_embeds.reset_index(inplace=True, drop=False)
+#     aggr_embeds.rename(columns={"level_5": "track_zone"}, inplace=True)
     
-    # the subspace basis is a 2D array with pricipal components as columns, rows
-    # indicate predictors and track zones
-    #TODO warning right now due to old stacking behavior, will be fixed in future
-    aggr_subspace_basis = pd.concat(aggr_subspace_basis, axis=0).stack(level=(0,1), future_stack=False)
-    aggr_subspace_basis.reset_index(inplace=True, drop=False)
-    aggr_subspace_basis.rename(columns={"level_1": "track_zone",
-                                        "level_2": "predictor_name",}, inplace=True)
-    aggr_subspace_basis.drop(columns='level_0', inplace=True)
+#     # the subspace basis is a 2D array with pricipal components as columns, rows
+#     # indicate predictors and track zones
+#     #TODO warning right now due to old stacking behavior, will be fixed in future
+#     aggr_subspace_basis = pd.concat(aggr_subspace_basis, axis=0).stack(level=(0,1), future_stack=False)
+#     aggr_subspace_basis.reset_index(inplace=True, drop=False)
+#     aggr_subspace_basis.rename(columns={"level_1": "track_zone",
+#                                         "level_2": "predictor_name",}, inplace=True)
+#     aggr_subspace_basis.drop(columns='level_0', inplace=True)
     
-    # check for in proper sessions that lack spikes for most of the session
-    valid_ephys_mask = aggr_embeds['mPFC'].notna()
-    valid_beh_mask = aggr_embeds['behavior'].notna()
-    if not all(valid_ephys_mask == valid_beh_mask):
-        msg = (f"Ephys and behavior trials mismatch!\n"
-               f"Valid trials in ephys: {aggr_embeds.trial_id[valid_ephys_mask].unique()}, "
-               f"valid trials in behavior: {aggr_embeds.trial_id[valid_beh_mask].unique()} "
-               f"Using common set of trials")
-        Logger().logger.warning(msg)
-        aggr_embeds.dropna(how='any', inplace=True)
+#     # check for in proper sessions that lack spikes for most of the session
+#     valid_ephys_mask = aggr_embeds['mPFC'].notna()
+#     valid_beh_mask = aggr_embeds['behavior'].notna()
+#     if not all(valid_ephys_mask == valid_beh_mask):
+#         msg = (f"Ephys and behavior trials mismatch!\n"
+#                f"Valid trials in ephys: {aggr_embeds.trial_id[valid_ephys_mask].unique()}, "
+#                f"valid trials in behavior: {aggr_embeds.trial_id[valid_beh_mask].unique()} "
+#                f"Using common set of trials")
+#         Logger().logger.warning(msg)
+#         aggr_embeds.dropna(how='any', inplace=True)
     
-    return aggr_subspace_basis, aggr_embeds
+#     return aggr_subspace_basis, aggr_embeds
 
-def get_PCsSubspaceAngles(session_subspace_basis, all_subspace_basis):
-    session_subspace_basis.index = session_subspace_basis.index.droplevel((0,1))  # Drop the first level of the index if it exists
-    session_subspace_basis.set_index(["track_zone", 'predictor_name'], inplace=True, append=True)
-    session_subspace_basis.index = session_subspace_basis.index.droplevel("entry_id")  # Drop the entry_id level if it exists
+# def get_PCsSubspaceAngles(session_subspace_basis, all_subspace_basis):
+#     session_subspace_basis.index = session_subspace_basis.index.droplevel((0,1))  # Drop the first level of the index if it exists
+#     session_subspace_basis.set_index(["track_zone", 'predictor_name'], inplace=True, append=True)
+#     session_subspace_basis.index = session_subspace_basis.index.droplevel("entry_id")  # Drop the entry_id level if it exists
     
-    all_subspace_basis.index = all_subspace_basis.index.droplevel((0,1))  # Drop the first level of the index if it exists
-    all_subspace_basis.set_index(["track_zone", 'predictor_name'], inplace=True, append=True)
-    all_subspace_basis.index = all_subspace_basis.index.droplevel("entry_id")  # Drop the entry_id level if it exists
-    # print(all_subspace_basis)
+#     all_subspace_basis.index = all_subspace_basis.index.droplevel((0,1))  # Drop the first level of the index if it exists
+#     all_subspace_basis.set_index(["track_zone", 'predictor_name'], inplace=True, append=True)
+#     all_subspace_basis.index = all_subspace_basis.index.droplevel("entry_id")  # Drop the entry_id level if it exists
+#     # print(all_subspace_basis)
     
-    angle_aggr = []
-    comps_aggr = []
-    for zone in all_subspace_basis.index.unique(level='track_zone'):
-        print(zone, end='\r')
-        for predictor in all_subspace_basis.index.unique(level='predictor_name'):
-            # get the subspace basis for the session
-            # track_session_subspace = session_subspace_basis.loc[(zone, predictor), :]
-            # get the subspace basis for all sessions
-            zone_all_subspace = all_subspace_basis.loc[(slice(None),zone, predictor), :]
-            session_n_PCs = zone_all_subspace.groupby(level='session_id').apply(
-                                                       lambda x: x.notna().all(0).sum())
-            # some sessions have very low number of PCs, exclude those, will be NaN in the end
-            std = np.std(session_n_PCs.values)
-            cutoff = np.mean(session_n_PCs.values) - 2*std
+#     angle_aggr = []
+#     comps_aggr = []
+#     for zone in all_subspace_basis.index.unique(level='track_zone'):
+#         print(zone, end='\r')
+#         for predictor in all_subspace_basis.index.unique(level='predictor_name'):
+#             # get the subspace basis for the session
+#             # track_session_subspace = session_subspace_basis.loc[(zone, predictor), :]
+#             # get the subspace basis for all sessions
+#             zone_all_subspace = all_subspace_basis.loc[(slice(None),zone, predictor), :]
+#             session_n_PCs = zone_all_subspace.groupby(level='session_id').apply(
+#                                                        lambda x: x.notna().all(0).sum())
+#             # some sessions have very low number of PCs, exclude those, will be NaN in the end
+#             std = np.std(session_n_PCs.values)
+#             cutoff = np.mean(session_n_PCs.values) - 2*std
             
-            too_few_PCs_mask = session_n_PCs < cutoff
-            n_PCs = session_n_PCs[~too_few_PCs_mask].min()
+#             too_few_PCs_mask = session_n_PCs < cutoff
+#             n_PCs = session_n_PCs[~too_few_PCs_mask].min()
             
-            # # print(track_all_subspace)
-            # print(zone, predictor,)
-            # smth = session_n_PCs.to_frame(name='n_PCs').copy()
-            # smth['keep'] = smth.n_PCs > cutoff
-            # print(smth)
-            # print('-----')
+#             # # print(track_all_subspace)
+#             # print(zone, predictor,)
+#             # smth = session_n_PCs.to_frame(name='n_PCs').copy()
+#             # smth['keep'] = smth.n_PCs > cutoff
+#             # print(smth)
+#             # print('-----')
             
-            # print(zone, predictor,)
-            # print(n_PCs)
-            # n_PCs = 200
+#             # print(zone, predictor,)
+#             # print(n_PCs)
+#             # n_PCs = 200
             
-            # zone_all_subspace = zone_all_subspace.iloc[:, :n_PCs]
-            # zone_session_subspace = , :].iloc[:, :n_PCs]
+#             # zone_all_subspace = zone_all_subspace.iloc[:, :n_PCs]
+#             # zone_session_subspace = , :].iloc[:, :n_PCs]
             
-            # print(zone_all_subspace, zone_session_subspace)
-            s0_subspace = session_subspace_basis.loc[(slice(None), zone, predictor)].values[:, :n_PCs]
-            if np.isnan(s0_subspace[:, :n_PCs]).any() or s0_subspace.shape[1] < n_PCs:
-                Logger().logger.warning(f"Session subspace has too few PCs for {zone} {predictor}.")
-                continue
+#             # print(zone_all_subspace, zone_session_subspace)
+#             s0_subspace = session_subspace_basis.loc[(slice(None), zone, predictor)].values[:, :n_PCs]
+#             if np.isnan(s0_subspace[:, :n_PCs]).any() or s0_subspace.shape[1] < n_PCs:
+#                 Logger().logger.warning(f"Session subspace has too few PCs for {zone} {predictor}.")
+#                 continue
             
-            for s_id in session_n_PCs[~too_few_PCs_mask].index:
-                s_compare_subspace = zone_all_subspace.loc[s_id, :].values[:, :n_PCs]
-                # print(zone_all_subspace.loc[s_id, :])
+#             for s_id in session_n_PCs[~too_few_PCs_mask].index:
+#                 s_compare_subspace = zone_all_subspace.loc[s_id, :].values[:, :n_PCs]
+#                 # print(zone_all_subspace.loc[s_id, :])
                 
-                # print(s0_subspace, s_compare_subspace)
-                # print(s0_subspace.shape, s_compare_subspace.shape)
+#                 # print(s0_subspace, s_compare_subspace)
+#                 # print(s0_subspace.shape, s_compare_subspace.shape)
                 
-                # print("--")
-                M = s0_subspace.T @ s_compare_subspace
-                s0_c, S, s_comp_h_c = np.linalg.svd(M)
+#                 # print("--")
+#                 M = s0_subspace.T @ s_compare_subspace
+#                 s0_c, S, s_comp_h_c = np.linalg.svd(M)
                 
 
-                canonc_angles = np.arccos(np.clip(S, -1, 1))
-                s0_c_subspace = (s0_subspace @ s0_c).astype(np.float16)
-                # print(s0_c_subspace)
-                # print(s0_c_subspace.shape)
-                # CC_U = (s1_PCs_U @ U_c[:, :])
-                # print(c1_U)
-                # print(c1_U.shape)
+#                 canonc_angles = np.arccos(np.clip(S, -1, 1))
+#                 s0_c_subspace = (s0_subspace @ s0_c).astype(np.float16)
+#                 # print(s0_c_subspace)
+#                 # print(s0_c_subspace.shape)
+#                 # CC_U = (s1_PCs_U @ U_c[:, :])
+#                 # print(c1_U)
+#                 # print(c1_U.shape)
                 
-                # canonc_angles = subspace_angles(s0_subspace[:, :n_PCs],
-                #                                 s_compare_subspace[:, :n_PCs])
-                # canonc_angles = np.rad2deg(canonc_angles)
-                # print(canonc_angles)
+#                 # canonc_angles = subspace_angles(s0_subspace[:, :n_PCs],
+#                 #                                 s_compare_subspace[:, :n_PCs])
+#                 # canonc_angles = np.rad2deg(canonc_angles)
+#                 # print(canonc_angles)
                 
-                angle_aggr.append(pd.Series(canonc_angles, index=np.arange(n_PCs),
-                                            name=(zone, predictor, s_id)))
-                comps_aggr.append(pd.DataFrame(s0_c_subspace, columns=pd.MultiIndex.from_product(
-                                                 [[zone], [predictor], [s_id], np.arange(n_PCs)],
-                                                 names=['track_zone', 'predictor', 'comp_session_id', 'CC_i'],
-                                             )))
+#                 angle_aggr.append(pd.Series(canonc_angles, index=np.arange(n_PCs),
+#                                             name=(zone, predictor, s_id)))
+#                 comps_aggr.append(pd.DataFrame(s0_c_subspace, columns=pd.MultiIndex.from_product(
+#                                                  [[zone], [predictor], [s_id], np.arange(n_PCs)],
+#                                                  names=['track_zone', 'predictor', 'comp_session_id', 'CC_i'],
+#                                              )))
                 
                 
-                print(angle_aggr[-1])
-    if len(angle_aggr) == 0:
-        return None
+#                 print(angle_aggr[-1])
+#     if len(angle_aggr) == 0:
+#         return None
     
-    angle_aggr = pd.concat(angle_aggr, axis=1).T
-    angle_aggr.index.names = ['track_zone', 'predictor', 'comp_session_id']
+#     angle_aggr = pd.concat(angle_aggr, axis=1).T
+#     angle_aggr.index.names = ['track_zone', 'predictor', 'comp_session_id']
     
-    comps_aggr = pd.concat(comps_aggr, axis=1)
-    comps_aggr = comps_aggr.T
-    return comps_aggr.reset_index(), angle_aggr.reset_index()
+#     comps_aggr = pd.concat(comps_aggr, axis=1)
+#     comps_aggr = comps_aggr.T
+#     return comps_aggr.reset_index(), angle_aggr.reset_index()
             
-def get_SVMCueOutcomeChoicePred(PCsZoneEmbeddings):
-    L = Logger()
-    print(PCsZoneEmbeddings)
-
-    def fit_SVMs_with_bootstrap(X, Ys, name, n_iterations=200):
+def get_SVMCueOutcomeChoicePred(fr_z, beh):
+    def fit_SVMs_with_bootstrap(X, Y, name, kernel, t, n_iterations=200):
+        print("---")
+        # if lbl_counts.min() < 5:
+        #     print(f"Not enough samples for {name}: ({lbl_counts})")
+        #     return None
+        
         predictions = []
         rng = np.random.default_rng(42)
 
-        for Y_name, y in Ys.items():
-            # if Y_name != 'choice_R1':
-            #     continue
-            lbl_counts = pd.Series(y).value_counts()
-            print(Y_name)
-            if lbl_counts.min() < 5 or len(lbl_counts) < 2:
-                L.logger.warning(f"Not enough samples for {Y_name} in {name}: ({lbl_counts})")
-                continue
-            elif len(lbl_counts) != 2:
-                L.logger.warning(f"More than 2 classes for {Y_name} in {name}: ({lbl_counts})")
-                continue
-
-            for kernel in ('linear', 'rbf'):
-                # if kernel != 'linear':
-                #     continue
-                Cs = [0.1, .5, 1, 5, 10,]
-                accs, f1s = [], []
-
-                aggr_predictions = np.ones((n_iterations, len(X)), dtype=int) * -1
-                print(aggr_predictions.shape)
-                for i in range(n_iterations):
-                    indices = rng.choice(len(X), size=len(X), replace=True)
-                    X_boot, y_boot = X[indices], y[indices]
-                    # only a single cclass check:
-                    if len(np.unique(y_boot)) < 2:
-                        print("Skipping SVM fit due to single class in bootstrap sample")
-                        continue
-                    oob_mask = np.ones(len(X), dtype=bool)
-                    oob_mask[indices] = False
-                    X_oob, y_oob = X[oob_mask], y[oob_mask]
-
-                    if len(y_oob) < 5 or len(np.unique(y_oob)) < 2:
-                        continue
-
-                    pipeline = Pipeline([
-                        ('scaler', StandardScaler()),
-                        ('svc', SVC(kernel=kernel, gamma='scale'))
-                    ])
-                    grid_search = GridSearchCV(
-                        estimator=pipeline,
-                        param_grid={'svc__C': Cs},
-                        cv=6,
-                        scoring='balanced_accuracy',
-                        n_jobs=-1,
-                        verbose=False,
-                    )
-                    grid_search.fit(X_boot, y_boot)
-                    y_pred = grid_search.predict(X_oob)
-                    report = classification_report(y_oob, y_pred, output_dict=True, zero_division=0)
-
-                    accs.append(balanced_accuracy_score(y_oob, y_pred))
-                    f1s.append(report['macro avg']['f1-score'])
-                    
-                    # every row is one bootstrap iteration
-                    aggr_predictions[i, oob_mask] = y_pred
-                
-                # get the "average" prediction across bootstrap iterations
-                aggr_predictions = pd.DataFrame(aggr_predictions)
-                aggr_predictions[aggr_predictions == -1] = np.nan
-                pred = aggr_predictions.mode(axis=0).iloc[0].values
-                
-                # difference
-                f1_aggr = classification_report(y, pred, output_dict=True, zero_division=0)['macro avg']['f1-score']
-                
-                print(f"mean: {np.mean(f1s):.3f}, aggr: {f1_aggr:.3f}, "
-                      f"diff: {np.mean(f1s) - f1_aggr:.3f}")
-                
-                # # Fit final model on full data for predictions
-                # final_model = GridSearchCV(
-                #     estimator=Pipeline([
-                #         ('scaler', StandardScaler()),
-                #         ('svc', SVC(kernel=kernel, gamma='scale'))
-                #     ]),
-                #     param_grid={'svc__C': Cs},
-                #     cv=6,
-                #     scoring='f1_macro',
-                #     n_jobs=-1
-                # )
-                # final_model.fit(X, y)
-                # pred = final_model.predict(X)
-                # # print(np.stack((y, pred)).T)
-                
-                # print(f"---\n{Y_name} {name} {kernel}")
-                # if Y_name == 'cue' and kernel == 'linear' and name[1] == 'afterCueZone' and name[0] == 'HP':
-                #     print(f"---\n{Y_name} {name} {kernel}")
-                #     print(classification_report(y_oob, y_pred))
-                #     print(pred)
-                #     print(y)
-                #     # exit()
-                
- 
-                col_index = pd.MultiIndex.from_tuples([(*list(name), kernel, Y_name, n) for n in 
-                                                    ('y', 'y_true', 'n_PCs', 'acc', 'acc_std', 'f1')],
-                                                    names=['predictor', 'track_zone', 'model', 'predicting', 'output'])
-                pred_output = np.concatenate([
-                    pred[:, None], y[:, None],
-                    np.tile(np.array([X.shape[1], np.mean(accs), np.std(accs), np.mean(f1s)]), (len(pred), 1))
-                ], axis=1)
-
-                predictions.append(pd.DataFrame(pred_output, columns=col_index, index=PCsZoneEmbeddings.index))
-        if predictions == []:
-            L.logger.warning(f"None enough trials to fit any SVM for {name}")
-            return None
-        return pd.concat(predictions, axis=1)
-    
-
-
-    
-    
-    
-
-    # fix seed
-    np.random.seed(42)
-
-    def parse_string_to_array(x):
-        # TODO why?
-        if isinstance(x, np.ndarray):
-            return x
-        if pd.isna(x):
-            return x
-        return np.fromstring(x.strip("[]"), sep=", ", dtype=np.float32)
-    
-    PCsZoneEmbeddings = PCsZoneEmbeddings.set_index(['track_zone', 'trial_id', 'trial_outcome', 
-                                         'cue', 'choice_R1', 'choice_R2'], 
-                                        append=False).unstack(level='track_zone')
-    all_zones = []
-    for column in PCsZoneEmbeddings.columns:
-        # if column[1] != 'beforeCueZone':
+        # if kernel != 'linear':
         #     continue
-        # if column[0] in ('HP', 'mPFC'):
-        #     continue
-        X_list = PCsZoneEmbeddings[column].apply(parse_string_to_array)
-        if X_list.isna().any():
-            L.logger.warning(f"Missing trials for {column}...")
-            mask = X_list.isna()
-        else:
-            mask = np.ones(X_list.shape, dtype=bool)
-        X = np.stack(X_list[mask].values)
+        Cs = [0.1, .5, 1, 5, 10,]
+        accs, f1s = [], []
+
+        aggr_predictions = np.ones((n_iterations, len(X)), dtype=int) * -1
+        print(aggr_predictions.shape)
+        for i in range(n_iterations):
+            indices = rng.choice(len(X), size=len(X), replace=True)
+            X_boot, y_boot = X[indices], Y[indices]
+            # only a single class check:
+            if len(np.unique(y_boot)) < 2:
+                print("Skipping SVM fit due to single class in bootstrap sample")
+                continue
+            oob_mask = np.ones(len(X), dtype=bool)
+            oob_mask[indices] = False
+            X_oob, y_oob = X[oob_mask], Y[oob_mask]
+
+            if len(y_oob) < 5 or len(np.unique(y_oob)) < 2:
+                print("Skipping SVM fit due to insufficient or single class in OOB sample")
+                continue
             
-        if X.shape[0] <8:
-            Logger().logger.warning(f"Minimum of 8 trials req. to fit SVM. "
-                                    f"{X.shape[0]} trials found for {column}")
-            continue
-        Logger().logger.debug(f"Fitting SVM with {column}...")
-        # print(PCsZoneEmbeddings)
-        Y_cue = PCsZoneEmbeddings[mask].index.get_level_values('cue').values
-        Y_outcome = PCsZoneEmbeddings[mask].index.get_level_values('trial_outcome').values
-        Y_outcome = Y_outcome.astype(bool).astype(int)
-        # TODO: add choice
-        Y_choice_R1 = PCsZoneEmbeddings[mask].index.get_level_values('choice_R1').values.astype(int)
-        Y_choice_R2 = PCsZoneEmbeddings[mask].index.get_level_values('choice_R2').values.astype(int)
-        
-        predictions = fit_SVMs_with_bootstrap(X, Ys={'cue':Y_cue, 'outcome':Y_outcome, 'choice_R1':Y_choice_R1, 'choice_R2': Y_choice_R2}, name=column)
-        all_zones.append(predictions)
+            lbl_counts = pd.Series(Y).value_counts()
+            if lbl_counts.min() < 3:
+                print(f"Not enough samples for {name}: ({lbl_counts})")
+                continue
+            
+             # Define a pipeline combining a scaler with the SVC
+            
 
-    if all_zones == [] or all(pr is None for pr in all_zones):
-        L.logger.warning("None of zones in the session have min. trials == 6")
-        return None
+            pipeline = Pipeline([
+                ('scaler', StandardScaler()),
+                ('svc', SVC(kernel=kernel, gamma='scale'))
+            ])
+            grid_search = GridSearchCV(
+                estimator=pipeline,
+                param_grid={'svc__C': Cs},
+                cv=6,
+                scoring='balanced_accuracy',
+                n_jobs=-1,
+                verbose=False,
+            )
+            grid_search.fit(X_boot, y_boot)
+            y_pred = grid_search.predict(X_oob)
+            report = classification_report(y_oob, y_pred, output_dict=True, zero_division=0)
+
+            accs.append(balanced_accuracy_score(y_oob, y_pred))
+            f1s.append(report['macro avg']['f1-score'])
+            
+            # every row is one bootstrap iteration
+            aggr_predictions[i, oob_mask] = y_pred
+        
+        
+        # # get the "average" prediction across bootstrap iterations
+        # aggr_predictions = pd.DataFrame(aggr_predictions)
+        # aggr_predictions[aggr_predictions == -1] = np.nan
+        # pred = aggr_predictions.mode(axis=0).iloc[0].values
+        
+        # difference
+        # f1_aggr = classification_report(Y, pred, output_dict=True, zero_division=0)['macro avg']['f1-score']
+        
+        # print(f"{kernel}: mean: {np.mean(f1s):.3f}")
+        
+        ci = np.percentile(f1s, [2.5, 97.5])
+        print(f"mean F1 {np.mean(f1s):.3f}, 95% CI [{ci[0]:.3f}, {ci[1]:.3f}], len: {len(f1s)}")
+        return {
+            'name': name,
+            't': t,
+            'n': len(f1s),
+            'n_positives': int(np.sum(Y)),
+            'n_negatives': int(len(Y) - np.sum(Y)),
+            'kernel': kernel,
+            'f1_mean': float(np.mean(f1s)),
+            'f1_ci_lower': float(ci[0]),
+            'f1_ci_upper': float(ci[1]),
+            'acc_mean': float(np.mean(accs)),
+            'acc_ci_lower': float(np.percentile(accs, 2.5)),
+            'acc_ci_upper': float(np.percentile(accs, 97.5)),
+        }
+
+        
+    print("---")
+        
+                
+                
+                
+    L = Logger()
     
-    all_zones = pd.concat(all_zones, axis=1)
-    all_zones = all_zones.stack(level=('predictor', 'track_zone', 'model', 'predicting'), future_stack=True).reset_index()
-    # print(all_zones.columns)
-    # print(all_zones)
-    return all_zones
+    fr_z = fr_z.set_index(["from_ephys_timestamp","to_ephys_timestamp"], append=True)
+    fr_z.reset_index(level=(0,1,2,3,), inplace=True, drop=True)
+    print(fr_z)
+    
+    enter_R1_t = beh.loc[:, ['trackzone_reward2_enter_ephys_t', 'choice_R2', 'trial_id']]
+    enter_R1_t = enter_R1_t[~enter_R1_t.duplicated() & (enter_R1_t.trial_id != -1)]
+    enter_R1_t = enter_R1_t.reset_index(drop=True).set_index('trial_id')
+    Y = enter_R1_t.choice_R2.values
+    print(enter_R1_t)
+    print(Y)
+    
+    ball_vel = beh.loc[:, ['frame_raw', 'frame_yaw', 'frame_pitch', 'frame_ephys_timestamp']]
+    print(ball_vel)
+    max_t = 10_000_001  # 10s
+    t_step = 1_000_000  # 1s
+    n_frames = 58 # 1 s of frames at 59.5 Hz
+    n_fr_bins = 24 # 1 s of 40ms bins at 25 Hz
+    
+    X_beh = []
+    X_fr = []
+    for R1_t in enter_R1_t.trackzone_reward2_enter_ephys_t:
+        to_t = R1_t
+        prv_R1_t = 0
+        
+        all_intervals_beh_X = {}
+        all_intervals_fr_X = {}
+        print("-.... ", R1_t)
+        for i, from_t in enumerate(np.arange(R1_t - t_step, R1_t - max_t, -t_step)):
+            if from_t < prv_R1_t:
+                print("overlapping with previous trial")
+                all_intervals_beh_X[i] = None
+                all_intervals_fr_X[i] = None
+                continue
+            
+            interv_beh = ball_vel[(ball_vel.frame_ephys_timestamp >= from_t) &
+                             (ball_vel.frame_ephys_timestamp < to_t)].iloc[-n_frames:, :].dropna()
+            if interv_beh.shape[0] < n_frames: # partial data, skip
+                print(f"Not enough behavior data around R1 entry at {R1_t} ({interv_beh.shape[0]} samples), skipping interval ", i)
+                all_intervals_beh_X[i] = None
+                all_intervals_fr_X[i] = None
+                continue
+            
+            if interv_beh.shape != (n_frames, 4):
+                print(f"Behavior shape mismatch: {interv_beh.shape}")
+                all_intervals_beh_X[i] = None
+                all_intervals_fr_X[i] = None
+                continue
+
+            interv_fr = fr_z[(fr_z.index.get_level_values('from_ephys_timestamp') >= from_t)
+                        & (fr_z.index.get_level_values('to_ephys_timestamp') < to_t)
+                       ].iloc[-n_fr_bins:, :]
+            
+            if interv_fr.shape != (n_fr_bins, fr_z.shape[1]):
+                print(f"Firing rate shape mismatch: {interv_fr.shape}")
+                all_intervals_beh_X[i] = None
+                all_intervals_fr_X[i] = None
+                continue
+            
+
+            all_intervals_beh_X[i] = interv_beh[['frame_raw', 'frame_yaw', 'frame_pitch']].values.flatten()
+            all_intervals_fr_X[i] = interv_fr.values.flatten()
+            # print(all_intervals_beh_X[i])
+            # print(all_intervals_fr_X[i])
+
+            to_t = from_t
+    
+        print(all_intervals_beh_X.keys())
+        X_beh.append(all_intervals_beh_X)
+        X_fr.append(all_intervals_fr_X)
+    # print(X_beh)
+    # print(X_fr)
+
+
+
+    results = []
+    for t in range(0, 10):
+        print("\n\nTime before R1: ", t+1)
+        
+        invalid_trial_mask = []
+        X_beh_t = []
+        X_fr_t = []
+        for trial_beh, trial_fr in zip(X_beh, X_fr):
+            # [print(v, end=' ') if v is None else print("Ok", end=' ') for k,v in trial_beh.items()]
+            if trial_beh[t] is None or trial_fr[t] is None:
+                print("Skipping trial due to missing data")
+                invalid_trial_mask.append(True)
+            else:
+                invalid_trial_mask.append(False)
+                X_beh_t.append(trial_beh[t])
+                X_fr_t.append(trial_fr[t])
+        
+        
+        
+        X_beh_t = np.stack(X_beh_t)
+        X_fr_t = np.stack(X_fr_t)
+        Y_t = Y[~np.array(invalid_trial_mask)]
+        
+        print(f"Using {X_beh_t.shape[0]} trials for SVM fitting")
+        print(X_beh_t.shape, X_fr_t.shape, Y_t.shape)
+
+
+        # pca on behavior
+        pca = PCA(n_components=0.95, svd_solver='full', random_state=42)
+        X_beh_t_pca = pca.fit_transform(X_beh_t)
+        print(f"Behavior PCA reduced to {X_beh_t_pca.shape[1]} dimensions from {X_beh_t.shape[1]} dimensions")
+        
+        X_fr_t = np.nan_to_num(X_fr_t, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+        # pca on firing rates
+        pca = PCA(n_components=0.95, svd_solver='auto', random_state=42)
+        X_fr_t_pca = pca.fit_transform(X_fr_t)
+        print(f"Firing rate PCA reduced to {X_fr_t_pca.shape[1]} dimensions from {X_fr_t.shape[1]} dimensions")
+        
+        res1 = fit_SVMs_with_bootstrap(X_beh_t_pca, Y_t, f"RawYawPitch", kernel='linear', t=t+1)
+        res2 = fit_SVMs_with_bootstrap(X_fr_t_pca, Y_t, f"FiringRate", kernel='linear', t=t+1)
+        res3 = fit_SVMs_with_bootstrap(X_beh_t_pca, Y_t, f"RawYawPitch", kernel='rbf', t=t+1)
+        res4 = fit_SVMs_with_bootstrap(X_fr_t_pca, Y_t, f"FiringRate", kernel='rbf', t=t+1)
+
+        results.extend([res1, res2, res3, res4])
+
+        print(results)
+    return pd.DataFrame(results)
+
+
 
 def get_PVCueCorr(trackfr_data, track_behavior_data):
     def compute_population_vector_correlation(PVs):

@@ -1,179 +1,220 @@
 import plotly.graph_objects as go
-import json
-import re
-from scipy.stats import zscore
-        
 import pandas as pd
 import numpy as np
-from dash import dcc, html
-from plotly.subplots import make_subplots
-import plotly.express as px
+from scipy.stats import zscore
+from scipy.cluster.hierarchy import linkage, leaves_list
 
-# def render_plot(spike_metadata):
-#     cluster_id = spike_metadata['cluster_id']
-#     sess_spk_cnt = spike_metadata['session_spike_count']
-#     sess_seconds = spike_metadata['session_nsamples']/20_000
-#     normed_avg_frate = (sess_spk_cnt /sess_seconds).to_frame().rename(columns={0: 'avg_frate'})
-        
-#     normed_fr_cscale = [[0,'#ffffff'], [.1,'#eaeaea'], [.2,'#d9d9d9'], 
-#                         [.3,'#c9c9c9'], [.4,'#b7b7b7',], 
-#                         [.5,'#9b9b9b'], [.6,'#818181'], [.7,'#716468'], 
-#                         [.8,'#70525c'], [.9,'#7d3d54'], [1,'#752541']]
+def render_plot_heatmap(spike_metadata):
+    """
+    Render a heatmap of average firing rates for each cluster across sessions.
     
-#     fig = make_subplots()
+    Args:
+        spike_metadata (DataFrame): Contains spike metadata including cluster_id, 
+                                   session_spike_count and session_nsamples
     
-#     print(cluster_id)
-#     print(sess_spk_cnt)
-#     print(sess_seconds)
-#     print(normed_avg_frate)
-
-
-
-
-
-
-
-def render_plot(spike_metadata):
+    Returns:
+        plotly.graph_objects.Figure: Heatmap of firing rates
+    """
     # Compute average firing rate for each (cluster, session)
     sess_spk_cnt = spike_metadata['session_spike_count']
     sess_seconds = spike_metadata['session_nsamples'] / 20_000
-    avg_frate = (sess_spk_cnt / sess_seconds).to_frame(name='avg_frate').droplevel((0,1,3))
+    
+    # Create and format DataFrame
+    avg_frate = (sess_spk_cnt / sess_seconds).to_frame(name='avg_frate').droplevel((0, 1, 3))
     avg_frate['cluster_id'] = spike_metadata['cluster_id'].values
-    # print(spike_metadata['cluster_id'])
-    print(avg_frate)
-    
     avg_frate = avg_frate.set_index('cluster_id', append=True)
-    print(avg_frate)
-    avg_frate_matrix = avg_frate.unstack(level=0)  # Unstack to get cluster_id as columns
-    avg_frate_matrix.columns = avg_frate_matrix.columns.droplevel(0)  # Drop the first level of the MultiIndex columns
     
-    # log the average firing rate matrix
-    # avg_frate_matrix = np.log1p(avg_frate_matrix)
-
+    # Convert to matrix format
+    avg_frate_matrix = avg_frate.unstack(level=0)
+    avg_frate_matrix.columns = avg_frate_matrix.columns.droplevel(0)
     
-
-    print(avg_frate_matrix)
-    # rowwise zscore normalization
-    # avg_frate_matrix.loc[:] = zscore(avg_frate_matrix, axis=1, nan_policy='omit')
-    
-    # rowwise max normalization
-    # avg_frate_matrix.loc[:] /= avg_frate_matrix.max(axis=1, skipna=True).values[:, np.newaxis]
-    # print(avg_frate_matrix)
-    
-    # print(avg_frate_matrix)
+    # Define firing rate bins
     bins = (0, 0.00001, 0.1, 1, 2, 4, 8, 16, 32, 64)
-    # binned = pd.cut(avg_frate_matrix.values.flatten(), bins=bins, include_lowest=True)
-    # shape = avg_frate_matrix.shape
-
-    avg_frate_matrix_binned = np.zeros_like(avg_frate_matrix)
+    
+    # Bin the firing rates for clustering
     avg_frate_matrix_bin_id = np.zeros_like(avg_frate_matrix, dtype=int)
-    for i in range(len(bins)-1):
-        from_val = bins[i]
-        to_val = bins[i+1]
-        avg_frate_matrix_binned[(avg_frate_matrix > from_val) & (avg_frate_matrix <= to_val)] = from_val
-        avg_frate_matrix_bin_id[(avg_frate_matrix > from_val) & (avg_frate_matrix <= to_val)] = i
+    for i in range(len(bins) - 1):
+        from_val, to_val = bins[i], bins[i+1]
+        mask = (avg_frate_matrix > from_val) & (avg_frate_matrix <= to_val)
+        avg_frate_matrix_bin_id[mask] = i
     
-    print(avg_frate_matrix_bin_id)
-    avg_frate_matrix_bin_id = np.diff(avg_frate_matrix_bin_id, axis=1)
-        
-
-    print(avg_frate_matrix_binned)
-    print(avg_frate_matrix_bin_id)
-    # Perform hierarchical clustering
-    from scipy.cluster.hierarchy import linkage, leaves_list
-    # linkage_matrix = linkage(avg_frate_matrix_bin_id, metric='hamming')  # Using Ward's method
-    # linkage_matrix = linkage(avg_frate_matrix_bin_id, metric='cityblock')  # Using Ward's method
-    linkage_matrix = linkage(avg_frate_matrix_bin_id, metric='cosine')  # Using Ward's method
-    ordered_indices = leaves_list(linkage_matrix)  # Get the order of rows
+    # Hierarchical clustering
+    linkage_matrix = linkage(
+        avg_frate_matrix_bin_id, 
+        metric='cityblock', 
+        method='complete', 
+        optimal_ordering=True
+    )
+    ordered_indices = leaves_list(linkage_matrix)
     
-    
-    # rowwise std
-    # ordered_indices = avg_frate_matrix.apply(lambda row: np.diff(row[row!=0]).std(), axis=1).sort_values(ascending=False).index
-    # ordered_indices = avg_frate_matrix.apply(lambda row: np.diff(row[row!=0]).std(), axis=1).sort_values(ascending=False).index
-    # ordered_indices = avg_frate_matrix.apply(lambda row: np.diff(np.log1p(row)).std(), axis=1).sort_values(ascending=False).index
-    
-    # print(ordered_indices)
-    # print(len(ordered_indices))
-    
-    # drop indices 
-    # l = 51, 15, 17, 2, 5, 3, 13, 4, 9, 18, 14, 11,  44,  47, 48, 10, 34,  27, 19, 55
-    
-
-    # l1 =  51, 15, 17, 19, 2, 5,4, 3, 13,  9, 18, 31,64,8,44,11,14
-    # l2 = 47, 48, 10, 34
-    # l3 =  16,27,  55, 72, 53, 54,41,40, 12, 57, 28, 7, 49, 42, 
-    # l4 = 30,32,52,58,6,45,1,73,39,67,77,74
-    # l = [*l1, *l2, *l3,*l4]
-
-    # ordered_indices = ordered_indices[~ordered_indices.isin(l)]
-    # ordered_indices = [*ordered_indices.tolist(), *reversed(l)]
-
-
-    # Reorder the rows of spks based on clustering
+    # Reorder rows based on clustering results
     avg_frate_matrix = avg_frate_matrix.iloc[ordered_indices]
-    # avg_frate_matrix = avg_frate_matrix.loc[ordered_indices]
     
-    # avg_frate_matrix = avg_frate_matrix.reset_index()
-    # avg_frate_matrix.drop("cluster_id", axis=1, inplace=True)
-    # avg_frate_matrix = avg_frate_matrix.droplevel(0, axis=1)  # Drop the first level of the MultiIndex columns
-    print(avg_frate_matrix)
     
-    # # Create heatmap figure
+    # clip to < 1Hz, > 1Hz    
+    avg_frate_matrix.loc[:] = (avg_frate_matrix > 1).astype(float).values
+
+    
+    # Create color scale for the heatmap
     maxval = 32
     eps = .000001
-    fr_cscale = [[0,'#ffffff'], 
-                 [(0+eps)/maxval,"#e2e2e2"], [.1/maxval,"#e2e2e2"], 
-                 [(.1+eps)/maxval,"#b1b1b1"], [1/maxval,"#b1b1b1"], 
-                 [(1+eps)/maxval,"#8C6565"], [2/maxval,"#8C6565"],
-                 [(2+eps)/maxval,"#963F3F"], [4/maxval,"#963F3F"],
-                 [(4+eps)/maxval,"#A73131"], [8/maxval,"#A73131"],
-                 [(8+eps)/maxval,"#D1552C"], [16/maxval,"#D1552C"],
-                 [(16+eps)/maxval,"#D1922C"], [32/maxval,"#D1922C"],
+    fr_cscale = [
+        [0, '#ffffff'], 
+        [(0+eps)/maxval, "#e8e8e8"], [.1/maxval, "#e8e8e8"], 
+        [(.1+eps)/maxval, "#8C6565"], [1/maxval, "#8C6565"], 
+        [(1+eps)/maxval, "#8C6565"], [2/maxval, "#8C6565"],
+        [(2+eps)/maxval, "#963F3F"], [4/maxval, "#963F3F"],
+        [(4+eps)/maxval, "#A73131"], [8/maxval, "#A73131"],
+        [(8+eps)/maxval, "#D1552C"], [16/maxval, "#D1552C"],
+        [(16+eps)/maxval, "#D1922C"], [32/maxval, "#D1922C"],
     ]
+    
+
+    # Create custom colorbar tick values and text
+    colorbar_tickvals = [0, 0.05, 0.5, 1.5, 3, 6, 12, 24]
+    colorbar_ticktext = ["Not detected", "<0.1 Hz", "<1 Hz", "<2 Hz", "<4 Hz", "<8 Hz", "<16 Hz", "<32 Hz"]
+    
+    # Create heatmap figure
     fig = go.Figure(
         data=go.Heatmap(
             z=avg_frate_matrix.values,
-            x=avg_frate_matrix.columns,
+            x=np.arange(avg_frate_matrix.columns.size),
             y=np.arange(avg_frate_matrix.index.size),
-            # colorscale=[
-            #     [0, '#ffffff'], [.1, '#eaeaea'], [.2, '#d9d9d9'],
-            #     [.3, '#c9c9c9'], [.4, '#b7b7b7'],
-            #     [.5, '#9b9b9b'], [.6, '#818181'], [.7, '#716468'],
-            #     [.8, '#70525c'], [.9, '#7d3d54'], [1, '#752541']
-            # ],
-            # colorbar=dict(title='Avg Firing Rate (Hz, normalized)'),
-            colorbar=dict(title='Avg Firing Rate (Hz)'),
-            # zmin=0,
-            # zmax=1,
-            # colorscale=px.colors.diverging.RdBu_r,
-            # colorbar=dict(title='Avg Firing Rate (Z-score)'),
-            # zmin=-3,
-            # zmax=3,
             colorscale=fr_cscale,
+            colorbar=dict(
+                title='Avg Firing Rate',
+                tickvals=colorbar_tickvals,
+                ticktext=colorbar_ticktext,
+                tickmode='array',
+                len=0.75,  # Make colorbar slightly shorter to fit all labels
+                thickness=20,  # Make colorbar wider for better text readability
+                tickfont=dict(size=10)
+            ),
             zmin=0,
             zmax=maxval,
-            # zmax=20,
         )
     )
     
-    
+    # Update layout with reduced dimensions
     fig.update_layout(
-        xaxis_title="Session",
-        yaxis_title="Cluster",
-        title="Average Firing Rate per Cluster/Session",
+        width=800,  # Updated width
+        height=800, # Updated height
+        xaxis_title="Session ID",
+        yaxis_title="Single Unit ID",
+        title="Average Firing Rate per Neuron/Session",
         template="plotly_white",
         yaxis=dict(
             tickmode='array',
             tickvals=np.arange(avg_frate_matrix.index.size),
             ticktext=avg_frate_matrix.index.tolist(),
+            tickfont=dict(size=8, color='black'),  # Changed from font_dict to tickfont
+        ),
+        xaxis=dict(
+            tickmode='array',
+            tickvals=np.arange(avg_frate_matrix.columns.size),
+            ticktext=avg_frate_matrix.columns.tolist(),
+            tickfont=dict(size=10, color='black'),  # Changed from font_dict to tickfont
         )
     )
     return fig
 
 
+def render_plot_amplitude(spike_metadata, sess_vpp, highlight_cluster):
+    # Compute average firing rate for each (cluster, session)
+    sess_spk_cnt = spike_metadata['session_spike_count']
+    sess_seconds = spike_metadata['session_nsamples'] / 20_000
+    # sess_vpp = spike_metadata['unit_Vpp']   
+    sess_snr = spike_metadata['unit_snr']
+    
+    # Create and format DataFrame
+    sess_spiking = (sess_spk_cnt / sess_seconds).to_frame(name='avg_frate').droplevel((0, 1, 3))
+    sess_spiking['cluster_id'] = spike_metadata['cluster_id'].values
+    sess_spiking['unit_snr'] = sess_snr.values
+    sess_spiking = sess_spiking.set_index('cluster_id', append=True)
+    
+    print(sess_vpp)
+    sess_vpp = sess_vpp.reindex(sess_spiking.index)
+    print(sess_vpp)
+    sess_spiking['unit_Vpp'] = sess_vpp.values*6.3
+    
 
-# 51, 15, 17, 19, 2, 5, 3, 13, 4, 9, 18, 14, 11,  44, 8
-
-# 47, 48, 10, 34
-
-# 27,  55, 53, 57, 28, 7 42, 72
+    print(sess_spiking)
+    fig = go.Figure()
+    
+    for clust_id in sess_spiking.index.unique('cluster_id'):
+        clust_data = sess_spiking.xs(clust_id, level='cluster_id')
+        
+        # Add average firing rate trace
+        fig.add_trace(go.Scatter(
+            x=clust_data.index.get_level_values('session_id'),
+            y=clust_data['unit_Vpp'],
+            mode='lines',
+            showlegend=False,
+            opacity=0.3,
+            line=dict(width=2, color='darkgrey'),
+        ))
+        
+    fig.update_layout(
+        width=800,  # Updated width
+        height=400, # Updated height
+        xaxis_title="Session ID",
+        yaxis_title="Average Spike Amplitude (uV)",
+        title="Amplitude stability per Neuron over Sessions",
+        template="plotly_white",
+        yaxis=dict(
+            range=[0, -250],
+            tickfont=dict(size=8, color='black'),  # Changed from font_dict to tickfont
+        ),
+        xaxis=dict(
+            tickmode='array',
+            tickvals=clust_data.index.unique('session_id').tolist(),
+            # Use the session IDs as tick labels
+            ticktext=clust_data.index.unique('session_id').tolist(),
+            tickfont=dict(size=10, color='black'),  # Changed from font_dict to tickfont
+        )
+    )
+    
+    maxval = 32
+    eps = .000001
+    fr_cscale = [
+        [0, '#ffffff'], 
+        [(0+eps)/maxval, "#e8e8e8"], [.1/maxval, "#e8e8e8"], 
+        [(.1+eps)/maxval, "#d5d5d5"], [1/maxval, "#d5d5d5"], 
+        [(1+eps)/maxval, "#8C6565"], [2/maxval, "#8C6565"],
+        [(2+eps)/maxval, "#963F3F"], [4/maxval, "#963F3F"],
+        [(4+eps)/maxval, "#A73131"], [8/maxval, "#A73131"],
+        [(8+eps)/maxval, "#D1552C"], [16/maxval, "#D1552C"],
+        [(16+eps)/maxval, "#D1922C"], [32/maxval, "#D1922C"],
+    ]
+    
+    if highlight_cluster is not None:
+        highlight_data = sess_spiking.xs(highlight_cluster, level='cluster_id')
+        
+        fig.add_trace(go.Scatter(
+            x=highlight_data.index.get_level_values('session_id'),
+            y=highlight_data['unit_Vpp'],
+            mode='markers+lines',
+            name=f'Neuron {highlight_cluster:02}',
+            line=dict(width=2, color='black'),
+            marker=dict(
+                size=8, 
+                color=highlight_data['avg_frate'],
+                symbol='circle', 
+                colorscale=fr_cscale,
+                cmin=0,
+                cmax=maxval,  # Use the same scale as in heatmap
+                colorbar=dict(
+                    title='Avg Firing Rate',
+                    tickvals=[0, 1, 3, 6, 12, 16, 24, 32],  # Actual values matching your scale
+                    ticktext=["Not detected", "<0.1 Hz", "<1 Hz", "1-2 Hz", "2-4 Hz", "4-8 Hz", "8-16 Hz", ">16 Hz"],
+                    tickmode='array',
+                    len=0.75,
+                    thickness=20,
+                    tickfont=dict(size=8)
+                )
+            ),
+        ))
+            
+        
+        
+    return fig

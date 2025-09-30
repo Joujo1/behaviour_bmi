@@ -18,6 +18,8 @@ from ..plot_components.plot_wrappers import wrapper_TrackFiringRate
 from ..plot_components.plot_wrappers import wrapper_SVMPredictions
 from ..plot_components.plot_wrappers import wrapper_EvolvingPCSubspace
 from ..plot_components.plot_wrappers import wrapper_CueCorrelation
+from ..plot_components.plot_wrappers import wrapper_EnsembleEncoding
+from ..plot_components.plot_wrappers import wrapper_EnsembleChoiceEncoding
 
 def create_sessionwise_vis_containers(app: Dash, loaded_analytics: dict, loaded_raw_traces: dict):
     viss_row_container = []
@@ -36,6 +38,12 @@ def create_sessionwise_vis_containers(app: Dash, loaded_analytics: dict, loaded_
             case "CueCorrelation":
                 analysis_div = wrapper_CueCorrelation.render(app, loaded_analytics, 
                                                              vis_name=vis_name)
+            case "EnsembleEncoding":
+                analysis_div = wrapper_EnsembleEncoding.render(app, loaded_analytics,
+                                                               vis_name=vis_name)
+            case "EnsembleChoiceEncoding":
+                analysis_div = wrapper_EnsembleChoiceEncoding.render(app, loaded_analytics,
+                                                               vis_name=vis_name)
             case _:
                 analysis_div = html.Div([html.H5(vis_name)], id=f'{vis_name}-container', 
                                         style={'display': 'none', 

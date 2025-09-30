@@ -252,7 +252,7 @@ def calc_trialwise_metrics(trials, track_kinematics, trial_variable):
         if (zone == "reward1") or (zone == "reward2"): 
             # add the time of entry into the reward zone
             R1_vel_threshold = trial_variable.set_index('trial_id').loc[trial_id, "velocity_threshold_at_R1"]
-            R2_vel_threshold = trial_variable.set_index('trial_id').loc[trial_id, "velocity_threshold_at_R1"]
+            R2_vel_threshold = trial_variable.set_index('trial_id').loc[trial_id, "velocity_threshold_at_R2"]
             thr = R1_vel_threshold if zone == "reward1" else R2_vel_threshold
             stopping_mask = zone_trial_frames["frame_velocity"] < thr
             zone_trial_metrics[f"trackzone_{zone}_choice"] = stopping_mask.any()

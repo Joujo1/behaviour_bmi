@@ -1,6 +1,7 @@
 import os
 import sys
 # when executed as a process add parent project dir to path, needed for ephys processing
+sys.path.insert(1, os.path.join(sys.path[0], '..',))
 sys.path.insert(1, os.path.join(sys.path[0], '..', 'ephysVR'))
 
 import argparse

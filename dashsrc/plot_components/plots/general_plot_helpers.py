@@ -9,6 +9,7 @@ def draw_track_illustration(
     fig, row, col, track_details, min_track, max_track, 
     draw_cues=[2], choice_str='Stay', double_rewards=False,
     track_types=(1,2), vertical=False, draw_trial_p_annotation=True,
+    flipped=False
 ):
     track_details = [pd.Series(details, name=zone) for zone, details in track_details.items()]
     track_details = pd.concat(track_details, axis=1).T
@@ -62,6 +63,8 @@ def draw_track_illustration(
 
         # iterate reward locations
         for r in (1, 2):
+            if flipped:
+                r = 1 if r == 2 else 2  # swap rewards if flipped
             yloc, yloc_offset = track_type-1, .12
             color, width = REWARD_LOCATION_COL_MAP[r], 7
             reward_x = track_details.loc[f'reward{r}', ['start_pos', 'end_pos', 'start_pos', 'start_pos', 'end_pos']]

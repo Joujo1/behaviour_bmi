@@ -71,7 +71,7 @@ def _compute_animal_analytic(analytic, all_sessions_ffnames):
         data = ephys.get_SessionPCs40msCAs(PCs)
         
     # TODO should be sesssion analytic...    
-    elif analytic ==  "Ensamble40msProjEncodings":
+    elif analytic ==  "Ensemble40msProjEventAligned":
         ensemble_proj = get_analytics('ConcatenatedEnsambleProj40ms',
                                       session_names=sp.fullfnames2snames(all_sessions_ffnames))
 
@@ -92,8 +92,8 @@ def _compute_animal_analytic(analytic, all_sessions_ffnames):
         if kinematics is None:
             L.logger.warning("Missing lower level analytic")
             return None
-        
-        data = ephys.get_Ensemble40msProjEncodings(ensemble_proj, kinematics)
+
+        data = ephys.get_Ensemble40msProjEventAligned(ensemble_proj, kinematics)
         # data_table = C.ENSAMBLE_40MS_PROJ_ENCODING_TABLE
         
         
@@ -141,7 +141,7 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         
         data = m2a.get_BehaviorTrialwise(session_fullfname, track_kinematics)
-        data_table = C.SCHEMA_BehaviorTrialwise
+        schema = C.SCHEMA_BehaviorTrialwise
     
     elif analytic == "BehaviorEvents":
         cols = ['trial_id', 'trial_start_pc_timestamp', 'trial_end_pc_timestamp',
@@ -153,7 +153,7 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         
         data = m2a.get_BehaviorEvents(session_fullfname, trialwise)
-        data_table = C.SCHEMA_BehaviorEvents
+        schema = C.SCHEMA_BehaviorEvents
         
     # TODO impelemnt 
     elif analytic == "BehaviorPose":
@@ -166,7 +166,7 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         
         data = m2a.get_BehaviorPose(session_fullfname, trialwise)
-        data_table = C.SCHEMA_BehaviorPose
+        schema = C.SCHEMA_BehaviorPose
     
     elif analytic == "BehaviorFramewise":
         # 1. track kinematics
@@ -212,93 +212,24 @@ def _compute_sess_analytic(analytic, session_fullfname):
     
     
     
-    # elif analytic == "Unity":
-    #     data = m2a.get_Unity(session_fullfname)
-    #     data_table = C.UNITY_TABLE
     
-    # elif analytic == "BehaviorEvents":
-    #     data = m2a.get_BehaviorEvents(session_fullfname)
-    #     data_table = C.BEHAVIOR_EVENT_TABLE
-        
-    # elif analytic == "FacecamPoses":
-    #     data = m2a.get_FacecamPoses(session_fullfname)
-    #     int_columns = ['facecam_image_pc_timestamp', 'facecam_image_ephys_timestamp']
-    #     data_table = OrderedDict((col, pd.Int64Dtype() if col in int_columns 
-    #                               else pd.Float32Dtype()) for col in data.columns)
-
-    # elif analytic == "UnityFramewise":
-    #     data = m2a.get_UnityFramewise(session_fullfname)
-    #     portenta_data = get_analytics(analytic="Portenta",
-    #                                   session_names=[session_name])
-        
-    #     # integrate the behavior events and facecam poses
-    #     data = integr_analytics.merge_behavior_events_with_frames(data, portenta_data)
-    #     # data = integr_analytics.merge_facecam_poses_with_frames(data, pose_data)
-
-    #     data_table = C.UNITY_FAMEWISE_TABLE
-    #     # update the data_table with the facecam pose columns
-    #     for col in data.columns:
-    #         if col.startswith("facecam_pose_"):
-    #             data_table[col] = pd.Float32Dtype()
-
-    # elif analytic == "UnityTrackwise":
-    #     unity_framewise = get_analytics(analytic="UnityFramewise",
-    #                                     session_names=[session_name])
- 
-    #     data = integr_analytics.get_UnityTrackwise(unity_framewise)
-        
-    #     data_table = C.UNITY_TRACKWISE_TABLE
-    #     # update the data_table with the facecam pose columns
-    #     for col in data.columns:
-    #         if col.startswith("facecam_pose_"):
-    #             data_table[col] = pd.Float32Dtype()
     
-    # elif analytic == "UnityTrialwiseMetrics":
-    #     data = m2a.get_UnityTrialwiseMetrics(session_fullfname)
-    #     print(data['trial_outcome'])
-    #     print()
-    #     print()
-    #     print()
-    #     print()
-    #     # exit()
-    #     # unity_framewise = get_analytics(analytic="UnityFramewise", 
-    #     #                                 sessionlist_fullfnames=[session_fullfname])
-    #     # data = integr_analytics.get_UnityTrialwiseMetrics(unity_framewise)
-    #     # data_table = C.UNITY_TRIALWISE_METRICS_TABLE
     
-    # elif analytic == "MultiUnits":
-    #     data = m2a.get_MultiUnits(session_fullfname)
-    #     data_table = C.MULTI_UNITS_TABLE
+    
+    
+    
+    
+    
+    
+    
+    
+    ### ========================= EPHYS  BASIC  ===========================
     
     elif set(analytic.split("-")) == {'SpikeClusterMetadata', 'Spikes'}:
         sp_clust_metadata, spikes = ephys.extract_jrc_spikes(session_fullfname)
         data = spikes, sp_clust_metadata
         if data[0] is None:
             return None
-        
-        
-        
-        
-    # elif analytic == "SpikeClusterMetadata":
-    #     data = ephys.get_SpikeClusterMetadata(session_fullfname)
-    #     print(data)
-    #     data_table = C.SPIKES_CLUSTER_METADATA_TABLE
-    
-    # elif analytic == "Spikes":
-    #     sp_clust_metadata = get_analytics('SpikeClusterMetadata',
-    #                                       session_names=[session_name],
-    #                                       columns=['cluster_id_ssbatch', 'cluster_id', 
-    #                                                'cluster_color', 'cluster_type',
-    #                                                'unit_count', 'ss_batch_id',
-    #                                                'session_nsamples']
-    #                                       )
-    #     if sp_clust_metadata is None:
-    #         return None
-    #     data = ephys.get_Spikes(session_fullfname, sp_clust_metadata)
-    #     data_table = C.SPIKES_TABLE
-    #     # print(get_analytics('Spikes', session_names=[session_name],
-    #     #                        columns=['sample_id', 'cluster_id']))
-    
     elif analytic == "FiringRate40msHz":
         spikes = get_analytics('Spikes', session_names=[session_name],
                                columns=['ephys_timestamp', 'cluster_id_str'])
@@ -320,15 +251,7 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         data = ephys.get_FiringRate40msZ(fr_hz)
         data_table = dict.fromkeys(data.columns, C.FIRING_RATE_40MS_Z_ONE_DTYPE)
-        
-    elif analytic == "SessionPCs40ms-SessionPCsProj40ms":
-        fr_z = get_analytics('FiringRate40msZ', session_names=[session_name])
-        if fr_z is None:
-            L.logger.warning("Missing lower level analytic")
-            return None
-        # return PCs, Z_proj
-        data = ephys.get_sessionPCA(fr_z)    
-
+    
     elif analytic == "FiringRateTrackwiseHz":
         fr_data = get_analytics('FiringRate40msHz', session_names=[session_name])
         if fr_data is None:
@@ -341,31 +264,50 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         data = ephys.get_FiringRateTrackwiseHz(fr_data, track_behavior_data)
         data_table = dict.fromkeys(data.columns, C.FIRING_RATE_TRACKWISE_HZ_ONE_DTYPE)
+        
     
-    elif set(analytic.split("-")) == {"PCsZonewise", "PCsZoneEmbeddings"}:
-        trackfr_data = get_analytics('FiringRateTrackwiseHz', session_names=[session_name])
-        track_behavior_data = get_analytics('BehaviorTrackwise', session_names=[session_name],)
-                                        # columns=['frame_z_position', 'frame_pc_timestamp'])
-        if trackfr_data is None:
-            return None
-        # combo analytic TODO, do it properly, order is not guaranteed too, rename
-        data = ephys.get_PCsZonewise(trackfr_data, track_behavior_data)
-        # data1_table, data2_table = C.PCS_ZONEWISE_TABLE, None
     
-    elif set(analytic.split("-")) == {"CCsZonewise", "CCsZonewiseAngles"}:
-        #  TODO rename to PCsZonewise, not bases
-        session_subspace_basis = get_analytics('PCsZonewise', session_names=[session_name]) 
-        all_subspace_basis = get_analytics('PCsZonewise', session_names=session_names)
-        if session_subspace_basis is None or all_subspace_basis is None:
+    
+    
+    
+    
+    ### ========================= EPHYS  MORE  ===========================
+        
+    elif analytic == "SessionPCs40ms-SessionPCsProj40ms":
+        fr_z = get_analytics('FiringRate40msZ', session_names=[session_name])
+        if fr_z is None:
             L.logger.warning("Missing lower level analytic")
             return None
-        data = ephys.get_PCsSubspaceAngles(session_subspace_basis, all_subspace_basis)
+        # return PCs, Z_proj
+        data = ephys.get_sessionPCA(fr_z)    
+
+    # elif set(analytic.split("-")) == {"PCsZonewise", "PCsZoneEmbeddings"}:
+    #     trackfr_data = get_analytics('FiringRateTrackwiseHz', session_names=[session_name])
+    #     track_behavior_data = get_analytics('BehaviorTrackwise', session_names=[session_name],)
+    #                                     # columns=['frame_z_position', 'frame_pc_timestamp'])
+    #     if trackfr_data is None:
+    #         return None
+    #     # combo analytic TODO, do it properly, order is not guaranteed too, rename
+    #     data = ephys.get_PCsZonewise(trackfr_data, track_behavior_data)
+    #     # data1_table, data2_table = C.PCS_ZONEWISE_TABLE, None
+    
+    # elif set(analytic.split("-")) == {"CCsZonewise", "CCsZonewiseAngles"}:
+    #     #  TODO rename to PCsZonewise, not bases
+    #     session_subspace_basis = get_analytics('PCsZonewise', session_names=[session_name]) 
+    #     all_subspace_basis = get_analytics('PCsZonewise', session_names=session_names)
+    #     if session_subspace_basis is None or all_subspace_basis is None:
+    #         L.logger.warning("Missing lower level analytic")
+    #         return None
+    #     data = ephys.get_PCsSubspaceAngles(session_subspace_basis, all_subspace_basis)
     
     elif analytic == "SVMCueOutcomeChoicePred":
-        PCsZoneEmbeddings = get_analytics('PCsZoneEmbeddings', session_names=[session_name])
-        if PCsZoneEmbeddings is None:
+        fr_z = get_analytics('FiringRate40msZ', session_names=[session_name])
+        if fr_z is None:
             return None
-        data = ephys.get_SVMCueOutcomeChoicePred(PCsZoneEmbeddings)
+        beh = get_analytics('BehaviorFramewise', session_names=[session_name])
+        if beh is None:
+            return None
+        data = ephys.get_SVMCueOutcomeChoicePred(fr_z, beh)
         data_table = C.SVM_CUE_OUTCOME_CHOICE_PRED_TABLE
 
         if data is None:
@@ -434,7 +376,7 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
     ANIMAL_ANALYTICS = ('ConcatenatedEnsambles40ms-ConcatenatedEnsambleProj40ms', 
                         'ConcatenatedPCs40ms', 'ConcatenatedEnsambleProj40ms',
                         'ConcatenatedEnsambles40ms',
-                        'SessionPCs40msCAs',
+                        'SessionPCs40msCAs', 'Ensemble40msProjEventAligned',
                         'Ensamble40msProjEncodings')
     aggr = []
     

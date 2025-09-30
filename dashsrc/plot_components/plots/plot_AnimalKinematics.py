@@ -10,17 +10,17 @@ from dashsrc.components.dashvis_constants import *
 def _parse_args(metric, metric_max):
     # parse arguemnts and set defaults    
     if metric == 'Velocity':
-        metric_col = 'posbin_z_velocity'
+        metric_col = 'posbin_velocity'
         y_axis_label = 'Velocity [cm/s]'
         z_axis_range = 0, metric_max
         cmap = px.colors.sequential.Plotly3_r
     elif metric == 'Acceleration':
-        metric_col = 'posbin_z_acceleration'
+        metric_col = 'posbin_acceleration'
         y_axis_label = 'Acceleration [cm/s^2]'
         z_axis_range = -metric_max, metric_max
         cmap = px.colors.diverging.Tropic_r
     elif metric == 'Lick':
-        metric_col = 'L_count'
+        metric_col = 'lick_count'
         y_axis_label = 'Lick count'
         z_axis_range = 0, metric_max
         cmap = px.colors.sequential.Blues
@@ -91,7 +91,7 @@ def _configure_axis(fig, session_ids, width, height):
 def _draw_all_single_trials(fig, data, metric_col, cmap_transparent, group_col):
     # Create the main plot with line grouping by trial_id and color based on group_by
     for trial_id, trial_data in data.groupby('trial_id'):
-        trace = go.Scatter(x=trial_data['from_z_position_bin'], 
+        trace = go.Scatter(x=trial_data['from_position_bin'], 
                         y=trial_data[metric_col], mode='lines',
                         line=dict(color=cmap_transparent[trial_data[group_col].iloc[0]]),
                         name=f'Tr. {trial_id}')
@@ -102,7 +102,7 @@ def _draw_percentile_area_plot(fig, upper_perc, lower_perc, metric_col, transp_c
     # draw essentially 2 lines and fill the area between them
     print(upper_perc, lower_perc)
     fig.add_trace(go.Scatter(
-        x=upper_perc['from_z_position_bin'].tolist() + lower_perc['from_z_position_bin'].tolist()[::-1],
+        x=upper_perc['from_position_bin'].tolist() + lower_perc['from_position_bin'].tolist()[::-1],
         y=upper_perc[metric_col].tolist() + lower_perc[metric_col].tolist()[::-1],
         fill='toself',
         fillcolor=transp_color,
@@ -214,14 +214,15 @@ def render_plot(all_data, metadata, metric, metric_max, smooth_data, width, heig
         if smooth_data:
             data[metric_col] = data[metric_col].rolling(window=10, center=True, min_periods=1).mean()
         
+        print(data.columns)
         # last spatial bins can ba NaN, remove them
-        min_max_pos_bin = data['from_z_position_bin'].min(), data['from_z_position_bin'].max()
-        data = data[(data['from_z_position_bin'] > min_max_pos_bin[0]) &
-                    (data['from_z_position_bin'] < min_max_pos_bin[1])]
+        min_max_pos_bin = data['from_position_bin'].min(), data['from_position_bin'].max()
+        data = data[(data['from_position_bin'] > min_max_pos_bin[0]) &
+                    (data['from_position_bin'] < min_max_pos_bin[1])]
 
         # Here we use mean instead of median (otherwise it will all be 0 for lick)
-        med_values = data.groupby('from_z_position_bin')[metric_col].mean().reset_index()
-        med_values = med_values.set_index('from_z_position_bin').iloc[:,0]
+        med_values = data.groupby('from_position_bin')[metric_col].mean().reset_index()
+        med_values = med_values.set_index('from_position_bin').iloc[:,0]
         med_values.name = session_id
         all_median_values.append(med_values)
 
@@ -242,7 +243,7 @@ def render_plot(all_data, metadata, metric, metric_max, smooth_data, width, heig
         zmin=z_axis_range[0],
         zmax=z_axis_range[1],
         showscale=True,
-        colorbar=dict(title=y_axis_label, titleside='right')  # Add colorbar title
+        colorbar=dict(title=y_axis_label)
 
     )
     fig.add_trace(heatmap, row=2, col=1)

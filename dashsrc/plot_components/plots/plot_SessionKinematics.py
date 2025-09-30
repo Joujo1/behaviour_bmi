@@ -160,9 +160,24 @@ def render_plot(all_data, metadata, n_trials, group_by, group_by_values, metric,
         # print(outcome_r1)
         
         #TODO if P1100: choice_str='Stop', if DR == 1 draw_cues=[]
+        print()
+        # print(metadata.iloc[0].values)
+        print(data.columns)
+        
+        draw_cues = [2]
+        flipped = False
+        double_rewards = False
+        if data['both_R1_R2_rewarded'].dropna().iloc[0] == 1:
+            draw_cues = []
+            double_rewards = True
+        if data['flip_Cue1R1_Cue2R2'].dropna().any() or session_id >= 27:
+            flipped = True
+        
         min_track, max_track = data['from_position_bin'].min(), data['from_position_bin'].max()
         draw_track_illustration(fig, row=1, col=1,  track_details=json.loads(metadata.iloc[0]['track_details']), 
-                                min_track=min_track, max_track=max_track, choice_str='Stop', draw_cues=[], double_rewards=True)
+                                min_track=min_track, max_track=max_track, choice_str='Stop', 
+                                draw_cues=draw_cues, double_rewards=double_rewards,
+                                flipped=flipped,)
 
 
         if var_viz == 'Single trials':

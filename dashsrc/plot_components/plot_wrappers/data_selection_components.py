@@ -47,6 +47,38 @@ def session_dropdown_component(vis_name, global_data, analytic):
             placeholder="Session ID"
         )
     ], component_id
+    
+def ensemble_dropdown_component(vis_name, global_data, analytic):
+    data = global_data[analytic]
+    component_id = f'ensemble-dropdown-{vis_name}'
+    # print(data.columns.str.startswith('Assembly'))
+    return [
+        html.Label("Select ensemble", style={"marginTop": 15}),
+        dcc.Dropdown(
+            id=component_id,
+            options=[] if data is None else [{'label': f'Ensemble {i:02}', 'value': i} 
+                                             for i in data.columns.str.startswith('Assembly')],
+            placeholder="Ensemble ID",
+        )
+    ], component_id
+
+def event_dropdown_component(vis_name, global_data, analytic, multi=True):
+    data = global_data[analytic]
+    component_id = f'event-dropdown-{vis_name}'
+    if data is not None:
+        print(data)
+    return [
+        html.Label("Select event", style={"marginTop": 15}),
+        dcc.Dropdown(
+            id=component_id,
+            options=[] if data is None else [{'label': f'Event {i:02}', 'value': i} 
+                                             for i in data.index.unique("event_id")],
+            placeholder="Event ID",
+            multi=multi,
+        )
+    ], component_id
+
+
 
 def metric_radioitems_component(vis_name):
     component_id = f'metric-{vis_name}'
@@ -81,7 +113,7 @@ def groupby_radioitems_component(vis_name):
     return [
         html.Label("Group by", style={"marginTop": 15}),
         dcc.RadioItems(
-            ['Outcome', 'Cue', 'Part of session', 'None'],
+            ['Outcome', 'Cue', 'Part of session', 'R1 choice', 'R2 choice', 'None'],
             inputStyle={"margin-right": "5px"},
             style={"marginLeft": 5},
             value='None',
@@ -145,7 +177,7 @@ def cue_group_filter_component(vis_name):
 def trial_group_filter_component(vis_name):
     component_id = f'trial-group-filter-{vis_name}'
     return [
-        html.Label("Trial subset", style={"marginTop": 15}),
+        html.Label("Session subset", style={"marginTop": 15}),
         dcc.Checklist(
             id=component_id,
             options=['1/3', '2/3', '3/3'],
@@ -154,6 +186,36 @@ def trial_group_filter_component(vis_name):
             inputStyle={"margin-right": "7px", "margin-left": "3px"}
         )
     ], component_id
+    
+    
+def R1_choice_filter_component(vis_name):
+    component_id = f'R1-choice-filter-{vis_name}'
+    return [
+        html.Label("R1 choice", style={"marginTop": 15}),
+        dcc.Checklist(
+            id=component_id,
+            options=['stop', 'skip'],
+            value=['stop', 'skip'],
+            inline=True,
+            inputStyle={"margin-right": "7px", "margin-left": "3px"}
+        )
+    ], component_id
+    
+    
+def R2_choice_filter_component(vis_name):
+    component_id = f'R2-choice-filter-{vis_name}'
+    return [
+        html.Label("R2 choice", style={"marginTop": 15}),
+        dcc.Checklist(
+            id=component_id,
+            options=['stop', 'skip'],
+            value=['stop', 'skip'],
+            inline=True,
+            inputStyle={"margin-right": "7px", "margin-left": "3px"}
+        )
+    ], component_id
+    
+    
 
 def smooth_checklist_component(vis_name):
     component_id = f'smooth-data-{vis_name}'
@@ -482,8 +544,12 @@ def register_session_slider_callback(app, vis_name, global_data, analytic,
         data = global_data[analytic]
         if selected_animal is None or data is None:
             return 0, 10, (0,10), 
-        
-        last_session_id = data.index.unique("session_id").max()
+
+        if 'session_id' in data.index.names:
+            last_session_id = data.index.unique("session_id").max()
+        else:
+            last_session_id = data["session_id"].max()
+            
         if default_select_sessions is not None:
             from_sel, to_sel = default_select_sessions
         else:
@@ -672,3 +738,34 @@ def register_trial_slider_callback(app, vis_name, global_data, analytic):
         
         last_trial_id = data.loc[pd.IndexSlice[:,selected_animal,selected_session,:]]['trial_id'].max()
         return 1, last_trial_id, (1, last_trial_id)
+    
+def register_ensemble_dropdown_callback(app, vis_name, global_data, analytic):
+    # html not used, just ensure that callcack is linked to correct component
+    _, ensemble_dropd_comp_id = ensemble_dropdown_component(vis_name, global_data, analytic)
+    @app.callback(
+        Output(ensemble_dropd_comp_id, 'options'),
+        Input(C.get_vis_name_data_loaded_id(vis_name), 'data'),
+    )
+    def update_ensemble_dropdown(data_loaded):
+        print(data_loaded)
+        data = global_data[analytic]
+        if data is None:
+            return []
+        ensembles = data.columns[data.columns.str.startswith('Assembly')]
+        ensemble_ids = [{'label': int(ens[-3:]), 'value': ens} for ens in ensembles]
+        return ensemble_ids
+
+def register_event_dropdown_callback(app, vis_name, global_data, analytic):
+    # html not used, just ensure that callcack is linked to correct component
+    _, event_dropd_comp_id = event_dropdown_component(vis_name, global_data, analytic)
+    @app.callback(
+        Output(event_dropd_comp_id, 'options'),
+        Input(C.get_vis_name_data_loaded_id(vis_name), 'data'),
+    )
+    def update_event_dropdown(data_loaded):
+        data = global_data[analytic]
+        if data is None:
+            return []
+        events = data.t0_event_name.unique()
+        event_ids = [{'label': ev, 'value': ev} for ev in events]
+        return event_ids

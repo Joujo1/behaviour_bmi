@@ -1,6 +1,7 @@
 import os
 import sys
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
+sys.path.insert(1, os.path.join(sys.path[0], '..', '..'))
 sys.path.insert(1, os.path.join(sys.path[0], '..', '..', 'ephysVR'))
 
 import shutil
@@ -17,8 +18,8 @@ from analytics_processing.analytics_constants import device_paths
 
 from VirtualConcatFS import VirtualConcatFS
 
-from mea1k_modules.mea1k_raw_preproc import write_prb_file
-from mea1k_modules.mea1k_raw_preproc import write_prm_file
+from ephysVR.mea1k_modules.mea1k_post_processing import write_prb_file
+from ephysVR.mea1k_modules.mea1k_post_processing import write_prm_file
 
 def create_virtual_concat(kwargs):
     def handle_path_setup(animal_id, traces_order, name):

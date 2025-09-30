@@ -9,7 +9,8 @@ from plotly.colors import convert_colors_to_same_type
 ANIMALS = 6,9, 10,11,12,13,15
 PARADIGMS = 800, 1100, 500, 0
 
-SESSION_WISE_VISS = ('SessionKinematics', "RawSpikes", 'SVMPredictions', 'CueCorrelation',)
+SESSION_WISE_VISS = ('SessionKinematics', "RawSpikes", 'SVMPredictions', 'CueCorrelation', 
+                     'EnsembleEncoding', 'EnsembleChoiceEncoding',)
 ANIMAL_WISE_VISS = ('Kinematics', 'StayPerformance', 'StayRatio', 'SessionsOverview', 
                     'EvolvingStayTime', 'EvolvingStayDecision', 'TrackFiringRate', 
                     'EvolvingPCSubspace')
@@ -25,6 +26,8 @@ DATA_LOADED_TrackFiringRate_ID = 'TrackFiringRate-data-loaded'
 DATA_LOADED_SVMPredictions_ID = 'SVMPredictions-data-loaded'
 DATA_LOADED_CueCorrelation_ID = 'CueCorrelation-data-loaded'
 DATA_LOADED_EvolvingPCSubspace_ID = 'EvolvingPCSubspace-data-loaded'
+DATA_LOADED_EnsembleEncoding_ID = 'EnsembleEncoding-data-loaded'
+DATA_LOADED_EnsembleChoiceEncoding_ID = 'EnsembleChoiceEncoding-data-loaded'
 
 def get_vis_name_data_loaded_id(vis_name):
     match vis_name:
@@ -52,6 +55,10 @@ def get_vis_name_data_loaded_id(vis_name):
             data_loaded_id = DATA_LOADED_CueCorrelation_ID
         case 'EvolvingPCSubspace':
             data_loaded_id = DATA_LOADED_EvolvingPCSubspace_ID
+        case 'EnsembleEncoding':
+            data_loaded_id = DATA_LOADED_EnsembleEncoding_ID
+        case 'EnsembleChoiceEncoding':
+            data_loaded_id = DATA_LOADED_EnsembleChoiceEncoding_ID
         case _:
             raise ValueError(f"Unknown vis_name: {vis_name} for matching "
                             "with its data_loaded_id")
@@ -87,6 +94,10 @@ def get_vis_name_req_data(vis_name):
             req_data = 'PVCueCorr', 'SessionMetadata',
         case 'EvolvingPCSubspace':
             req_data = "SessionPCs40msCAs", "SessionPCs40ms", 'SessionMetadata'
+        case 'EnsembleEncoding':
+            req_data = 'Ensemble40msProjEventAligned', "SessionMetadata" #'BehaviorTrackwise', 
+        case 'EnsembleChoiceEncoding':
+            req_data = 'Ensemble40msProjEventAligned', "SessionMetadata" #'BehaviorTrackwise', 
         case _:
             raise ValueError(f"Unknown vis_name: {vis_name} for matching "
                             "with its data_loaded_id")
@@ -124,7 +135,15 @@ REWARD_LOCATION_COL_MAP = {
 }
 EARLY_REWARD_LOCATION_COLOR = 'rgba(120,120,120, 1)'
 LATE_REWARD_LOCATION_COLOR = 'rgba(190,190,190, 1)'
-    
+
+R1_CHOICE_CMAP = {
+    1: convert_colors_to_same_type('#2ceaf2')[0][0],  # stopped at R1
+    0: convert_colors_to_same_type("#92d6d7")[0][0],  # skipped R1
+}
+R2_CHOICE_CMAP = {
+    1: convert_colors_to_same_type("#2c82f2")[0][0],  # stopped at R2
+    0: convert_colors_to_same_type("#7ca4d9")[0][0],  # skipped R2
+}
 
 TRIAL_COL_MAP = px.colors.sequential.Viridis
 
@@ -132,10 +151,10 @@ MULTI_TRACES_ALPHA = .3
 MULTI_MARKERS_ALPHA = .6
 # MULTI_TRACES_ALPHA = int(0.1*255)  # 0 to 255
 
-KINEMATICS_HEATMAP_DEFAULT_HEIGHT = 450
+KINEMATICS_HEATMAP_DEFAULT_HEIGHT = 380
 KINEMATICS_HEATMAP_DEFAULT_WIDTH = 600
 KINEMATICS_HEATMAP_XLABELSIZE_HEIGHT = 40
-TRACK_VISUALIZATION_HEIGHT = 60
+TRACK_VISUALIZATION_HEIGHT = 30
 
 TRACK_TUNING_PLOT_DEFAULT_HEIGHT = 400
 EVENT_VISUALIZATION_HEIGHT = 50

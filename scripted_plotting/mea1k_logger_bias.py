@@ -2,14 +2,14 @@ import os
 import pickle
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(1, os.path.join(sys.path[0], '..', '..', 'ephysVR'))
+# sys.path.insert(1, os.path.join(sys.path[0], '..', '..', 'ephysVR'))
 
 import numpy as np
 import pandas as pd
 
 from analytics_processing.modality_loading import session_modality_from_nas
 from analytics_processing.sessions_from_nas_parsing import sessionlist_fullfnames_from_args
-from mea1k_modules.mea1k_raw_preproc import read_raw_data
+from ephysVR.mea1k_modules.mea1k_raw_preproc import read_raw_data
 
 from analytics_processing import analytics
 import analytics_processing.analytics_constants as C

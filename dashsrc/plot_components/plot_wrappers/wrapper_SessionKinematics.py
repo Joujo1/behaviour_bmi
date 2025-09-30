@@ -9,6 +9,8 @@ from .. .components.dcc_graphs import get_general_graph_component
 from .data_selection_components import (
     animal_dropdown_component,
     session_dropdown_component,
+    ensemble_dropdown_component,
+    event_dropdown_component,
     metric_radioitems_component,
     groupby_radioitems_component,
     variance_radioitems_component,
@@ -20,10 +22,13 @@ from .data_selection_components import (
     
     register_animal_dropdown_callback,
     register_session_dropdown_callback,
+    register_ensemble_dropdown_callback,
+    register_event_dropdown_callback,
     register_paradigm_dropdown_callback,
 )
 from .data_selection import group_filter_data
 from ..plots import plot_SessionKinematics
+from ..plots import plot_EnsambleEncondings
 
 def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
     analytic = 'BehaviorTrackwise'
@@ -147,4 +152,4 @@ def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
     ], id=f"{vis_name}-container")  # Initial state is hidden
     
     
-    
+        
