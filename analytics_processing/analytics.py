@@ -1,9 +1,11 @@
+from datetime import datetime
 import os
 from time import sleep
 from collections import OrderedDict
 
 import pandas as pd
 import numpy as np
+from pyarrow import parquet as pq
 
 from CustomLogger import CustomLogger as Logger
 
@@ -13,6 +15,7 @@ import analytics_processing.integr_analytics as integr_analytics
 import analytics_processing.sessions_from_nas_parsing as sp
 
 import ephys_preprocessing.postproc_mea1k_ephys as ephys
+
 
 def _get_sess_analytic_fname(session_dir, analytic):
     full_path = os.path.join(session_dir, "session_analytics")
@@ -29,6 +32,41 @@ def _get_animal_analytic_fname(animal_dir, analytic):
         os.makedirs(full_path)
     fullfname = os.path.join(full_path, analytic+".parquet")
     return fullfname
+
+def _get_available_analytics(session_fullfname):
+    analytics_dir = os.path.join(os.path.dirname(session_fullfname), "session_analytics")
+    available_analytics = []
+    
+    if not os.path.exists(analytics_dir):
+        return None
+
+    for analytics_fname in os.listdir(analytics_dir):
+        if not analytics_fname.endswith(".parquet") or analytics_fname.startswith(".") or analytics_fname.startswith("AnalyticsOverview"):
+            continue
+        
+        fp = os.path.join(analytics_dir, analytics_fname)
+        # file modification time
+        mtime = os.path.getmtime(fp)
+        # human readable ISO
+        dt = datetime.fromtimestamp(mtime)
+        mtime_iso = f"{dt.strftime('%b')} {dt.day}. {dt.year}, {dt.strftime('%H:%M')}"
+
+        # read parquet file metadata
+        schema = pq.read_schema(fp)
+        col_names = schema.names
+        # get total rows from file metadata (fast)
+        pf = pq.ParquetFile(fp)
+        n_rows = pf.metadata.num_rows
+        available_analytics.append({
+                "analytic": analytics_fname[:-8],
+                "nrows": int(n_rows),
+                "ncols": len(col_names),
+                "column_names": col_names if not len(col_names) > 200 else col_names[:100] + ['  ...  '] + col_names[-100:],
+                "last_modified": mtime_iso,
+            }
+        )
+    available_analytics = pd.DataFrame.from_records(available_analytics)
+    return available_analytics
 
 def _compute_animal_analytic(analytic, all_sessions_ffnames):
     L = Logger()
@@ -335,6 +373,13 @@ def _compute_sess_analytic(analytic, session_fullfname):
     #     data = ephys.get_FiringRateTrackbinsHz(fr_data, track_behavior_data)
     #     print(data)
     #     data_table = dict.fromkeys(data.columns, C.FIRING_RATE_TRACKBINS_Z_ONE_DTYPE)
+    
+    
+    
+    
+    elif analytic == "AnalyticsOverview":
+        data = _get_available_analytics(session_fullfname)
+        schema = C.SESSION_ANALYTICS_OVERVIEW_TABLE
     
     
     else:

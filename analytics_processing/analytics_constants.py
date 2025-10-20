@@ -649,6 +649,13 @@ SVM_CUE_OUTCOME_CHOICE_PRED_TABLE = OrderedDict([
     ('f1', pd.Float32Dtype()),
 ])  
 
+SESSION_ANALYTICS_OVERVIEW_TABLE = OrderedDict([
+    ("analytic", pd.StringDtype()),
+    ("rows", pd.UInt64Dtype()),
+    ("ncols", pd.UInt64Dtype()),
+    ("columns", pd.StringDtype()), # list stored as string
+])
+
 FIRING_RATE_40MS_HZ_ONE_DTYPE = pd.UInt64Dtype()
 FIRING_RATE_40MS_Z_ONE_DTYPE = pd.Float32Dtype() # variable length, all columns are float32
 FIRING_RATE_TRACKWISE_HZ_ONE_DTYPE = pd.Float32Dtype() # variable length, all columns are float32
@@ -658,3 +665,5 @@ FIRING_RATE_TRACKWISE_HZ_ONE_DTYPE = pd.Float32Dtype() # variable length, all co
 #     'rastermap_n_PCs': 32,
 #     'rastermap_time_lag_window': 20,
 # }
+
+

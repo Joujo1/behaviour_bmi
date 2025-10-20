@@ -1,8 +1,11 @@
+# !/usr/bin/env python3 
+# executable - set up paths for import
 import os
-import pickle
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(1, os.path.join(sys.path[0], '..', '..', 'ephysVR'))
+# to setup import paths add project root dir to sys.path (with baseVR dir in it)
+sys.path.append(os.path.join(os.getcwd(), ".."))
+from baseVR.base_functionality import init_import_paths
+init_import_paths()
 
 import numpy as np
 from dashsrc.plot_components.plots import plot_CueCorrelation

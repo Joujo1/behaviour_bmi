@@ -78,7 +78,7 @@ def get_vis_name_req_data(vis_name):
         case 'StayRatio':
             req_data = 'BehaviorTrialwise', 'SessionMetadata'
         case 'SessionsOverview':
-            req_data = 'SessionMetadata',
+            req_data = 'SessionMetadata', 'AnalyticsOverview'
         case 'EvolvingStayTime':
             req_data = 'BehaviorTrialwise',
         case 'EvolvingStayDecision':

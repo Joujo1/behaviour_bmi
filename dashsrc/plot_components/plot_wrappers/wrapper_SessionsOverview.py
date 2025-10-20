@@ -46,15 +46,18 @@ def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
         )
     def update_plot(data_loaded, from_hour, to_hour, start_date, end_date, 
                     selected_animal, plot_type):
-        if not data_loaded:
+        if not data_loaded or (plot_type != 'Timeseries' and selected_animal is None):
             return {}
         
         animal_slice = slice(None)
-        if plot_type == 'Modalities':
+        if plot_type == 'Modalities' or plot_type == 'Analytics':
             animal_slice = slice(selected_animal, selected_animal)
-        data = global_data[analytic].loc[pd.IndexSlice[:, animal_slice, :, :]]
-        
-        fig = plot_SessionsOverview.render_plot(data, from_hour, 
+        session_metadata = global_data[analytic].loc[pd.IndexSlice[:, animal_slice, :, :]]
+        analytics_overview = global_data["AnalyticsOverview"].loc[pd.IndexSlice[:, animal_slice, :, :]]
+
+
+        fig = plot_SessionsOverview.render_plot(session_metadata, analytics_overview,
+                                                from_hour,
                                                 to_hour, start_date, end_date,
                                                 plot_type)
         return fig

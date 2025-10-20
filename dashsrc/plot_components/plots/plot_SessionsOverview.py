@@ -60,7 +60,7 @@ def setup_yaxis(fig, from_hour, to_hour, data):
     )
     return interval_length
 
-def draw_seesions(fig, data, interval_length):
+def draw_timeseries_plot(fig, data, interval_length):
     animals = data.index.get_level_values("animal_id").unique().tolist()
     # iterate sessions metadata
     for idx, row in data.iterrows():
@@ -101,6 +101,63 @@ def draw_seesions(fig, data, interval_length):
                 hoverinfo='text'
             )
         )
+        
+def draw_analytics_heatmap(data, analytics, fig):
+    all_sessions = data.loc[pd.IndexSlice[:, :, :, 0], :].index # get entry_id = 0  (first analytic per session)
+
+    grid_color = np.ones((len(analytics), len(all_sessions))) * -0.25
+    grid_annot = np.empty((len(analytics), len(all_sessions)), dtype=object)
+    
+
+    # iterate over analytics
+    for i, analytic in enumerate(analytics):
+        print(f"Processing analytic: {analytic}")
+
+        analytic_data = data[data['analytic'] == analytic]
+        column_combo_counts = analytic_data['column_names'].apply(lambda x: tuple(x)).value_counts().to_dict()
+
+        for j, s_idx in enumerate(all_sessions):
+            paradigm_id, animal_id, session_id, _ = s_idx
+            try:
+                s_data = analytic_data.loc[pd.IndexSlice[paradigm_id, :, session_id, :], :]
+            except KeyError:
+                # no analytic rows for this paradigm/session kombo
+                continue
+
+            columns = list(s_data['column_names'].values[0])
+            # insert linebreak every 8 elements
+            #     columns = columns[:k] + ["<br>   "] + columns[k:]
+            [columns.insert(k+i, "<br>   ") for i,k in enumerate(range(8, len(columns), 8))]
+            columns = ', '.join(columns)                
+            n_shared_cols = column_combo_counts[tuple(s_data['column_names'].values[0])] -1
+            annot = (f"{analytic}, session_id {session_id}:<br>"
+                    f"Last modified: {s_data['last_modified'].values[0]}<br>"
+                    f"n rows: {s_data['nrows'].values[0]:,}<br>"
+                    f"n cols: {s_data['ncols'].values[0]:,}<br>"
+                    f"Columns shared with n sessions: {n_shared_cols}<br>"
+                    f"Columns:<br>    {columns}<br>",
+                    )
+            
+            grid_annot[i, j] = annot
+            grid_color[i, j] = 2 if n_shared_cols/len(analytic_data) > 0.5 else 1
+
+    fig.add_heatmap(
+        x=np.arange(len(all_sessions)),
+        y=np.arange(len(analytics)),
+        z=grid_color,
+        colorscale=C.DATA_QUALITY_COLORS,
+        showscale=False,
+        text=grid_annot,
+        zmin=-1,
+        zmax=2,
+        hovertemplate='%{text}<extra></extra>'
+    )
+    return grid_color, grid_annot
+        
+    
+    
+
+
 
 def draw_modality_heatmap(data, modalities, fig):
     session_idx = np.arange(len(data))
@@ -109,7 +166,7 @@ def draw_modality_heatmap(data, modalities, fig):
 
     # iterate over modalities
     for i, modality in enumerate(modalities):
-        # get the columns that contain the modality
+        # get the columns that contain the modality (column names contain the modality name)
         cols = [modality in col for col in data.columns]
         
         # iterate over sessions, checking their modality data
@@ -268,24 +325,25 @@ def setup_modality_plot_axes(fig, data, modalities):
     )
     
     
-def render_plot(metadata, from_hour, to_hour, from_date, to_date, plot_type):
+def render_plot(metadata, analytics_overview, from_hour, to_hour, from_date, to_date, plot_type):
     # post-process metadata to make it usable for time plotting
-    data = format_data(metadata)    
+    metadata = format_data(metadata)    
     
     # Setup the plot
     fig = go.Figure()
     
     if plot_type == 'Timeseries':
         # setup y axis
-        interval_length = setup_yaxis(fig, from_hour, to_hour, data)
+        interval_length = setup_yaxis(fig, from_hour, to_hour, metadata)
         
         # draw session bars
-        draw_seesions(fig, data, interval_length)
+        draw_timeseries_plot(fig, metadata, interval_length)
         
         # setup x axis
         fig.update_xaxes(
             range=[from_date, to_date],
         )
+        height = 400
 
         
     elif plot_type == 'Modalities':
@@ -293,14 +351,23 @@ def render_plot(metadata, from_hour, to_hour, from_date, to_date, plot_type):
                     'bodycam', 'unity_frame', 'unity_trial', 'paradigm_variable',
                     ]
         
-        draw_modality_heatmap(data, modalities, fig)
+        draw_modality_heatmap(metadata, modalities, fig)
+        setup_modality_plot_axes(fig, metadata, modalities)
+        height = 50 + 40 * len(modalities)
+
+    elif plot_type == 'Analytics':
+        analytics = analytics_overview['analytic'].unique().tolist()
+        print(analytics_overview)
+        print(metadata)
+        draw_analytics_heatmap(analytics_overview, analytics, fig)
         
-        setup_modality_plot_axes(fig, data, modalities)
+        setup_modality_plot_axes(fig, metadata, analytics)
+        height = 50 + 40 * len(analytics)
         
     fig.update_layout(
         plot_bgcolor='white',
         margin=dict(t=30, b=30, l=30, r=30),
-        height=400,
+        height=height,
         xaxis=dict(scaleanchor="y", constrain="domain"),
     )
     

@@ -74,7 +74,7 @@ def render(app: Dash, loaded_analytics: dict, loaded_raw_traces: dict) -> html.D
         if n_clicks and selected_analytics:
             # Show loading message
             loading_message = "Loading data, please wait..."
-            
+
             _load_all_data(selected_analytics, loaded_analytics, loaded_raw_traces, 
                            selected_paradigms, selected_animals)
             
@@ -157,9 +157,9 @@ def _load_all_data(selected_analytics, loaded_analytics, loaded_raw_traces, sele
     
     selected_analytics_filt = [a for a in selected_analytics if a != 'raw_traces']
     for analytic in selected_analytics_filt:
-        if len(selected_paradigms) == 0:
+        if selected_paradigms is None or len(selected_paradigms) == 0:
             selected_paradigms = None
-        if len(selected_animals) == 0:
+        if selected_animals is None or len(selected_animals) == 0:
             selected_animals = None
         
         dat = analytics.get_analytics(analytic, mode='set', session_ids=None,

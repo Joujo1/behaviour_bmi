@@ -1,9 +1,11 @@
+# !/usr/bin/env python3 
+# executable - set up paths for import
 import os
 import sys
-
-# for baseVR, ephysVR imports
-sys.path.insert(1, os.path.join(sys.path[0], '..', ))
-sys.path.insert(1, os.path.join(sys.path[0], '..', 'ephysVR'))
+# to setup import paths add project root dir to sys.path (with baseVR dir in it)
+sys.path.append(os.path.join(os.getcwd(), ".."))
+from baseVR.base_functionality import init_import_paths
+init_import_paths()
 
 import dash
 import dash_bootstrap_components as dbc
@@ -30,6 +32,7 @@ def main():
                         "BehaviorTrackwise": None,
                         # 'UnityTrialwiseMetrics': None, 
                         "SessionMetadata": None, 
+                        "AnalyticsOverview": None, 
                         # "Portenta":None, 
                         "Spikes": None, "FiringRateTrackwiseHz": None,
                         "SpikeClusterMetadata": None, "raw_traces": None,
