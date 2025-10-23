@@ -129,7 +129,7 @@ def _draw_percentile_area_plot(fig, upper_perc, lower_perc, metric_col, transp_c
     ), row=2, col=1)
     
 def render_plot(track_data, fr, metadata, spike_metadata, metric, n_sessions,
-                metric_max, smooth_data, width=-1, height=-1):
+                metric_max, smooth_data, normalize_data, width=-1, height=-1):
     fr = fr.set_index(['trial_id', 'from_position_bin', 'cue', 'choice_R1', 'choice_R2'], append=True, )
     fr.drop(columns=['trial_outcome','bin_length'], inplace=True)
     fr.columns = fr.columns.astype(int)
@@ -187,16 +187,23 @@ def render_plot(track_data, fr, metadata, spike_metadata, metric, n_sessions,
         # if cluster_id == 24:
         #     print(neuron_i_fr)
         # neuron_i_fr = neuron_i_fr.drop(columns=[10, 25])
+
+        # normalize data if ticked row wise
+        if normalize_data:
+            z_values = neuron_i_fr.T.values / neuron_i_fr.T.values.max(axis=1, keepdims=True)
+            # z_values = np.log10(neuron_i_fr.T.values) # TODO Do we want log scaling as well?
+        else: 
+            z_values = neuron_i_fr.T.values
                     
         # do a heatmap instead
         fig.add_trace(
             go.Heatmap(
-                z=neuron_i_fr.T.values,
+                z=z_values,
                 x=neuron_i_fr.T.columns,
                 y=neuron_i_fr.T.index,
-                colorscale="amp",  # Color scale
+                colorscale="Viridis",  # Color scale
                 zmin=0,
-                zmax=metric_max,
+                zmax=z_values.max(),
                 showscale=False,
             ), row=tuning_row, col=1,
         )

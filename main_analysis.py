@@ -3,9 +3,9 @@
 import os
 import sys
 # to setup import paths add project root dir to sys.path (with baseVR dir in it)
-sys.path.append(os.path.join(os.getcwd(), ".."))
-from baseVR.base_functionality import init_import_paths
-init_import_paths()
+# sys.path.append(os.path.join(os.getcwd(), ".."))
+# from baseVR.base_functionality import init_import_paths
+# init_import_paths()
 
 import dash
 import dash_bootstrap_components as dbc
