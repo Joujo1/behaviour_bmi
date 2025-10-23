@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 from dashsrc.plot_components.plot_utils import make_discr_cluster_id_cmap
 
 # from ../../ephysVR.git
-# from mea1k_modules.mea1k_post_processing import mea1k_raw2decompressed_dat_file
+# from mea1k_modules.mea1k_post_processing import mea1k_raw2decompressed_dat_file # TODO fix import
 
 def postprocess_ephys(**kwargs):
     L = Logger()
