@@ -128,9 +128,9 @@ def build_sankey_figure(nodes, sources, targets, values, link_colors, domain_y=N
             source=sources,
             target=targets,
             value=values,
-            # color=['rgba(0,0,0,0)'] * len(link_colors),  # transparent inside
-            # line=dict(color=link_colors, width=3),       # colored edges
-            # hoverinfo='none',
+            line=dict(color="rgb(0,0,0)", width=0.5),
+            color=link_colors,       # colored edges
+            hoverinfo='none',
         )
     ))
     # highlight_indices = [i for i, c in enumerate(link_colors) if not c.startswith('rgba(128,128,128,')] 
@@ -243,8 +243,8 @@ def add_vertical_bars(fig, nodes, in_or_out_flows, data, highlight_data, N, HIGH
                     xref="paper",
                     yref="paper",
                     line=dict(color='black', width=0),
-                    # fillcolor=color,
-                    fillcolor=HIGHLIGHT_COLOR,
+                    fillcolor=color,
+                    # fillcolor=HIGHLIGHT_COLOR,
                     name=activation,
                 )
                 
@@ -333,7 +333,7 @@ def extract_ens_activations(encoding_data, ens_selection, window):
     return cue1_highlight_data, cue2_highlight_data
 
 def render_plot(encoding_data, ens_selection, which_cue='Cue1',
-                post_cue_thr=2, bef_R1_thr=1, bef_R2_thr=.5,
+                post_cue_thr=0, bef_R1_thr=0, bef_R2_thr=0,
                 window=(20,30)):
     # Metadata for each unique node
     NODE_META = {

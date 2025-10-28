@@ -31,7 +31,7 @@ def render_plot_heatmap(spike_metadata):
     # Define firing rate bins
     bins = (0, 0.00001, 0.1, 1, 2, 4, 8, 16, 32, 64)
     
-    # Bin the firing rates for clustering
+# Bin the firing rates for clustering
     avg_frate_matrix_bin_id = np.zeros_like(avg_frate_matrix, dtype=int)
     for i in range(len(bins) - 1):
         from_val, to_val = bins[i], bins[i+1]
@@ -52,8 +52,7 @@ def render_plot_heatmap(spike_metadata):
     
     
     # clip to < 1Hz, > 1Hz    
-    avg_frate_matrix.loc[:] = (avg_frate_matrix > 1).astype(float).values
-
+    # avg_frate_matrix.loc[:] = (avg_frate_matrix > 1).astype(float).values
     
     # Create color scale for the heatmap
     maxval = 32

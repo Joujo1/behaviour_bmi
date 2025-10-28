@@ -29,38 +29,41 @@ import plotly.io as pio
 pio.renderers.default = "browser"
 
 
-# animal_ids = [6]
-# # animal_ids = [10]
-# session_ids = None
-# paradigm_ids = [1100]
-# excl_session_names = ['2024-11-29_17-21_rYL006_P1100_LinearTrackStop_28min', '2025-01-21_18-49_rYL006_P1100_LinearTrackStop_30min', '2024-12-11_17-42_rYL006_P1100_LinearTrackStop_30min']
-# cols = ["session_spike_count", "session_nsamples", "cluster_id", "unit_snr", "unit_Vpp"]
-# width = 700
-# height = 700
-# group_by = None
+animal_ids = [6]
+# animal_ids = [10]
+session_ids = None
+paradigm_ids = [1100]
+excl_session_names = ['2024-11-29_17-21_rYL006_P1100_LinearTrackStop_28min', '2025-01-21_18-49_rYL006_P1100_LinearTrackStop_30min', '2024-12-11_17-42_rYL006_P1100_LinearTrackStop_30min']
+cols = ["session_spike_count", "session_nsamples", "cluster_id", "unit_snr", "unit_Vpp"]
+width = 700
+height = 700
+group_by = None
 
-# data['Spikes'] = analytics.get_analytics('Spikes', mode='set',
-#                                                       #  columns = ['amplitude_uV', 'cluster_id'],
-#                                                        paradigm_ids=paradigm_ids,
-#                                                        animal_ids=animal_ids,
-#                                                        excl_session_names=excl_session_names,
-#                                                        session_ids=session_ids)
+data['Spikes'] = analytics.get_analytics('Spikes', mode='set',
+                                                      #  columns = ['amplitude_uV', 'cluster_id'],
+                                                       paradigm_ids=paradigm_ids,
+                                                       animal_ids=animal_ids,
+                                                       excl_session_names=excl_session_names,
+                                                       session_ids=session_ids)
 
-# data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
-#                                                       #  columns = cols,
-#                                                        paradigm_ids=paradigm_ids,
-#                                                        animal_ids=animal_ids,
-#                                                        excl_session_names=excl_session_names,
-#                                                        session_ids=session_ids)
+data['SpikeClusterMetadata'] = analytics.get_analytics('SpikeClusterMetadata', mode='set',
+                                                      #  columns = cols,
+                                                       paradigm_ids=paradigm_ids,
+                                                       animal_ids=animal_ids,
+                                                       excl_session_names=excl_session_names,
+                                                       session_ids=session_ids)
 
-# data['SpikeClusterMetadata'] = data['SpikeClusterMetadata'][data['SpikeClusterMetadata'].cluster_id>20]
-# fig = plot_unit_fr_stability.render_plot_heatmap(data['SpikeClusterMetadata'])
-# # fullfname = f'{output_dir}/unit_fr_stability.svg'
-# fullfname = f'{output_dir}/unit_fr_stability_greater1Hz.svg'
-# fig.write_image(fullfname, width=width, height=height, scale=1)
-# execute = f"code {fullfname}"
-# os.system(execute)
-# fig.show()
+# HPC
+data['SpikeClusterMetadata'] = data['SpikeClusterMetadata'][data['SpikeClusterMetadata'].cluster_id<=20]
+# mPFC
+data['SpikeClusterMetadata'] = data['SpikeClusterMetadata'][data['SpikeClusterMetadata'].cluster_id<20]
+fig = plot_unit_fr_stability.render_plot_heatmap(data['SpikeClusterMetadata'])
+# fullfname = f'{output_dir}/unit_fr_stability.svg'
+fullfname = f'{output_dir}/unit_fr_stability_greater1Hz.svg'
+fig.write_image(fullfname, width=width, height=height, scale=1)
+execute = f"code {fullfname}"
+os.system(execute)
+fig.show()
 
 
 
@@ -142,33 +145,36 @@ data[analytic].drop(columns=drp_ens_cols, inplace=True)
 # # simplification, 0 or one instead of 1, 1+ 0 rewards
 data[analytic].loc[:, 'trial_outcome'] = data[analytic].loc[:, 'trial_outcome'].astype(bool).astype(int)
 print(data[analytic].index.unique('session_id'))
-# outcome_filter = ['1 R', '1+ R', 'no R']
-# cue_filter = ['Cue1 trials', 'Cue2 trials']
-# part_of_session_filter = ['1/3', '2/3', '3/3']
-# r1_choice_filter = ['stop', 'skip']
-# r2_choice_filter = ['stop', 'skip']
-# group_by = 'Cue' #'R1 choice' #, 'R1 choice', 'R2 choice'
-# data[analytic], group_by_values = group_filter_data(data[analytic], outcome_filter=outcome_filter,
-#                                                     cue_filter=cue_filter,
-#                                                     trial_filter=part_of_session_filter,
-#                                                     r1_choice_filter=r1_choice_filter,
-#                                                     r2_choice_filter=r2_choice_filter,
-#                                                     group_by=group_by)
-# print(group_by_values)
-# # print(data[analytic])
 
-# fig = plot_EnsambleEncondings.render_plot(data[analytic], group_by, group_by_values,
-#                                           ens_selection=ens_selection,
-#                                     width=width, height=height)
-# fullfname = f'{output_dir}/cue1vs2_delayperiod_ens12.svg'
-# fig.write_image(fullfname, width=fig.layout.width, height=fig.layout.height, scale=1)
-# execute = f"code {fullfname}"
-# os.system(execute)
-# fig.show()
+outcome_filter = ['1 R', '1+ R', 'no R']
+cue_filter = ['Cue1 trials', 'Cue2 trials']
+part_of_session_filter = ['1/3', '2/3', '3/3']
+r1_choice_filter = ['stop', 'skip']
+r2_choice_filter = ['stop', 'skip']
+group_by = 'Cue' #'R1 choice' #, 'R1 choice', 'R2 choice'
+data[analytic], group_by_values = group_filter_data(data[analytic], outcome_filter=outcome_filter,
+                                                    cue_filter=cue_filter,
+                                                    trial_filter=part_of_session_filter,
+                                                    r1_choice_filter=r1_choice_filter,
+                                                    r2_choice_filter=r2_choice_filter,
+                                                    group_by=group_by)
+print(group_by_values)
+# print(data[analytic])
+
+fig = plot_EnsambleEncondings.render_plot(data[analytic], group_by, group_by_values,
+                                          ens_selection=ens_selection,)
+                                    # width=width, height=height)
+
+#  takes super long to render
+fullfname = f'{output_dir}/cue1vs2_delayperiod_ens12.svg'
+fig.write_image(fullfname, width=fig.layout.width, height=fig.layout.height, scale=1)
+execute = f"code {fullfname}"
+os.system(execute)
+fig.show()
 
 
 
-
+# not used thresholds for drawing activation strengths for each session, and each time point
 plot_set = {
             9:(1.2,1.4,1.4),
             12:(1.2,1.4,1.4),
@@ -181,15 +187,17 @@ for cue in ['Cue2', 'Cue1']:
     for s_id, (post_cue_thr, bef_R1_thr, bef_R2_thr) in plot_set.items():
             dat = data[analytic].xs(s_id, level='session_id', drop_level=False)
             fig = plot_EnsembleChoiceEncoding.render_plot(dat, ens_selection, which_cue=cue,
-                                                  post_cue_thr=post_cue_thr, bef_R1_thr=bef_R1_thr, bef_R2_thr=bef_R2_thr,
+                                                #   post_cue_thr=post_cue_thr, bef_R1_thr=bef_R1_thr, bef_R2_thr=bef_R2_thr,
                                                   window=(15,35))
             fullfname = f'{output_dir}/sankeys/curated_session_choices_{s_id}_{cue}.svg'
             fig.write_image(fullfname, width=fig.layout.width, height=fig.layout.height, scale=1)
             fig.write_image(fullfname.replace('svg', 'png'), width=fig.layout.width, height=fig.layout.height, scale=10)
             # os.system(f"code {fullfname.replace('svg', 'png')}")
             fig.show()
-            exit()
+            # exit()
 
+
+# below glues the plots above together in one panel
 
 # import os
 # import glob
