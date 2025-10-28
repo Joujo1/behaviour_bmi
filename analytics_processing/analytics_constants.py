@@ -34,8 +34,11 @@ def device_paths():
         elif "yaohaotian" in folders:
             local_data_dir = "/Users/yaohaotian/Downloads/Study/BME/Research/MasterThesis/code/data/analysisVR_cache"
             project_dir = "/Users/yaohaotian/Downloads/Study/BME/Research/MasterThesis/code/"
+        elif "Sam" in folders:
+            local_data_dir = "/Users/sam/eth_master/local_data/analysisVR_cache"
+            project_dir = "/Users/sam/eth_master/VirtualReality/"   
         else:
-            raise ValueError("Unknown MacOS user")
+            raise ValueError("Unknown MacOS user. Edit analytics_constants.py in analysisVR.")
     
     elif which_os == "Windows" and user == "Yuanzhao":
         nas_dir = "Z:/BMI/VirtualReality/SpatialSequenceLearning/"

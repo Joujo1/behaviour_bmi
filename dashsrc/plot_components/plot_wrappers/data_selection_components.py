@@ -230,6 +230,19 @@ def smooth_checklist_component(vis_name):
         )
     ], component_id
 
+def normalize_checklist_component(vis_name):
+    component_id = f'normalize-data-{vis_name}'
+    return [
+        html.Label("Display options", style={"marginTop": 0}),
+        dcc.Checklist(
+            ['Normalize'],
+            inputStyle={"margin-right": "5px"},
+            style={"marginLeft": 5, "marginTop": 5},
+            value=[],
+            id=component_id
+        )
+    ], component_id
+
 def use_subset_component(vis_name):
     component_id = f'use-subset-{vis_name}'
     return [

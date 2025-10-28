@@ -36,7 +36,12 @@ import matplotlib.pyplot as plt
 from dashsrc.plot_components.plot_utils import make_discr_cluster_id_cmap
 
 # from ../../ephysVR.git
-from mea1k_modules.mea1k_post_processing import mea1k_raw2decompressed_dat_file
+
+try:
+    from mea1k_modules.mea1k_post_processing import mea1k_raw2decompressed_dat_file
+except ImportError:
+    Logger().logger.error("Could not import mea1k_modules.mea1k_post_processing."
+                          " Make sure ephysVR repository is available.")
 
 def postprocess_ephys(**kwargs):
     L = Logger()
