@@ -53,7 +53,7 @@ def _get_available_analytics(session_fullfname):
 
         # read parquet file metadata
         schema = pq.read_schema(fp)
-        col_names = schema.names
+        col_names = sorted(schema.names)
         # get total rows from file metadata (fast)
         pf = pq.ParquetFile(fp)
         n_rows = pf.metadata.num_rows
@@ -204,7 +204,7 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         
         data = m2a.get_BehaviorPose(session_fullfname, trialwise)
-        schema = C.SCHEMA_BehaviorPose
+        # schema = C.SCHEMA_BehaviorPose
     
     elif analytic == "BehaviorFramewise":
         # 1. track kinematics
@@ -229,13 +229,11 @@ def _compute_sess_analytic(analytic, session_fullfname):
             L.logger.warning("Missing lower level analytic")
             return None
         
-        # TODO: poses
-        # # 4. facecam poses
-        # pose_data = get_analytics(analytic="BehaviorPoses",
-        #                           session_names=[session_name],)
+        pose_data = get_analytics(analytic="BehaviorPose",
+                                  session_names=[session_name],)
     
         data = integr_analytics.get_BehaviorFramewise(track_kinematics, trialwise, 
-                                                      events, ) # pose_data)
+                                                      events, pose_data)
         schema = C.SCHEMA_BehaviorFramewise
     
     elif analytic == "BehaviorTrackwise":
@@ -374,9 +372,44 @@ def _compute_sess_analytic(analytic, session_fullfname):
     #     print(data)
     #     data_table = dict.fromkeys(data.columns, C.FIRING_RATE_TRACKBINS_Z_ONE_DTYPE)
     
-    
-    
-    
+    elif analytic == "Behavior40msAligned":
+        fr_raw = get_analytics('FiringRate40msHz', session_names=[session_name])
+        if fr_raw is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        
+        cols = ["frame_ephys_timestamp",
+            "frame_pc_timestamp",
+            # "trial_start_pc_timestamp",
+            # action based
+            "frame_velocity",
+            "frame_acceleration",
+            "frame_raw",
+            "frame_yaw",
+            "frame_pitch",
+            "lick_count",
+            # action from camera pose
+            "facecam_pose_nose_neck_body1_angle",
+            "facecam_pose_nose_neck_body1_angle_likelihood",
+            "facecam_pose_nose_neck_body1_angle_velocity",
+            
+            # state based
+            "frame_position",
+            "track_zone",
+            # "reward-removed_count",
+            "reward-sound_count",
+            "reward-valve-open_count",
+        ]
+        behavior = get_analytics('BehaviorFramewise', session_names=[session_name], 
+                                 columns=cols)
+        if behavior is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        
+        data = integr_analytics.get_Behavior40msAligned(fr_raw, behavior)
+        # schema = C.SCHEMA_BEHAVIOR_FR_40MS
+        
+        
     elif analytic == "AnalyticsOverview":
         data = _get_available_analytics(session_fullfname)
         schema = C.SESSION_ANALYTICS_OVERVIEW_TABLE
