@@ -247,6 +247,14 @@ def _compute_sess_analytic(analytic, session_fullfname):
         schema = None
     
     
+    elif analytic == "TrialWiseT0Events40ms":
+        behavior = get_analytics(analytic="Behavior40msAligned",
+                                 session_names=[session_name],)
+        if behavior is None:
+            L.logger.warning("Missing lower level analytic")
+            return None
+        data = integr_analytics.get_TrialWiseT0Events40ms(behavior)
+        # schema = C.SCHEMA_T0EVENTS
     
     
     
@@ -340,11 +348,18 @@ def _compute_sess_analytic(analytic, session_fullfname):
         fr_z = get_analytics('FiringRate40msZ', session_names=[session_name])
         if fr_z is None:
             return None
-        beh = get_analytics('BehaviorFramewise', session_names=[session_name])
+        cols = ['trial_id', 'cue', 'trial_outcome', 'choice_R1', 'choice_R2',
+                 'to_ephys_timestamp', 'frame_position',
+                 'frame_raw', 'frame_yaw', 'frame_pitch']
+        beh = get_analytics('Behavior40msAligned', session_names=[session_name],
+                            columns=cols)
         if beh is None:
             return None
-        data = ephys.get_SVMCueOutcomeChoicePred(fr_z, beh)
-        data_table = C.SVM_CUE_OUTCOME_CHOICE_PRED_TABLE
+        
+        t0_events = get_analytics('TrialWiseT0Events40ms', session_names=[session_name],)
+
+        data = ephys.get_SVMCueOutcomeChoicePred(fr_z, beh, t0_events)
+        # data_table = C.SVM_CUE_OUTCOME_CHOICE_PRED_TABLE
 
         if data is None:
             L.logger.warning("Failed to compute SVM Cue Outcome Choice Prediction")
@@ -380,7 +395,13 @@ def _compute_sess_analytic(analytic, session_fullfname):
         
         cols = ["frame_ephys_timestamp",
             "frame_pc_timestamp",
-            # "trial_start_pc_timestamp",
+            "trial_start_pc_timestamp",
+            # generally useful
+            "trial_id",
+            "cue",
+            "trial_outcome",
+            "choice_R1",
+            "choice_R2",
             # action based
             "frame_velocity",
             "frame_acceleration",
@@ -545,6 +566,15 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
             midx = [(*identif, i) for i in range(data.shape[0])]
             names = ["paradigm_id", "animal_id", "session_id", "entry_id"]
             data.index = pd.MultiIndex.from_tuples(midx, names=names)
+            
+            # recover datatypes not preserved by parquet, like interval
+            # if analytic == 'TrialWiseT0Events40ms':
+            #     print(data.loc[:, 'pre_cue_interval'])
+            #     print(data.loc[:, 'nextto_cue_interval'])
+            #     exit()
+            # for col in data.select_dtypes(include=['interval']).columns:
+            #     data[col] = data[col].apply(lambda x: pd.Interval(x.left, x.right, closed=x.closed))
+            
             aggr.append(data)
             
         elif mode == "available":
