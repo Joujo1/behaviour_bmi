@@ -1,7 +1,6 @@
 from datetime import datetime
 import os
 from time import sleep
-from collections import OrderedDict
 
 import pandas as pd
 import numpy as np
@@ -9,12 +8,16 @@ from pyarrow import parquet as pq
 
 from CustomLogger import CustomLogger as Logger
 
-import analytics_processing.analytics_constants as C
-import analytics_processing.agg_modalities2analytic as m2a
-import analytics_processing.integr_analytics as integr_analytics
 import analytics_processing.sessions_from_nas_parsing as sp
+import analytics_processing.analytics_constants as C
 
-import ephys_preprocessing.postproc_mea1k_ephys as ephys
+# analytics computations related, allowed to fail for extiernal imports that only read analytics
+try:
+    import analytics_processing.agg_modalities2analytic as m2a
+    import analytics_processing.integr_analytics as integr_analytics
+    import ephys_preprocessing.postproc_mea1k_ephys as ephys
+except ImportError as e:
+    print("Warning: Failed to import packages required for analytics computation modules:", e)
 
 
 def _get_sess_analytic_fname(session_dir, analytic):
@@ -517,6 +520,9 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
         if not os.path.exists(main_analytic_fname):
             L.logger.info(f"Analytic `{analytic}` not does not exist for")
         data = pd.read_parquet(main_analytic_fname, columns=columns)
+        # check when file was last modified
+        last_mod_time = datetime.fromtimestamp(os.path.getmtime(main_analytic_fname))
+        L.logger.info(f"Loaded animal-level analytic `{analytic}` last modified on {last_mod_time.isoformat()}")
         return data
         
     
@@ -579,7 +585,8 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
             
         elif mode == "available":
             if os.path.exists(analytic_fname):
-                aggr.append(identif)
+                last_mod_time = datetime.fromtimestamp(os.path.getmtime(analytic_fname))
+                aggr.append(list(identif)+[last_mod_time.strftime('%Y-%m-%d %H:%M')])
         
         elif mode == 'clear':
             if os.path.exists(analytic_fname):

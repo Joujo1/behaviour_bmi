@@ -4,7 +4,7 @@ import numpy as np
 from scipy.stats import zscore
 from scipy.cluster.hierarchy import linkage, leaves_list
 
-def render_plot_heatmap(spike_metadata):
+def render_plot_heatmap(spike_metadata, cluster=False):
     """
     Render a heatmap of average firing rates for each cluster across sessions.
     
@@ -23,7 +23,7 @@ def render_plot_heatmap(spike_metadata):
     avg_frate = (sess_spk_cnt / sess_seconds).to_frame(name='avg_frate').droplevel((0, 1, 3))
     avg_frate['cluster_id'] = spike_metadata['cluster_id'].values
     avg_frate = avg_frate.set_index('cluster_id', append=True)
-    
+    print(avg_frate)
     # Convert to matrix format
     avg_frate_matrix = avg_frate.unstack(level=0)
     avg_frate_matrix.columns = avg_frate_matrix.columns.droplevel(0)
@@ -38,18 +38,19 @@ def render_plot_heatmap(spike_metadata):
         mask = (avg_frate_matrix > from_val) & (avg_frate_matrix <= to_val)
         avg_frate_matrix_bin_id[mask] = i
     
-    # Hierarchical clustering
-    linkage_matrix = linkage(
-        avg_frate_matrix_bin_id, 
-        metric='cityblock', 
-        method='complete', 
-        optimal_ordering=True
-    )
-    ordered_indices = leaves_list(linkage_matrix)
-    
-    # Reorder rows based on clustering results
-    avg_frate_matrix = avg_frate_matrix.iloc[ordered_indices]
-    
+    if cluster:
+        # Hierarchical clustering
+        linkage_matrix = linkage(
+            avg_frate_matrix_bin_id, 
+            metric='cityblock', 
+            method='complete', 
+            optimal_ordering=True
+        )
+        ordered_indices = leaves_list(linkage_matrix)
+        
+        # Reorder rows based on clustering results
+        avg_frate_matrix = avg_frate_matrix.iloc[ordered_indices]
+        
     
     # clip to < 1Hz, > 1Hz    
     # avg_frate_matrix.loc[:] = (avg_frate_matrix > 1).astype(float).values
@@ -115,6 +116,105 @@ def render_plot_heatmap(spike_metadata):
             tickfont=dict(size=10, color='black'),  # Changed from font_dict to tickfont
         )
     )
+    return fig
+
+
+def render_plot_lineplot(data):
+    """
+    Render a line plot of average firing rates for each unit across sessions,
+    including the mean firing rate across all units.
+    
+    Args:
+        data (DataFrame): Either:
+            - spike_metadata with columns ['session_spike_count', 'session_nsamples', 'cluster_id']
+            - firing rate data with columns like 'Unit0001', 'Unit0002', etc.
+    
+    Returns:
+        plotly.graph_objects.Figure: Line plot of firing rates over sessions
+    """
+    # Detect input type and process accordingly
+    if 'session_spike_count' in data.columns:
+        # Original spike_metadata format
+        sess_spk_cnt = data['session_spike_count']
+        sess_seconds = data['session_nsamples'] / 20_000
+        
+        # Create and format DataFrame
+        avg_frate = (sess_spk_cnt / sess_seconds).to_frame(name='avg_frate').droplevel((0, 1, 3))
+        avg_frate['cluster_id'] = data['cluster_id'].values
+        avg_frate = avg_frate.set_index('cluster_id', append=True)
+        
+        # Convert to matrix format for easier processing
+        avg_frate_matrix = avg_frate.unstack(level=1)  # Unstack cluster_id instead
+        avg_frate_matrix.columns = avg_frate_matrix.columns.droplevel(0)
+    else:
+        # Firing rate data format (Unit0001, Unit0002, etc.)
+        # Select only Unit columns
+        unit_cols = [col for col in data.columns if col.startswith('Unit')]
+        fr_data = data[unit_cols].copy()
+        
+        # Group by session_id and compute mean firing rate per session
+        session_idx = fr_data.index.get_level_values('session_id')
+        avg_frate_matrix = fr_data.groupby(session_idx).mean()
+        
+        # Convert column names from Unit0001 to integers
+        avg_frate_matrix.columns = [int(col.replace('Unit', '')) for col in avg_frate_matrix.columns]
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Plot each unit as a line
+    for cluster_id in avg_frate_matrix.columns:
+        fig.add_trace(go.Scatter(
+            x=avg_frate_matrix.index.values,
+            y=avg_frate_matrix[cluster_id].values,
+            mode='lines+markers',
+            name=f'Unit {cluster_id}',
+            line=dict(width=1),
+            marker=dict(size=4),
+            opacity=0.5,
+            showlegend=True
+        ))
+    
+    # Calculate and plot mean across all units
+    mean_frate = avg_frate_matrix.mean(axis=1)
+    fig.add_trace(go.Scatter(
+        x=avg_frate_matrix.index.values,
+        y=mean_frate.values,
+        mode='lines+markers',
+        name='Mean',
+        line=dict(width=3, color='black', dash='dash'),
+        marker=dict(size=8, color='black'),
+        opacity=1.0,
+        showlegend=True
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        width=1000,
+        height=600,
+        xaxis_title="Session ID",
+        yaxis_title="Average Firing Rate (Hz)",
+        title="Firing Rate Stability Across Sessions",
+        template="plotly_white",
+        xaxis=dict(
+            tickmode='array',
+            tickvals=avg_frate_matrix.index.tolist(),
+            ticktext=avg_frate_matrix.index.tolist(),
+            tickfont=dict(size=10, color='black'),
+        ),
+        yaxis=dict(
+            tickfont=dict(size=10, color='black'),
+        ),
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,
+            font=dict(size=8)
+        )
+    )
+    
     return fig
 
 
