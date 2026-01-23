@@ -79,7 +79,14 @@ def get_Behavior40msAligned(fr, behavior):
             "frame_yaw": 'mean',
             "frame_pitch": 'mean',
             "lick_count": 'sum',
-            
+
+            "trial_id": 'first',
+            "cue": 'first',
+            "trial_outcome": 'first',
+            "choice_R1": 'first',
+            "choice_R2": 'first',
+            "trial_start_pc_timestamp": 'first',
+
             "facecam_pose_nose_neck_body1_angle": 'mean',
             "facecam_pose_nose_neck_body1_angle_likelihood": 'mean',
             "facecam_pose_nose_neck_body1_angle_velocity": 'mean',
@@ -95,7 +102,9 @@ def get_Behavior40msAligned(fr, behavior):
             "zone_reward2": 'mean',
             
             # state based
+            "track_zone": 'first',
             "frame_position": 'mean',
+            
             # "reward-removed_count": 'sum',
             "reward-sound_count": 'sum',
             "reward-valve-open_count": 'sum',
@@ -126,39 +135,37 @@ def get_Behavior40msAligned(fr, behavior):
         """Clean and preprocess behavior variables."""
         df = behavior_aligned.copy()
         
+        # seeing which cue
+        frame_visible = (behavior_aligned['frame_position'] > -120) & (behavior_aligned['frame_position'] < 25)
+        # 0: no cue visible, 1: cue1 visible, 2: cue2 visible
+        df['visible_cue'] = frame_visible.astype(float)
+        df['visible_cue'][(df['visible_cue'] == 1) & (behavior_aligned['cue'] == 2)] = 2
+        
         # Velocity and raw movement
         df['frame_velocity'] = df['frame_velocity'].clip(0, 200)
-        df['abs_frame_raw'] = df['frame_raw'].abs()
         # 4 abs_frame_raw quantile binning
-        df['abs_frame_raw_quantile'] = pd.qcut(df['abs_frame_raw'], q=4, labels=False, duplicates='drop')
-        
+        df['frame_raw_quantile'] = pd.qcut(df['frame_raw'], q=4, labels=False, duplicates='drop')
+
         # Acceleration components
         df['frame_acceleration'] = df['frame_acceleration'].clip(-100, 100)
         df['abs_frame_acceleration'] = df['frame_acceleration'].abs()
-        df['frame_decceleration'] = df['frame_acceleration'].copy()
-        df.loc[df['frame_decceleration'] > 0, 'frame_decceleration'] = np.nan
-        df.loc[df['frame_decceleration'] <= 0, 'frame_acceleration'] = np.nan
-        df['frame_decceleration'] *= -1  # make decceleration positive
-        
+        df['frame_positive_acceleration'] = df['frame_acceleration'].clip(0,100)
+        df['frame_negative_acceleration'] = df['frame_acceleration'].clip(-100,0)
+
         # Yaw components
         df['abs_frame_yaw'] = df['frame_yaw'].abs()
-        df['frame_yaw_left'] = df['frame_yaw'].copy()
-        df['frame_yaw_right'] = df['frame_yaw'].copy()
-        df.loc[df['frame_yaw'] > 0, 'frame_yaw_left'] = np.nan
-        df.loc[df['frame_yaw'] <= 0, 'frame_yaw_right'] = np.nan
-        df['frame_yaw_left'] *= -1  # make left yaw positive
-        
+        df['frame_yaw_left'] = df['frame_yaw'].clip(-1e6, 0)
+        df['frame_yaw_right'] = df['frame_yaw'].clip(0, 1e6)
+
         # Pitch components
         df['abs_frame_pitch'] = df['frame_pitch'].abs()
-        df['frame_pitch_left'] = df['frame_pitch'].copy() 
-        df['frame_pitch_right'] = df['frame_pitch'].copy()
-        df.loc[df['frame_pitch'] > 0, 'frame_pitch_left'] = np.nan
-        df.loc[df['frame_pitch'] <= 0, 'frame_pitch_right'] = np.nan
-        df['frame_pitch_left'] *= -1  # make left pitch positive
+        df['frame_pitch_left'] = df['frame_pitch'].clip(-1e6, 0)
+        df['frame_pitch_right'] = df['frame_pitch'].clip(0, 1e6)
         
         # Position clipping
-        iti_mask = (df['frame_position'] > 260) | (df['frame_position'] < -160)
+        iti_mask = (df['frame_position'] > 260) | (df['frame_position'] < -165)
         df.loc[iti_mask, 'frame_position'] = np.nan
+        df['track_zone'] = behavior_aligned['track_zone']
 
         df['lick_count'] = df['lick_count'].clip(0, 1)
         df['post_lick'] = dilate_post_events(df['lick_count'].values, n_bins_after=2)
@@ -202,28 +209,45 @@ def get_Behavior40msAligned(fr, behavior):
 
         # Reorder columns
         column_order = [
+            'trial_id',
+            'cue',
+            'trial_outcome',
+            'choice_R1',
+            'choice_R2',
+            'trial_start_pc_timestamp',
+            'from_ephys_timestamp',
+            'to_ephys_timestamp',
+            
+            # forward velocity related
             'frame_velocity',
-            'abs_frame_raw_quantile',
-            'abs_frame_raw',
+            'frame_raw',
+            'frame_raw_quantile',
+            
+            # acceleration related
             'frame_acceleration',
-            'frame_decceleration', 
             'abs_frame_acceleration',
+            'frame_positive_acceleration',
+            'frame_negative_acceleration',
+
+            # yaw related
+            'frame_yaw',
             'frame_yaw_left',
             'frame_yaw_right',
-            'abs_frame_yaw',
-            'abs_frame_pitch',
+
+            # pitch related
+            'frame_pitch',
             'frame_pitch_left',
             'frame_pitch_right',
-            # 'lick_count',
-            # 'reward-sound_count',
-            # 'reward-valve-open_count'
+            
             'lick_count',
-            # 'post_lick',
+            'post_lick',
             'post_reward_sound',
             'post_reward',
             
             # zone_before_reward1	zone_before_reward2	zone_between_cues	zone_cue2	zone_cue2_passed	zone_cue2_visible	zone_post_reward	zone_reward1	zone_reward2
             'frame_position',
+            'visible_cue',
+            # 'track_zone',
             'zone_before_reward1',
             'zone_before_reward2',
             'zone_between_cues',
@@ -243,10 +267,10 @@ def get_Behavior40msAligned(fr, behavior):
             'head_angle_velocity_left',
             'head_angle_velocity_right',
         ]
-        
         return df[column_order]
 
     iti_mask = (behavior['frame_position'] > 260) | (behavior['frame_position'] < -160)
+    behavior['track_zone'] = behavior['track_zone'].cat.add_categories(['ITI'])
     behavior.loc[iti_mask, 'track_zone'] = 'ITI'
 
     # add columns for each zone, one hot encoding
@@ -261,3 +285,87 @@ def get_Behavior40msAligned(fr, behavior):
     # Apply preprocessing
     behavior_aligned_cleaned = preprocess_behavior(behavior_aligned).reset_index(drop=True)
     return behavior_aligned_cleaned
+
+def get_TrialWiseT0Events40ms(behavior):
+    def select_t0_events(trial_beh):
+        
+        if trial_beh['trial_id'].iloc[0] == -1:
+            return pd.DataFrame()  # skip ITI
+        base_info = trial_beh[['cue', 'trial_outcome', 'choice_R1', 'choice_R2']].iloc[0].to_dict()
+
+        zone_ts = []
+        for zone_name, zone_x in zones_boundaries.items():
+            t = np.abs(trial_beh['frame_position']-zone_x).sort_values()
+            # print(zone_name)
+            if not t.iloc[0]<3: # a valid location should be within 3 cm of the zone
+                print(f"Warning: No t0 event found for {zone_name}, was {t.iloc[0]} cm away")
+                continue
+
+            zone_ts.append({**base_info, 
+                            't0_event_name': zone_name, 
+                            't0': t.index[0], 
+                            'x_position': trial_beh.loc[t.index[0], 'frame_position'],
+                            'x_alignment': zone_x})
+        zone_ts = pd.DataFrame(zone_ts)
+        return zone_ts
+
+    zones_boundaries = {
+        'cueZone_visible': -120,
+        'cueZone_entry': -80,
+        'cueZone_exit': 25,
+        'enter_reward1Zone': 50,
+        'enter_reward2Zone': 170,
+    }
+    
+    # kinematics
+    # TODO find t points of specific acceleration events, and deceleration events
+    # acc = sess_behavior['frame_acceleration']
+    # acc.loc[:] = np.clip(acc, -15, 15)
+
+    # TODO find t points of specific acceleration events, and deceleration events also here
+    # # shift down the ephys index by one second, predict future acceleration
+    # forward_acc_in1sec = acc.copy()
+    # nbins_1sec = int(1 * 1_000_000 / bin_size_us)
+    # idx = forward_acc_in1sec.index.values[:-nbins_1sec]
+    # forward_acc_in1sec = forward_acc_in1sec.iloc[nbins_1sec:]
+    # forward_acc_in1sec.index = idx
+    
+    interval_specifier = {
+        # for decoding before cue vs in cue, sepeartely for cue1 and cue2
+        'pre_cue_interval': {'zone_alignment': 'cueZone_visible', 'n_bins_left': 5, 'n_bins_right': 0},
+        'nextto_cue_interval': {'zone_alignment': 'cueZone_entry', 'n_bins_left': 0, 'n_bins_right': 5},
+        # for decoding cue, outcome, choice - early in the track
+        'cue_entry_interval': {'zone_alignment': 'cueZone_visible', 'n_bins_left': 3, 'n_bins_right': 37},
+        'cue_exit_interval': {'zone_alignment': 'cueZone_exit', 'n_bins_left': 10, 'n_bins_right': 30},
+        'R1_entry_interval': {'zone_alignment': 'enter_reward1Zone', 'n_bins_left': 10, 'n_bins_right': 30},
+        'R2_entry_interval': {'zone_alignment': 'enter_reward2Zone', 'n_bins_left': 10, 'n_bins_right': 30},
+    }
+    
+    # make a table where every row is a t0 event, keep info like cue, outcome, choice, trial_id
+    behavior.set_index('from_ephys_timestamp', inplace=True)
+    t0_events = behavior.groupby('trial_id').apply(select_t0_events, 
+                                    include_groups=True).reset_index().drop(columns='level_1')
+
+    bin_length_us = 40_000  # 40 ms bins
+    
+    # instead create intervals based on specifier dict
+    for interval_name, spec in interval_specifier.items():
+        zone_align = spec['zone_alignment']
+        n_bins_left = spec['n_bins_left']
+        n_bins_right = spec['n_bins_right']
+        
+        t0s = t0_events[t0_events.t0_event_name == zone_align]
+        
+        lefts = t0s.t0 - (n_bins_left * bin_length_us)
+        rights = t0s.t0 + (n_bins_right * bin_length_us)
+        
+        t0_events.loc[t0s.index, interval_name] = pd.IntervalIndex.from_arrays(
+            left=lefts,
+            right=rights,
+            closed='right'
+        )
+        
+        # Create bin array for each row that matches t0s
+        bins = pd.Series([np.arange(-n_bins_left, n_bins_right).tolist()] * len(t0s.index))
+        t0_events.loc[t0s.index, interval_name+"_bins"] = bins
+    return t0_events
