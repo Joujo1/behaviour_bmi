@@ -6,6 +6,7 @@ ephys/impedance*
 __pycache__/
 *.pyc
 */.DS_Store
+*/Deprecate/.DS_Store
 *.log
 .vscode/
 
