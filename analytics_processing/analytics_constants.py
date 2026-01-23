@@ -58,6 +58,10 @@ def device_paths():
 # ALL_ANIMAL_IDS = [1,2,3,4,5,6,7,8,9]
 LICK_MERGE_INTERVAL = 0.03
 
+UNITY_RAW_FORWARD_NORM_TO_CM = 0.001542
+UNITY_YAW_ROTATE_NORM_TO_CM = 0.003806
+UNITY_PITCH_SIDE_NORM_TO_CM = 0.001268
+
 MODALITY_KEYS = ['ephys_traces', 'event', 'ballvelocity', 'metadata',
                  'unitycam_packages', 'facecam_packages', 'bodycam_packages',
                  'unity_frame', 'unity_trial', 'paradigm_variable', ]

@@ -28,7 +28,22 @@ def get_TrackKinematics(session_fullfname):
     metad = session_modality_from_nas(session_fullfname, "metadata")
     
     if metad['paradigm_id'] in (800, 1100):
-        track_details = json.loads(metad['track_details'])
+        # track_details = json.loads(metad['track_details'])
+        # don't trust the zone definitions from metadata, use hardcoded ones
+        track_details = {
+            'startZone': (-169,-120),
+            'visibleCue': (-120,-80),
+            'nextToCue': (-80,10),
+            'afterCue': (10, 50),
+            'reward1Zone': (50,110),
+            'bewteenRewardZones': (110,170),
+            'reward2Zone': (170,230),
+            'endZone': (230,260),
+            'ITI': (260,265),
+        }
+        
+        # add the fps column, shifted so that it indicates the length 
+        framedata['fps'] = 1 / (framedata['frame_pc_timestamp'].diff()/ 1e6) # in seconds
         
         # insert z position bin (1cm)
         from_z_position, to_z_position = mT.unity_modality_track_spatial_bins(framedata)
@@ -49,15 +64,39 @@ def get_TrackKinematics(session_fullfname):
                                              columns=cols)
         raw_yaw_pitch = mT.frame_wise_ball_velocity(framedata, balldata)
         
+        # convert from cm/frame length to cm/s
+        raw_yaw_pitch *= framedata.loc[raw_yaw_pitch.index,'fps'].values.reshape(-1,1)
+        
+        # calculcate raw_yaw_pitch acceleration
+        raw_yaw_pitch_acc = pd.DataFrame(index=raw_yaw_pitch.index)
+        for col in raw_yaw_pitch.columns:
+            vel_values = raw_yaw_pitch[col].values
+            tstamps = framedata.loc[raw_yaw_pitch.index,'frame_pc_timestamp'].values
+            accel_values = np.gradient(vel_values, tstamps) * 1e6  # convert us to s
+            # append '_acceleration' since col is 'frame_raw', 'frame_yaw', 'frame_pitch'
+            raw_yaw_pitch_acc[col + '_acceleration'] = accel_values
+
         # merge all data        
-        framedata = pd.concat([framedata, vel, acc, raw_yaw_pitch], axis=1)
+        framedata = pd.concat([framedata, vel, acc, raw_yaw_pitch, raw_yaw_pitch_acc], axis=1)
+        
+        # very very rarely sensors gave outlier values (0.0001 quantile), mask these out
+        unreliable_frames = framedata.index[framedata[['frame_raw', 'frame_yaw', 'frame_pitch']].isna().any(axis=1)]
+        framedata.loc[unreliable_frames, ['frame_z_velocity', 'frame_z_acceleration']] = np.nan
+        
+        # sum over all 
+        framedata['frame_RawYawPitch_abs_velocity_sum'] = raw_yaw_pitch.abs().sum(axis=1)
+        framedata['frame_RawYawPitch_abs_acceleration_sum'] = raw_yaw_pitch_acc.abs().sum(axis=1)
+        
         # track has only z changes, renmae the column
         framedata.rename(columns={"frame_z_position": "frame_position",
                                   "frame_z_velocity": "frame_velocity",
                                   "frame_z_acceleration": "frame_acceleration"}, 
                          inplace=True)
+        
         # angle data is not needed for track, blinker is not used anywhere
-        framedata.drop(columns=['frame_angle', 'frame_blinker', 'frame_x_position'], 
+        framedata.drop(columns=['frame_angle', 'frame_blinker', 'frame_x_position',
+                                'frame_state','ballvelocity_first_package',
+                                'ballvelocity_last_package'], 
                        inplace=True)
     return framedata
 

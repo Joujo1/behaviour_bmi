@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from CustomLogger import CustomLogger as Logger
+from analytics_processing.analytics_constants import UNITY_PITCH_SIDE_NORM_TO_CM, UNITY_RAW_FORWARD_NORM_TO_CM, UNITY_YAW_ROTATE_NORM_TO_CM
 
 # =============================================================================
 # all-modalities transformations
@@ -214,6 +215,29 @@ def frame_wise_ball_velocity(frames, ball_vel):
 
     # instead of bin indices, go back to frame indices
     frame_wise_ryp.index = frames.iloc[1:].loc[~invalid_diff].index
+    
+    # norm to cm / frame_length
+    frame_wise_ryp['frame_raw'] *= UNITY_RAW_FORWARD_NORM_TO_CM
+    frame_wise_ryp['frame_yaw'] *= UNITY_YAW_ROTATE_NORM_TO_CM
+    frame_wise_ryp['frame_pitch'] *= UNITY_PITCH_SIDE_NORM_TO_CM
+    
+    # clip these three columns to 99.95 percentile to avoid extreme outliers
+    frame_wise_ryp_raw = frame_wise_ryp.copy()
+    for col in ['frame_raw', 'frame_yaw', 'frame_pitch']:
+        upper_bound = frame_wise_ryp[col].quantile(0.9999)
+        lower_bound = frame_wise_ryp[col].quantile(0.0001)
+        # set to nan instead of clipping
+        frame_wise_ryp[col] = frame_wise_ryp[col].where(
+            (frame_wise_ryp[col] >= lower_bound) & (frame_wise_ryp[col] <= upper_bound), 
+            other=np.nan)
+        # print what percentage of frames (and n) were clipped
+        n_clipped = (frame_wise_ryp[col] != frame_wise_ryp_raw[col]).sum()
+        if n_clipped == 0:
+            continue
+        pct_clipped = n_clipped / frame_wise_ryp.shape[0] * 100
+        Logger().logger.debug(f"Clipped {n_clipped} frames ({pct_clipped:.4f}%)"
+                              f" in column {col} to bounds [{lower_bound:.4f}, "
+                              f"{upper_bound:.4f}]")
     return frame_wise_ryp
 
 
@@ -297,8 +321,9 @@ def unity_modality_track_spatial_bins(frames):
 
 def unity_modality_track_zones(frames, track_details):
     # Extract start and end positions from the dictionary
-    intervals = [(details['start_pos'], details['end_pos']) for details in track_details.values()]
-
+    # intervals = [(details['start_pos'], details['end_pos']) for details in track_details.values()]
+    intervals = track_details.values()
+    
     # Create an IntervalIndex from the list of tuples
     interval_index = pd.IntervalIndex.from_tuples(intervals, closed='left')
     binned_pos = pd.cut(frames['frame_z_position'], bins=interval_index)
@@ -308,18 +333,21 @@ def unity_modality_track_zones(frames, track_details):
     return binned_pos.map(interval_to_zone)
 
 def unity_modality_track_kinematics(frames):
-    positions = frames["frame_z_position"].copy()
-    # positions[frames["trial_id"]==-1] = np.nan
+    positions = frames["frame_z_position"]
     
     # data in microseconds, convert to seconds
     scaler = 1e6
     tstamps = frames["frame_pc_timestamp"] /scaler
-    # print("Timestamps: ", tstamps)
-    # print("Positions: ", positions)
-    velocity = pd.Series(np.gradient(positions, tstamps,), index=frames.index, 
+    
+    # gradient reliable only within trials, mask ITI positions
+    iti_mask = (positions < positions.min()+1) | (positions > positions.max()-1)
+    
+    velocity = pd.Series(np.gradient(positions[~iti_mask], tstamps[~iti_mask],),
+                         index=frames.index[~iti_mask], 
                          name='frame_z_velocity')
-    # print(velocity)
-    acceleration = pd.Series(np.gradient(velocity, velocity.index), index=frames.index, 
+    
+    acceleration = pd.Series(np.gradient(velocity, velocity.index), 
+                             index=velocity.index, 
                              name='frame_z_acceleration')
     return velocity, acceleration # in cm/s, cm/s^2
 
