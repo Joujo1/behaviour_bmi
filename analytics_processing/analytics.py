@@ -171,8 +171,8 @@ def _compute_sess_analytic(analytic, session_fullfname):
     elif analytic == "BehaviorTrialwise":
         track_kinematics = get_analytics(analytic="TrackKinematics",
                                          columns=['trial_id', 'frame_pc_timestamp',
-                                                  'frame_ephys_timestamp',
-                                                  'track_zone',
+                                                  'frame_ephys_timestamp', 'fps',
+                                                  'track_zone', 'frame_RawYawPitch_abs_velocity_sum',
                                                   'frame_position', 'frame_velocity',
                                                   'frame_acceleration', 
                                                   ],
@@ -182,7 +182,7 @@ def _compute_sess_analytic(analytic, session_fullfname):
             return None
         
         data = m2a.get_BehaviorTrialwise(session_fullfname, track_kinematics)
-        schema = C.SCHEMA_BehaviorTrialwise
+        # schema = C.SCHEMA_BehaviorTrialwise
     
     elif analytic == "BehaviorEvents":
         cols = ['trial_id', 'trial_start_pc_timestamp', 'trial_end_pc_timestamp',
@@ -475,6 +475,7 @@ def get_analytics(analytic, mode="set", paradigm_ids=None, animal_ids=None,
                                                                       session_ids, session_names, 
                                                                       excl_session_names,
                                                                       from_date, to_date)
+    
     ANIMAL_ANALYTICS = ('ConcatenatedEnsambles40ms-ConcatenatedEnsambleProj40ms', 
                         'ConcatenatedPCs40ms', 'ConcatenatedEnsambleProj40ms',
                         'ConcatenatedEnsambles40ms',

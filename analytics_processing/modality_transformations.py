@@ -243,15 +243,19 @@ def frame_wise_ball_velocity(frames, ball_vel):
 
 # trial complementation using frames 
 def calc_trialwise_metrics(trials, track_kinematics, trial_variable):
-    def _calc_trial_staytimes(zone_trial_frames):
+    def _calc_trial_t0_times(zone_trial_frames):
+        # Get trial_id and zone from the columns (include_groups=True)
         trial_id = zone_trial_frames["trial_id"].iloc[0]
         zone = zone_trial_frames["track_zone"].iloc[0]
+
         if trial_id == -1:
             return pd.Series(dtype='int64')        
+
+        cue = trials[trials["trial_id"] == trial_id]["cue"].item()
         zone_trial_metrics = {}
 
         if zone_trial_frames.empty:
-            zone_staytime = 0
+            # zone_staytime = 0
             enter_zone_ephys_t = np.nan
             exit_zone_ephys_t = np.nan
         
@@ -261,52 +265,57 @@ def calc_trialwise_metrics(trials, track_kinematics, trial_variable):
             # can be nan, so use PC time 
             enter_zone_pc_t = zone_trial_frames["frame_pc_timestamp"].iloc[0]
             exit_zone_pc_t = zone_trial_frames["frame_pc_timestamp"].iloc[-1]
-            zone_staytime = (exit_zone_pc_t - enter_zone_pc_t) / 1e6  # convert to seconds
+            # zone_staytime = (exit_zone_pc_t - enter_zone_pc_t) / 1e6  # convert to seconds
         
         # add enter and exit timestamps to the trial metrics, and duration
-        zone_trial_metrics[f"trackzone_{zone}_enter_ephys_t"] = enter_zone_ephys_t
-        zone_trial_metrics[f"trackzone_{zone}_exit_ephys_t"] = exit_zone_ephys_t
-        zone_trial_metrics[f"trackzone_{zone}_staytime"] = zone_staytime
-        
-        # add velocity metrics
-        zone_trial_metrics[f"trackzone_{zone}_avg_velocity"] = zone_trial_frames["frame_velocity"].mean()
-        zone_trial_metrics[f"trackzone_{zone}_min_velocity"] = zone_trial_frames["frame_velocity"].min()
-        
+        zone_trial_metrics[f"{zone}_enter_ephys_t"] = enter_zone_ephys_t
+        zone_trial_metrics[f"{zone}_exit_ephys_t"] = exit_zone_ephys_t
+
         # for the reward zones, check if the animal stopped in the zone
-        if (zone == "reward1") or (zone == "reward2"): 
+        if (zone == "reward1Zone") or (zone == "reward2Zone"): 
             # add the time of entry into the reward zone
             R1_vel_threshold = trial_variable.set_index('trial_id').loc[trial_id, "velocity_threshold_at_R1"]
             R2_vel_threshold = trial_variable.set_index('trial_id').loc[trial_id, "velocity_threshold_at_R2"]
-            thr = R1_vel_threshold if zone == "reward1" else R2_vel_threshold
-            stopping_mask = zone_trial_frames["frame_velocity"] < thr
-            zone_trial_metrics[f"trackzone_{zone}_choice"] = stopping_mask.any()
-            # copy, shorter key for convenience
-            R_str = "R1" if zone == "reward1" else "R2"
-            zone_trial_metrics.update({f"choice_{R_str}": stopping_mask.any()})
+            thr = R1_vel_threshold if zone == "reward1Zone" else R2_vel_threshold
+            
+            # calculate when animal was below velocity threshold
+            fps = zone_trial_frames["fps"].iloc[0]
+            stopping_mask = zone_trial_frames["frame_RawYawPitch_abs_velocity_sum"] < thr*fps
+            R_str = "R1" if zone == "reward1Zone" else "R2"
+            
+            zone_trial_metrics[f"choice_{R_str}"] = stopping_mask.any().astype(int)
+            t = zone_trial_frames.loc[stopping_mask, "frame_ephys_timestamp"].iloc[0] if stopping_mask.any() else np.nan
+            zone_trial_metrics[f"choice_{R_str}_ephys_timestamp"] = t
+            
+            # # copy, shorter key for convenience
+            # zone_trial_metrics.update({f"choice_{R_str}": stopping_mask.any()})
         
-        # check if the zone is a reward zone and if the trial was correct or incorrect
-        cue = trials[trials["trial_id"] == trial_id]["cue"].item()
-        if (zone == "reward1" and cue == 1) or (zone == "reward2" and cue == 2): 
-            # add keys for convenience, just a copy of the zone keys, but indicating correct R zone            
-            corr_metrics = {k.replace(f"trackzone_{zone}", 'correctR'): v 
-                            for k,v in zone_trial_metrics.items()}
-            zone_trial_metrics.update(corr_metrics)
+            cue_zone_match = ('reward1Zone', 1), ('reward2Zone', 2)
+            # reversal
+            if 'flip_Cue1R1_Cue2R2' in trials and trials['flip_Cue1R1_Cue2R2'].iloc[0]:
+                cue_zone_match = ('reward1Zone', 2), ('reward2Zone', 1)
             
-            if stopping_mask.sum() > 0 :
-                reward_t = zone_trial_frames["frame_ephys_timestamp"][stopping_mask].iloc[0]
-                zone_trial_metrics[f"correctR_reward_ephys_t"] = reward_t
+            # check if we deal with a zone and cue that match (correct choice = stop)
+            # or a mismatch (correct choice = not stop)
             
-        # incorrect one
-        elif (zone == "reward2" and cue == 1) or (zone == "reward1" and cue == 2):
-            # add keys for convenience, just a copy of the zone keys, but indicating incorrect R zone
-            incorr_metrics = {k.replace(f"trackzone_{zone}", 'incorrectR'): v 
-                              for k,v in zone_trial_metrics.items()}
-            zone_trial_metrics.update(incorr_metrics)
-        return pd.Series(zone_trial_metrics)
+            # match case, stop here is correct choice
+            if (zone, cue) in cue_zone_match:
+                correct_choice = stopping_mask.any().astype(int)
+            # mismatch case, not stop here is correct choice
+            else:
+                correct_choice = (~stopping_mask.any()).astype(int)
+            zone_trial_metrics[f"choice_{R_str}_correct"] = correct_choice
 
-    result = track_kinematics.groupby(["trial_id", "track_zone"]).apply(_calc_trial_staytimes)
+        return pd.Series(zone_trial_metrics)
+    
+    result = track_kinematics.groupby(["trial_id", "track_zone"], 
+                                      observed=True).apply(_calc_trial_t0_times, 
+                                                           include_groups=True)
     result.index = result.index.droplevel(1)  # drop the track_zone level
     result = result.unstack(level=1).reset_index(drop=True)
+    
+    print(result.dtypes)
+    # exit()
     return result
 
 def unity_modality_track_spatial_bins(frames):
@@ -510,48 +519,48 @@ def transform_to_position_bin_index(data):
 
 
 
-# trial complementation using frames 
-def calc_staytimes(trials, frames, track_details):
-    def _calc_trial_staytimes(trial_frames):
-        trial_id = trial_frames["trial_id"].iloc[0]
-        if trial_id == -1:
-            return pd.Series(dtype='int64')
+# # trial complementation using frames 
+# def calc_staytimes(trials, frames, track_details):
+#     def _calc_trial_staytimes(trial_frames):
+#         trial_id = trial_frames["trial_id"].iloc[0]
+#         if trial_id == -1:
+#             return pd.Series(dtype='int64')
 
-        staytimes = {}
-        outside_R_avg_velocties = []
-        for zone, zone_details in track_details.items():
-            zone_frames = trial_frames.loc[(trial_frames["frame_z_position"] >= zone_details["start_pos"]) & 
-                                           (trial_frames["frame_z_position"] < zone_details["end_pos"])]
-            if zone_frames.empty:
-                zone_staytime = 0
-            else:
-                zone_staytime = zone_frames["frame_pc_timestamp"].iloc[-1] - zone_frames["frame_pc_timestamp"].iloc[0]
+#         staytimes = {}
+#         outside_R_avg_velocties = []
+#         for zone, zone_details in track_details.items():
+#             zone_frames = trial_frames.loc[(trial_frames["frame_z_position"] >= zone_details["start_pos"]) & 
+#                                            (trial_frames["frame_z_position"] < zone_details["end_pos"])]
+#             if zone_frames.empty:
+#                 zone_staytime = 0
+#             else:
+#                 zone_staytime = zone_frames["frame_pc_timestamp"].iloc[-1] - zone_frames["frame_pc_timestamp"].iloc[0]
             
-            # check if the zone is a reward zone and if the trial was correct or incorrect
-            cue = trials[trials["trial_id"] == trial_id]["cue"].item()
-            if (zone == "reward1" and cue == 1) or (zone == "reward2" and cue == 2): 
-                staytimes["staytime_correct_r"] = zone_staytime
-            elif (zone == "reward2" and cue == 1) or (zone == "reward1" and cue == 2):
-                staytimes["staytime_incorrect_r"] = zone_staytime
-            else:
-                if zone_staytime != 0:
-                    avg_vel = (zone_details['end_pos']-zone_details['start_pos']) /zone_staytime/1e-6
-                    outside_R_avg_velocties.append(avg_vel)
+#             # check if the zone is a reward zone and if the trial was correct or incorrect
+#             cue = trials[trials["trial_id"] == trial_id]["cue"].item()
+#             if (zone == "reward1" and cue == 1) or (zone == "reward2" and cue == 2): 
+#                 staytimes["staytime_correct_r"] = zone_staytime
+#             elif (zone == "reward2" and cue == 1) or (zone == "reward1" and cue == 2):
+#                 staytimes["staytime_incorrect_r"] = zone_staytime
+#             else:
+#                 if zone_staytime != 0:
+#                     avg_vel = (zone_details['end_pos']-zone_details['start_pos']) /zone_staytime/1e-6
+#                     outside_R_avg_velocties.append(avg_vel)
                 
-            # add the time of entry into the reward zone
-            if zone == 'reward1' or zone == 'reward2':
-                # print("Rewardzone size: ", zone_details['end_pos']-zone_details['start_pos'])
-                if zone_frames.empty:
-                    staytimes[f"enter_{zone}"] = np.nan
-                    Logger().logger.warning(f"Trial {trial_id} has no frames in {zone}")
-                else:
-                    staytimes[f"enter_{zone}"] = zone_frames["frame_pc_timestamp"].iloc[0]
-                    staytimes[f"staytime_{zone}"] = zone_staytime
-        staytimes['baseline_velocity'] = np.median(outside_R_avg_velocties)
+#             # add the time of entry into the reward zone
+#             if zone == 'reward1' or zone == 'reward2':
+#                 # print("Rewardzone size: ", zone_details['end_pos']-zone_details['start_pos'])
+#                 if zone_frames.empty:
+#                     staytimes[f"enter_{zone}"] = np.nan
+#                     Logger().logger.warning(f"Trial {trial_id} has no frames in {zone}")
+#                 else:
+#                     staytimes[f"enter_{zone}"] = zone_frames["frame_pc_timestamp"].iloc[0]
+#                     staytimes[f"staytime_{zone}"] = zone_staytime
+#         staytimes['baseline_velocity'] = np.median(outside_R_avg_velocties)
 
-        return pd.Series(staytimes)
-    result = frames.groupby("trial_id").apply(_calc_trial_staytimes).unstack().reset_index(drop=True)
-    return result
+#         return pd.Series(staytimes)
+#     result = frames.groupby("trial_id").apply(_calc_trial_staytimes).unstack().reset_index(drop=True)
+#     return result
 
 
 # join frames and events and aggregate events to frame resolution

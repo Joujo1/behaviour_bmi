@@ -425,6 +425,10 @@ def extract_jrc_spikes(session_fullfname): #, get_spikes=False,
                                                      session_to_smple)
         spike_aggr_over_ss_batches.append(spike_table)
         L.spacer("debug")
+        
+    if len(spike_aggr_over_ss_batches) == 0:
+        L.logger.warning("No spike sorting found for this session.")
+        return None, None
     
     # agggregate over batches and handle unique cluster ids
     sp_clust_metadata = aggr_spike_cluster_metadata(cluster_aggr_over_ss_batches)
@@ -453,13 +457,17 @@ def extract_jrc_spikes(session_fullfname): #, get_spikes=False,
 
 
 
+# 2025-06-13_13-53
 
 
 
 
 
-
-
+# 2026-01-24 16:29:26,804|DEBUG|142452|postproc_mea1k_ephys|extract_jrc_spikes
+#         Processing spikes from /mnt/SpatialSequenceLearning/RUN_rYL010/concatenated_ss/2025-07-09_17-14_rYL010_738_concat_ss_loggerTetheredMerged for 2025-05-14_16-28_rYL010_P1100_LinearTrackStop_43min
+# 2026-01-24 16:29:26,808|DEBUG|142452|postproc_mea1k_ephys|extract_jrc_spikes
+#         Containes spike sorted sessions:
+# ['2025-04-04_18-15_rYL010_P1100_LinearTrackStop_5min'
 
 
 
