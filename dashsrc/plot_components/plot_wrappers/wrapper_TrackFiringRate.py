@@ -43,7 +43,7 @@ def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
     animal_dropd, ANIMAL_DROPD_ID = animal_dropdown_component(*comp_args)
     # these don't need data to be initialized    
     session_slider, SESSION_SLIDER_ID = session_range_slider_component(vis_name)
-    metrics_radioi, METRICS_RADIOI_ID = metric_radioitems_component(vis_name)
+    # metrics_radioi, METRICS_RADIOI_ID = metric_radioitems_component(vis_name)
     maxmetric_inp, MAXMETRIC_INP_ID = max_metric_input_component(vis_name, initial_value=80)
     smooth_checkl, SMOOTH_CHECKL_ID = smooth_checklist_component(vis_name)
     normalize_checkl, NORMALIZE_CHECKL_ID = normalize_checklist_component(vis_name)
@@ -63,7 +63,7 @@ def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
         Input(ANIMAL_DROPD_ID, 'value'),
         Input(SESSION_SLIDER_ID, 'value'),
 
-        Input(METRICS_RADIOI_ID, 'value'),
+        # Input(METRICS_RADIOI_ID, 'value'),
         Input(MAXMETRIC_INP_ID, 'value'),
         Input(SMOOTH_CHECKL_ID, 'value'),
         Input(NORMALIZE_CHECKL_ID, 'value'),
@@ -75,7 +75,7 @@ def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
         # Input(HEIGHT_INP_ID, 'value'),
         )
     def update_plot(selected_paradigm, selected_animal, session_range,
-                    metric, metric_max, smooth_data, normalize_data,
+                    metric_max, smooth_data, normalize_data,
                     outcome_filter, cue_filter, trial_filter,):
                     #width, height
     
@@ -108,7 +108,7 @@ def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
             
         fig = plot_TrackFiringRate.render_plot(prim_data, sec_data, global_data['SessionMetadata'], 
                                                global_data['SpikeClusterMetadata'],
-                                                metric, n_sessions, metric_max, smooth_data, normalize_data, )
+                                               n_sessions, metric_max, smooth_data, normalize_data, )
                                                 #width, height)
         return fig
     
@@ -129,7 +129,7 @@ def render(app: Dash, global_data: dict, vis_name: str) -> html.Div:
                 dbc.Row([
                     dbc.Col([
                         # Dropdown for paradigm selection, animal selection
-                        *paradigm_dropd, *animal_dropd, *metrics_radioi,
+                        *paradigm_dropd, *animal_dropd, #*metrics_radioi,
                     ], width=6),
                     
                     # Other options in right column

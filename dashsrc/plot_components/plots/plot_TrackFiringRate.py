@@ -128,7 +128,7 @@ def _draw_percentile_area_plot(fig, upper_perc, lower_perc, metric_col, transp_c
         name='80th perc.',
     ), row=2, col=1)
     
-def render_plot(track_data, fr, metadata, spike_metadata, metric, n_sessions,
+def render_plot(track_data, fr, metadata, spike_metadata, n_sessions,
                 metric_max, smooth_data, normalize_data, width=-1, height=-1):
     fr = fr.set_index(['trial_id', 'from_position_bin', 'cue', 'choice_R1', 'choice_R2'], append=True, )
     fr.drop(columns=['trial_outcome','bin_length'], inplace=True)
@@ -270,94 +270,5 @@ def render_plot(track_data, fr, metadata, spike_metadata, metric, n_sessions,
             ), row=event_row, col=1,
         )
         
-    
-    return fig
-    # parse the arguments
-    _ = _parse_args(n_trials, group_by, metric, metric_max)
-    metric_col, y_axis_label, y_axis_range, group_col, cmap, cmap_transparent = _
-    
-    for session_id, data in all_data.groupby(level='session_id'):
-        # handle the data
-        # Smooth the data with exponential moving average
-        if smooth_data:
-            data[metric_col] = data[metric_col].rolling(window=10, center=True, min_periods=1).mean()
-        
-        # # last spatial bins can ba NaN, remove them
-        # min_max_pos_bin = data['from_position_bin'].min(), data['from_position_bin'].max()
-        # data = data[(data['from_position_bin'] > min_max_pos_bin[0]) &
-        #             (data['from_position_bin'] < min_max_pos_bin[1])]
-            
-        # # TODO handle this properly
-        # # deal with double outcomes
-        # outcome_r1 = all_data['trial_outcome'] // 10 
-        # outcome_r2 = all_data['trial_outcome'] % 10
-        # print(all_data['trial_outcome'])
-        # print(outcome_r1)
-        # print(outcome_r2)
-        # outcome_r1.loc[:] = np.max([outcome_r1, outcome_r2], axis=0)
-        # print(outcome_r1)
-        
-        #TODO if P1100: choice_str='Stop', if DR == 1 draw_cues=[]
-        min_track, max_track = data['from_position_bin'].min(), data['from_position_bin'].max()
-        draw_track_illustration(fig, row=1, col=1,  track_details=json.loads(metadata.iloc[0]['track_details']), 
-                                min_track=min_track, max_track=max_track, choice_str='Stop', draw_cues=[], double_rewards=True)
-
-
-        if var_viz == 'Single trials':
-            _draw_all_single_trials(fig, data, metric_col, cmap_transparent, group_col)
-            
-        if group_by == "None":
-            med_values = data.groupby('from_position_bin')[metric_col].mean().reset_index()
-            # print(med_values.isna().sum())
-            # print(med_values[med_values.isna()])
-            # Add the mean trace to the main plot
-            mean_trace = go.Scatter(
-                x=med_values['from_position_bin'],
-                y=med_values[metric_col],
-                mode='lines',
-                line=dict(color='black', width=3),
-                name='Median'
-            )
-            fig.add_trace(mean_trace, row=2, col=1)
-            
-            if var_viz == '80th percent.':
-                upper_perc = data.groupby('from_position_bin')[metric_col].quantile(0.9).reset_index().dropna()
-                lower_perc = data.groupby('from_position_bin')[metric_col].quantile(0.1).reset_index().dropna()
-                _draw_percentile_area_plot(fig, upper_perc, lower_perc, metric_col, 'rgba(128,128,128,0.3)')
-        
-        else:
-            for group_lbl, group_values in group_by_values.items():
-                group_data = data[data[group_col].isin(group_values)]
-                
-                groupwise_med_values = group_data.groupby(['from_position_bin', group_col])[metric_col].median().reset_index()
-                # groupwise_med_values = groupwise_med_values[groupwise_med_values[group_col].isin(group_values)]
-                # when group_values has more than one value, this dim needs to collapse to one value
-                groupwise_med_values = groupwise_med_values.groupby('from_position_bin').median().reset_index()
-                if group_by == 'Part of session':
-                    # we only draw one line for a set of trials (eg first 3rd of trials),
-                    # for line color, use the trial_id in the middle of the set (used for cmap below)
-                    color = cmap[group_values[len(group_values)//2]]
-                    transp_color = cmap_transparent[group_values[len(group_values)//2]]
-                else:
-                    color = cmap[group_values[0]]
-                    transp_color = cmap_transparent[group_values[0]]
-                
-                # draw the group median line
-                trace = go.Scatter(
-                    x=groupwise_med_values['from_position_bin'],
-                    y=groupwise_med_values[metric_col],
-                    mode='lines',
-                    line=dict(color=color, width=2),
-                    name=f'{group_lbl}'
-                )
-                fig.add_trace(trace, row=2, col=1)
-                
-                # draw the 80th percentile area plot
-                if var_viz == '80th percent.':
-                    upper_perc = group_data.groupby('from_position_bin')[metric_col].quantile(0.9).reset_index().dropna()
-                    lower_perc = group_data.groupby('from_position_bin')[metric_col].quantile(0.1).reset_index().dropna()
-                    _draw_percentile_area_plot(fig, upper_perc, lower_perc, metric_col, transp_color)
-                
-    fig = _configure_axis(fig, height, width, y_axis_range, y_axis_label)
     
     return fig
