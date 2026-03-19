@@ -1,0 +1,81 @@
+:root {
+  font-family: Futura, Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+
+  /* color-scheme:  dark light; */
+  color-scheme:  light;
+  
+  /* overflow-x: hidden;
+  overflow-y: hidden;  */
+
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  
+  --darkm-bg-color: black;
+  --darkm-bgFaint-color: rgb(43, 43, 43);
+  --darkm-fg-color: white;
+  --darkm-fgFaint-color: rgb(77, 77, 77);
+  --darkm-button-shadow: 3px 3px 3px 3px rgba(15, 15, 15, 0.2);
+  
+  --lightm-bg-color: white;
+  --lightm-bgFaint-color: #f0f0f0;
+  --lightm-fg-color: black;
+  --lightm-fgFaint-color: rgb(128, 128, 128);
+  --lightm-button-shadow: 1px 1px 1px 1px rgba(128, 128, 128, 0.2);
+
+  /* init */
+  --bg-color: var(--lightm-bg-color);
+  --bgFaint-color: var(--lightm-bgFaint-color);
+  --fg-color: var(--lightm-fg-color);
+  --fgFaint-color: var(--lightm-fgFaint-color);
+  --button-shadow: var(--lightm-button-shadow);
+  
+  --accent-color: #ffd000;
+  --error-color: rgb(205, 20, 20);
+  --good-color: rgb(64,202,114);
+  --outcome-0-color: var(--error-color);
+  --outcome-1-color: var(--good-color);
+  --outcome-2-color: #2cde6eff;
+  --outcome-3-color: #19ed6bff;
+  --outcome-4-color: #00ff4fff;
+  --outcome-5-color: #62ff00ff;
+}
+
+body {
+  min-width: 1000px; 
+}
+
+#parameter-div, #setup-div #inspect-div{
+  display: flex;
+  flex-wrap: wrap;
+  /* justify-content: space-between; */
+  justify-content: start;
+  align-items: flex-start;
+
+  transition: all 0.1s ease-in-out;
+  border-bottom: 1px solid var(--fg-color);
+  margin-left: 15px;
+  margin-right: 15px;
+  padding-top: 15px;
+  padding-bottom: 15px;
+}
+
+/* Initial state */
+#parameter-div, #setup-div, #monitor-div, #inspect-div{
+  opacity: 1;
+  transform: translateX(0);
+  height: auto;
+  overflow: hidden;
+}
+
+/* State after button is clicked */
+#parameter-div.hide, #setup-div.hide, #monitor-div.hide, #inspect-div.hide{
+  opacity: 0;
+  transform: translateX(-100%);
+  height: 0;
+  padding: 0;
+  border-bottom: none;
+}
