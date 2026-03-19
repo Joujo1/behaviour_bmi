@@ -165,4 +165,18 @@ def attach_shm_endpoints(app):
                                   y_resolution=P.UNITY_CAM_Y_RES,
                                   nchannels=P.UNITY_CAM_NCHANNELS)
         request.app.state.state["shm"][P.SHM_NAME_UNITY_CAM] = True
+
+    @app.post("/shm/create_cagecam_shm/{cage_id}")
+    def create_cagecam_shm(cage_id: int, request: Request):
+        shm_name = f"cage{cage_id}cam"
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={shm_name: False})
+        sc.create_cyclic_frames_shm(shm_name=shm_name, 
+                                  npackages=P.SHM_NPACKAGES_PI_CAM,
+                                  frame_package_nbytes=80,
+                                  x_resolution=P.PI_CAM_X_RES,
+                                  y_resolution=P.PI_CAM_Y_RES,
+                                  nchannels=P.PI_CAM_NCHANNELS)
+        request.app.state.state["shm"][shm_name] = True
+
     return app

@@ -71,13 +71,31 @@ class Parameters:
         self.SHM_NPACKAGES_FACE_CAM = 128
         self.FACE_CAM_IDX = 0
         # ['DEV_000F314E2C37', 'DEV_000F314E2C38', 'DEV_000F314C7FE4', 'DEV_000F314E4F8F']
-        self.FACE_CAM_IDENTIFER = "DEV_000F314E4F8F"
+        # self.FACE_CAM_IDENTIFER = 5005
         self.FACE_CAM_X_TOPLEFT = 0
         self.FACE_CAM_Y_TOPLEFT = 0
         self.FACE_CAM_X_RES = 640
         self.FACE_CAM_Y_RES = 480
         self.FACE_CAM_NCHANNELS = 1
         self.FACE_CAM_FPS = 30
+
+        # PICAM PARAMETERS
+        self.CAGE_IPS = {
+            1: "192.168.1.101", 2: "192.168.1.102", 3: "192.168.1.103",
+            4: "192.168.1.104", 5: "192.168.1.105", 6: "192.168.1.106",
+            7: "192.168.1.107", 8: "192.168.1.108", 9: "192.168.1.109",
+            10: "192.168.1.110", 11: "192.168.1.111", 12: "192.168.1.112"
+            }
+        self.CAGE_PORTS = {
+            1: 5001, 2: 5002, 3: 5003, 4: 5004, 5: 5005, 6: 5006,
+            7: 5007, 8: 5008, 9: 5009, 10: 5010, 11: 5011, 12: 5012
+            }
+        self.PI_CMD_PORT = 5006
+        self.PI_CAM_X_RES = 640
+        self.PI_CAM_Y_RES = 480
+        self.PI_CAM_NCHANNELS = 3
+        self.PI_CAM_FPS = 60
+        self.SHM_NPACKAGES_PI_CAM = 128
 
         # camera shm parameters
         self.SHM_NAME_TTL2_CAM = 'ttlcam2'
@@ -223,6 +241,9 @@ class Parameters:
                 "SHM_NPACKAGES_UNITY_INPUT", "SHM_PACKAGE_NBYTES_UNITY_INPUT", 
                 "SHM_NAME_UNITY_CAM", "UNITY_CAM_X_RES", "UNITY_CAM_Y_RES", 
                 "UNITY_CAM_NCHANNELS"),
+            "Cage Cameras": (
+                "CAGE_IPS", "CAGE_PORTS", "PI_CMD_PORT", "PI_CAM_X_RES", "PI_CAM_Y_RES", "PI_CAM_NCHANNELS", "PI_CAM_FPS", "SHM_NPACKAGES_PI_CAM"
+            ),
             "Face Camera": (
                 "SHM_NAME_FACE_CAM", "SHM_NPACKAGES_FACE_CAM", "FACE_CAM_IDX", "FACE_CAM_IDENTIFER", "FACE_CAM_X_TOPLEFT", 
                 "FACE_CAM_Y_TOPLEFT", "FACE_CAM_X_RES", 

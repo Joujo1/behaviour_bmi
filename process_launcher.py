@@ -29,7 +29,7 @@ def open_camera2shm_proc(cam_name):
     ])
     return _launch(P.WHICH_PYTHON, stream_script, *args)
 
-def open_vimbacam2shm_proc(cam_name, camera_identifer):
+def open_vimbacam2shm_proc(cam_name, local_port):
     P = Parameters()
     script = "vimbacam2shm.py"
     path = P.PROJECT_DIRECTORY, "CoreRatVR", "read2SHM", script
@@ -40,12 +40,32 @@ def open_vimbacam2shm_proc(cam_name, camera_identifer):
     args.extend([
         "--logging_name", cam_name+"2shm",
         "--process_prio", str(P.CAMERA2SHM_PROC_PRIORITY),
-        "--camera_identifer", camera_identifer,
+        "--local_port", str(local_port),
         # "--channels", P.FACE_CAM_IDX if cam_name == 'facecam' else P.BODY_CAM_IDX,
         "--x_topleft", str(P.BODY_CAM_X_TOPLEFT),
         "--y_topleft", str(P.BODY_CAM_Y_TOPLEFT),
         "--cam_name", cam_name
     ])
+    return _launch(P.WHICH_PYTHON, stream_script, *args)
+
+def open_udp2shm_proc(cam_name, local_port):
+    """
+    Launches any of the multiple udp camera streams
+    """
+    P = Parameters()
+    script = "udp2shm.py"
+    path = P.PROJECT_DIRECTORY, "CoreRatVR", "read2SHM", script
+    stream_script = os.path.join(*path)
+    args = _make_proc_args(shm_args=("termflag", cam_name, "paradigmflag"))
+    args.extend([
+        "--logging_name", cam_name + "2shm",
+        "--process_prio", str(P.CAMERA2SHM_PROC_PRIORITY),
+        "--local_port", str(local_port),
+        "--x_topleft", "0",
+        "--y_topleft", "0",
+        "--cam_name", cam_name
+    ])
+    
     return _launch(P.WHICH_PYTHON, stream_script, *args)
 
 def open_shm2cam_stream_proc(cam_name):
@@ -319,7 +339,11 @@ def _make_proc_args(shm_args=("termflag", "ballvelocity", "portentaoutput"),
     if "unitycam" in shm_args:
         args.extend(("--videoframe_shm_struc_fname", 
                      shm_struct_fname(P.SHM_NAME_UNITY_CAM)))
-       
+    for arg in shm_args:
+        if arg.startswith("cage") and arg.endswith("cam"):
+            args.extend(("--videoframe_shm_struc_fname",
+                         shm_struct_fname(arg)))
+
     if logging_args:
         args.extend(("--logging_dir", P.LOGGING_DIRECTORY))
         args.extend(("--logging_level", P.LOGGING_LEVEL))

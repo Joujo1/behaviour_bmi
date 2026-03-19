@@ -78,6 +78,10 @@ async def lifespan(app: FastAPI):
         "unityinput_shm_interface": None,
         "paradigm_running_shm_interface": None,
     }
+    for i in range(1, 13):
+        app.state.state["procs"][f"cage{i}2shm"] = 0
+        app.state.state["shm"][f"cage{i}cam"] = False
+        
     yield # application runs (function pauses here)
     print("Experiment Server shutting down.")
 

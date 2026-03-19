@@ -1,5 +1,6 @@
 import sys
 import os
+import socket
 # when executed as a process add parent SHM dir to path again
 sys.path.insert(1, os.path.join(sys.path[0], '..')) # project dir
 sys.path.insert(1, os.path.join(sys.path[0], '..', 'SHM')) # SHM dir
@@ -13,8 +14,77 @@ from CyclicPackagesSHMInterface import CyclicPackagesSHMInterface
 from FlagSHMInterface import FlagSHMInterface
 from CustomLogger import CustomLogger as Logger
 
+from udp_processor import DataProcessor
+from udp_receiver import UDPreceiver
 
-def _read_vimbastream(frame_shm, termflag_shm, paradigmflag_shm, camera_identifer):
+def _read_vimbastream(frame_shm, termflag_shm, paradigmflag_shm, local_port):
+    L = Logger()
+    L.logger.info(f"Listening to UDP stream on port {local_port} & writing to SHM...")
+
+    frame_i = 0
+    prv_t = 0
+
+    def frame_acqu_callback(data, sender_info):
+        nonlocal frame_i
+        nonlocal prv_t
+        image = data.get('frame')
+        if image is None:
+            return
+
+        t = int(time.time()*1e6)
+        pack = "<{" + f"N:I,ID:{frame_i},PCT:{t}" + "}>\r\n"
+        
+        x_res = frame_shm.metadata['x_resolution']
+        y_res = frame_shm.metadata['y_resolution']
+        
+        image = image[:y_res, :x_res]
+        
+        image = image[::-1, ::-1] 
+
+        frame_bytes = image.tobytes()
+        package_nbytes = frame_shm.metadata['frame_package_nbytes']
+        
+        combined_bytes = bytearray(package_nbytes + len(frame_bytes))
+        combined_bytes[:len(pack)] = pack.encode('utf-8')
+        combined_bytes[package_nbytes:] = frame_bytes
+
+        frame_shm.push(combined_bytes)
+        
+        frame_i += 1
+        prv_t = t
+
+    processor = DataProcessor(callback_func=frame_acqu_callback)
+    receiver = UDPreceiver(local_port=local_port, data_callback=processor.parse_dispatch_packet)
+
+    receiver.start()
+    PI_IP = "192.168.1.102"
+    PI_CMD_PORT = 5006
+    try:
+        cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        cmd_sock.sendto(b"START_STREAMING", (PI_IP, PI_CMD_PORT))
+        L.logger.info(f"Sent START command to Pi at {PI_IP}:{PI_CMD_PORT}")
+    except Exception as e:
+        L.logger.error(f"Failed to send command to Pi: {e}")
+
+    paradigm_running_state = paradigmflag_shm.is_set()
+
+    try:
+        while True:
+            if termflag_shm.is_set():
+                L.logger.info("Termination flag raised by UI. Shutting down...")
+                break
+
+            if paradigmflag_shm.is_set() != paradigm_running_state:
+                new_state = paradigmflag_shm.is_set()
+                L.logger.info(f"UI Paradigm state changed to: {new_state}")
+                paradigm_running_state = new_state
+                
+            time.sleep(0.1)
+            
+    finally:
+        receiver.stop()
+
+def _read_vimbastream_(frame_shm, termflag_shm, paradigmflag_shm, camera_identifer):
     L = Logger()
     L.logger.info("Reading camera stream & writing to SHM...")
 
@@ -99,14 +169,14 @@ def _read_vimbastream(frame_shm, termflag_shm, paradigmflag_shm, camera_identife
 
 def run_vimbacam2shm(videoframe_shm_struc_fname, termflag_shm_struc_fname, 
                      paradigmflag_shm_struc_fname, cam_name,
-                     x_topleft, y_topleft, camera_identifer):
+                     x_topleft, y_topleft, local_port):
     # shm access
     # frame_shm = VideoFrameSHMInterface(videoframe_shm_struc_fname)
     frame_shm = CyclicPackagesSHMInterface(videoframe_shm_struc_fname)
     termflag_shm = FlagSHMInterface(termflag_shm_struc_fname)
     paradigmflag_shm = FlagSHMInterface(paradigmflag_shm_struc_fname)
     
-    _read_vimbastream(frame_shm, termflag_shm, paradigmflag_shm, camera_identifer)
+    _read_vimbastream(frame_shm, termflag_shm, paradigmflag_shm, local_port)
 
 if __name__ == "__main__":
     argParser = argparse.ArgumentParser("Read camera stream, timestamp, ",
@@ -121,7 +191,7 @@ if __name__ == "__main__":
     argParser.add_argument("--x_topleft", type=int)
     argParser.add_argument("--y_topleft", type=int)
     argParser.add_argument("--process_prio", type=int)
-    argParser.add_argument("--camera_identifer")
+    argParser.add_argument("--local_port", type=int)
     kwargs = vars(argParser.parse_args())
     
     L = Logger()
@@ -133,11 +203,11 @@ if __name__ == "__main__":
         if (prio := kwargs.pop("process_prio")) != -1:
             os.system(f'sudo chrt -f -p {prio} {os.getpid()}')
     
-    try:
-        from pymba import Vimba
-    except ImportError:
-        L.logger.error("Failed to import pymba. Install via pip.")
-        sys.exit(1)
+    # try:
+    #     from pymba import Vimba
+    # except ImportError:
+    #     L.logger.error("Failed to import pymba. Install via pip.")
+    #     sys.exit(1)
             
     run_vimbacam2shm(**kwargs)
     

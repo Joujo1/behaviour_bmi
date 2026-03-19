@@ -143,7 +143,14 @@ def attach_stream_endpoints(app):
         check_interval = 0.005
         await _stream_cam_loop(inspect, websocket, cam_name, app, 
                                check_interval=check_interval)
-        
+    
+    @app.websocket("/stream/cagecam/{cage_id}")
+    async def stream_cagecam(websocket: WebSocket, cage_id: int, inspect: str = Query("false")):
+        inspect = inspect.lower() == "true"
+        cam_name = f"cage{cage_id}cam"
+        check_interval = 0.01 
+        await _stream_cam_loop(inspect, websocket, cam_name, app, 
+                               check_interval=check_interval)
         
     @app.websocket("/stream/unitycam")
     async def stream_unitycam(websocket: WebSocket, inspect: str = Query("false")):
@@ -295,6 +302,10 @@ async def _stream_cam_loop(inspect, websocket, cam_name, app, check_interval=0.0
             shm = _access_shm(P.SHM_NAME_BODY_CAM, "bodycam2shm", app)
         elif cam_name == "unitycam":
             shm = _access_shm(P.SHM_NAME_UNITY_CAM, "unity", app)
+        
+        elif cam_name.startswith("cage") and cam_name.endswith("cam"):
+            cage_num = cam_name[4:-3]
+            shm = _access_shm(cam_name, f"cage{cage_num}2shm", app)
     else:
         validate_state(app.state.state, valid_initiated_inspect=True)
 

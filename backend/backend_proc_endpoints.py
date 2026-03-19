@@ -79,7 +79,7 @@ def attach_proc_endpoints(app):
                                           },
                        valid_proc_running={"facecam2shm": False})
         proc = pl.open_vimbacam2shm_proc(P.SHM_NAME_FACE_CAM,
-                                         P.FACE_CAM_IDENTIFER)
+                                         5005)
         request.app.state.state["procs"]["facecam2shm"] = proc.pid
         
     
@@ -127,6 +127,34 @@ def attach_proc_endpoints(app):
         proc = pl.open_camera2shm_proc(P.SHM_NAME_BODY_CAM)
         request.app.state.state["procs"]["bodycam2shm"] = proc.pid
     
+    @app.post("/procs/launch_cagecam/{cage_id}")
+    def launch_cagecam(cage_id: int, request: Request):
+        if cage_id not in P.CAGE_PORTS:
+            raise HTTPException(status_code=400, detail=f"Invalid cage ID: {cage_id}")
+        shm_name = f"cage{cage_id}cam"
+        proc_name = f"cage{cage_id}2shm"
+        port = P.CAGE_PORTS[cage_id]
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          shm_name: True,
+                                          },
+                       valid_proc_running={proc_name: False})
+        proc = pl.open_udp2shm_proc(shm_name, port)
+        request.app.state.state["procs"][proc_name] = proc.pid
+    
+    @app.post("/procs/stop_cagecam/{cage_id}")
+    def stop_cagecam(cage_id: int, request: Request):
+        if cage_id not in P.CAGE_PORTS:
+            raise HTTPException(status_code=400, detail=f"Invalid cage ID: {cage_id}")         
+        proc_name = f"cage{cage_id}2shm"
+        pid = request.app.state.state["procs"].get(proc_name)
+        if pid:
+            try:
+                os.kill(pid, 15) 
+            except ProcessLookupError:
+                pass
+            request.app.state.state["procs"][proc_name] = None
+
     @app.post("/procs/launch_stream_facecam")
     def launch_stream_facecam(request: Request):
         validate_state(request.app.state.state, valid_initiated=True, 
