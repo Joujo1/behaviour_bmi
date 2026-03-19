@@ -2,10 +2,12 @@ import platform
 import os
 import sys
 
-def device_paths(raise_if_nas_missing=True):
+def device_paths(raise_if_nas_missing=False):
     which_os = platform.system()
     user = os.getlogin()
     # print(f"OS: {which_os}, User: {user}")
+
+    
 
     nas_dir, local_data_dir, project_dir = None, None, None
     if which_os == 'Linux' and user == 'houmanjava':
@@ -17,6 +19,11 @@ def device_paths(raise_if_nas_missing=True):
         nas_dir = "/mnt/SpatialSequenceLearning/"
         local_data_dir = "/home/vrmaster/local_data/"
         project_dir = "/home/vrmaster/Projects/VirtualReality/"
+
+    elif which_os == 'Linux' and user == 'sentinel':
+        nas_dir = "/home/sentinel/VirtualReality"
+        local_data_dir = "/home/sentinel/VirtualReality/local_data"
+        project_dir = "/home/sentinel/VirtualReality"
     
     elif which_os == 'Linux' and user == 'simon':
         nas_dir = "/BMI/VirtualReality/SpatialSequenceLearning/"
