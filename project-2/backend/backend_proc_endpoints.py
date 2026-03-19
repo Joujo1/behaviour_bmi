@@ -1,0 +1,297 @@
+import os
+import sys
+
+from fastapi import HTTPException, Request
+
+from Parameters import Parameters
+from backend_helpers import validate_state
+
+import process_launcher as pl
+
+from CustomLogger import CustomLogger as Logger
+
+
+def attach_proc_endpoints(app):
+    # singlton class - reference to instance created in lifespan
+    P = Parameters()
+
+    @app.post("/procs/launch_por2shm2por_sim")
+    def launch_por2shm2por_sim(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PORTENTA_OUTPUT: True,
+                                          P.SHM_NAME_BALLVELOCITY: True,
+                                          },
+                       valid_proc_running={"por2shm2por_sim": False})
+        proc = pl.open_por2shm2por_sim_proc()
+        request.app.state.state["procs"]["por2shm2por_sim"] = proc.pid
+
+    @app.post("/procs/launch_por2shm2por")
+    def launch_por2shm2por(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PORTENTA_OUTPUT: True,
+                                          P.SHM_NAME_BALLVELOCITY: True,
+                                          P.SHM_NAME_PORTENTA_INPUT: True,
+                                          },
+                       valid_proc_running={"por2shm2por": False})
+        proc = pl.open_por2shm2por_proc()
+        request.app.state.state["procs"]["por2shm2por"] = proc.pid
+        
+    @app.post("/procs/launch_log_portenta")
+    def launch_log_portenta(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PORTENTA_OUTPUT: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_BALLVELOCITY: True,
+                                          },
+                       valid_proc_running={"log_portenta": False})
+        proc = pl.open_log_portenta_proc()
+        request.app.state.state["procs"]["log_portenta"] = proc.pid
+    
+    @app.post("/procs/launch_log_ephys")
+    def launch_log_ephys(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          },
+                       valid_proc_running={"log_ephys": False})
+        proc = pl.open_log_ephys_proc()
+        request.app.state.state["procs"]["log_ephys"] = proc.pid
+
+    @app.post("/procs/launch_stream_portenta")
+    def launch_stream_portenta(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PORTENTA_OUTPUT: True,
+                                          P.SHM_NAME_BALLVELOCITY: True,
+                                          },
+                       valid_proc_running={"stream_portenta": False})
+        proc = pl.open_stream_portenta_proc()
+        request.app.state.state["procs"]["stream_portenta"] = proc.pid
+    
+    @app.post("/procs/launch_facecam2shm")
+    def launch_facecam2shm(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_FACE_CAM: True,
+                                          },
+                       valid_proc_running={"facecam2shm": False})
+        proc = pl.open_vimbacam2shm_proc(P.SHM_NAME_FACE_CAM,
+                                         5005)
+        request.app.state.state["procs"]["facecam2shm"] = proc.pid
+        
+    
+    @app.post("/procs/launch_ttl2cam2shm")
+    def launch_ttl2cam2shm(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_TTL2_CAM: True,
+                                          },
+                       valid_proc_running={"ttl2cam2shm": False})
+        proc = pl.open_vimbacam2shm_proc(P.SHM_NAME_TTL2_CAM,
+                                         P.TTL2_CAM_IDENTIFER)
+        request.app.state.state["procs"]["ttl2cam2shm"] = proc.pid
+        
+    
+    @app.post("/procs/launch_ttl3cam2shm")
+    def launch_ttl3cam2shm(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_TTL3_CAM: True,
+                                          },
+                       valid_proc_running={"ttl3cam2shm": False})
+        proc = pl.open_vimbacam2shm_proc(P.SHM_NAME_TTL3_CAM,
+                                        P.TTL3_CAM_IDENTIFER)
+        request.app.state.state["procs"]["ttl3cam2shm"] = proc.pid
+        
+    @app.post("/procs/launch_ttl4cam2shm")
+    def launch_ttl4cam2shm(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True,
+                          valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                                P.SHM_NAME_TTL4_CAM: True,
+                                                },
+                            valid_proc_running={"ttl4cam2shm": False})
+        proc = pl.open_vimbacam2shm_proc(P.SHM_NAME_TTL4_CAM,
+                                        P.TTL4_CAM_IDENTIFER)
+        request.app.state.state["procs"]["ttl4cam2shm"] = proc.pid
+    
+    @app.post("/procs/launch_bodycam2shm")
+    def launch_bodycam2shm(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_BODY_CAM: True,
+                                          },
+                       valid_proc_running={"bodycam2shm": False})
+        proc = pl.open_camera2shm_proc(P.SHM_NAME_BODY_CAM)
+        request.app.state.state["procs"]["bodycam2shm"] = proc.pid
+    
+    @app.post("/procs/launch_cagecam/{cage_id}")
+    def launch_cagecam(cage_id: int, request: Request):
+        if cage_id not in P.CAGE_PORTS:
+            raise HTTPException(status_code=400, detail=f"Invalid cage ID: {cage_id}")
+        shm_name = f"cage{cage_id}cam"
+        proc_name = f"cage{cage_id}2shm"
+        port = P.CAGE_PORTS[cage_id]
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          shm_name: True,
+                                          },
+                       valid_proc_running={proc_name: False})
+        proc = pl.open_udp2shm_proc(shm_name, port)
+        request.app.state.state["procs"][proc_name] = proc.pid
+    
+    @app.post("/procs/stop_cagecam/{cage_id}")
+    def stop_cagecam(cage_id: int, request: Request):
+        if cage_id not in P.CAGE_PORTS:
+            raise HTTPException(status_code=400, detail=f"Invalid cage ID: {cage_id}")         
+        proc_name = f"cage{cage_id}2shm"
+        pid = request.app.state.state["procs"].get(proc_name)
+        if pid:
+            try:
+                os.kill(pid, 15) 
+            except ProcessLookupError:
+                pass
+            request.app.state.state["procs"][proc_name] = None
+
+    @app.post("/procs/launch_stream_facecam")
+    def launch_stream_facecam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_FACE_CAM: True,
+                                          },
+                       valid_proc_running={"stream_facecam": False})
+        proc = pl.open_shm2cam_stream_proc(P.SHM_NAME_FACE_CAM)
+        request.app.state.state["procs"]["stream_facecam"] = proc.pid
+
+    @app.post("/procs/launch_log_facecam")
+    def launch_log_facecam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_FACE_CAM: True,
+                                          },
+                       valid_proc_running={"log_facecam": False})
+        proc = pl.open_log_camera_proc(P.SHM_NAME_FACE_CAM)
+        request.app.state.state["procs"]["log_facecam"] = proc.pid
+    
+    @app.post("/procs/launch_log_ttl2cam")
+    def launch_log_ttl2cam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_TTL2_CAM: True,
+                                          },
+                       valid_proc_running={"log_ttl2cam": False})
+        proc = pl.open_log_camera_proc(P.SHM_NAME_TTL2_CAM)
+        request.app.state.state["procs"]["log_ttl2cam"] = proc.pid
+        
+    @app.post("/procs/launch_log_ttl3cam")
+    def launch_log_ttl3cam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_TTL3_CAM: True,
+                                          },
+                       valid_proc_running={"log_ttl3cam": False})
+        proc = pl.open_log_camera_proc(P.SHM_NAME_TTL3_CAM)
+        request.app.state.state["procs"]["log_ttl3cam"] = proc.pid
+    
+    @app.post("/procs/launch_log_ttl4cam")
+    def launch_log_ttl4cam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_TTL4_CAM: True,
+                                          },
+                       valid_proc_running={"log_ttl4cam": False})
+        proc = pl.open_log_camera_proc(P.SHM_NAME_TTL4_CAM)
+        request.app.state.state["procs"]["log_ttl4cam"] = proc.pid
+    
+    @app.post("/procs/launch_log_bodycam")
+    def launch_log_bodycam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_BODY_CAM: True,
+                                          },
+                       valid_proc_running={"log_bodycam": False})
+        proc = pl.open_log_camera_proc(P.SHM_NAME_BODY_CAM)
+        request.app.state.state["procs"]["log_bodycam"] = proc.pid
+    
+    @app.post("/procs/launch_stream_bodycam")
+    def launch_stream_bodycam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_BODY_CAM: True,
+                                          },
+                       valid_proc_running={"stream_bodycam": False})
+        proc = pl.open_shm2cam_stream_proc(P.SHM_NAME_BODY_CAM)
+        request.app.state.state["procs"]["stream_bodycam"] = proc.pid
+    
+    @app.post("/procs/launch_log_unity")
+    def launch_log_unity(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_UNITY_OUTPUT: True,
+                                          },
+                       valid_proc_running={"log_unity": False})
+        proc = pl.open_log_unity_proc()
+        request.app.state.state["procs"]["log_unity"] = proc.pid
+
+    @app.post("/procs/launch_log_unitycam")
+    def launch_log_unitycam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_PARADIGM_RUNNING_FLAG: True,
+                                          P.SHM_NAME_UNITY_CAM: True,
+                                          },
+                       valid_proc_running={"log_unitycam": False})
+        proc = pl.open_log_camera_proc(P.SHM_NAME_UNITY_CAM)
+        request.app.state.state["procs"]["log_unitycam"] = proc.pid
+    
+    @app.post("/procs/launch_process_session")
+    def launch_log_unitycam(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True)
+        proc = pl.open_process_session_proc()
+        # TODO add process session to state
+        # request.app.state.state["procs"]["log_unitycam"] = proc.pid
+
+    @app.post("/procs/launch_unity")
+    def launch_unity(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True,
+                                          P.SHM_NAME_BALLVELOCITY: True,
+                                          P.SHM_NAME_PORTENTA_OUTPUT: True,
+                                          P.SHM_NAME_PORTENTA_INPUT: True,
+                                          P.SHM_NAME_UNITY_OUTPUT: True,
+                                          P.SHM_NAME_UNITY_INPUT: True,
+                                          P.SHM_NAME_UNITY_CAM: True,
+                                          },
+                       valid_proc_running={"unity": False})
+        proc = pl.open_unity_proc()
+        if proc == -1:
+            msg = f"Unity binary `{P.UNITY_BUILD_NAME}` not found."
+            raise HTTPException(status_code=400, detail=msg)
+        else:
+            request.app.state.state["procs"]["unity"] = proc.pid
+            
+    @app.post("/procs/launch_mxserver")
+    def launch_mxserver(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True},
+                       valid_proc_running={"mxserver": False})
+        proc = pl.open_mxserver_proc()
+        request.app.state.state["procs"]["mxserver"] = proc.pid
+    
+    @app.post("/procs/launch_scope")
+    def launch_scope(request: Request):
+        validate_state(request.app.state.state, valid_initiated=True, 
+                       valid_shm_created={P.SHM_NAME_TERM_FLAG: True},
+                       valid_proc_running={"scope": False})
+        proc = pl.open_scope_proc()
+        Logger().logger.info(f"Scope process started with PID {proc.pid}")
+        request.app.state.state["procs"]["scope"] = proc.pid
+    return app
