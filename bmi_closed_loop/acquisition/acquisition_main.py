@@ -1,0 +1,75 @@
+import os
+import signal
+import sys
+import time
+
+import config
+from acquisition.frame_writer import FrameWriter
+from acquisition.packet_parser import parse_packet
+from acquisition.udp_receiver import UDPreceiver
+from acquisition.watchdog import Watchdog
+from shared.logger import get_logger
+
+log = get_logger("acquisition", config.LOGGING_DIR, config.LOGGING_LEVEL)
+
+
+def _make_stats() -> dict:
+    return {
+        cage_id: {"last_seen": 0.0, "frame_count": 0, "drop_count": 0}
+        for cage_id in range(config.N_CAGES)
+    }
+
+
+def _make_callback(writer: FrameWriter, cage_id: int, stats: dict):
+    def callback(data: bytes, ip: str, _port: int, arrival_time: float):
+        frame = parse_packet(data, ip, arrival_time)
+        if frame is None:
+            return
+        stats[cage_id]["last_seen"] = time.time()
+        writer.push(frame)
+    return callback
+
+
+def main():
+    # TODO: derive session_dir from session open event (passed via argv or IPC)
+    session_dir = os.path.join(config.NAS_BASE_PATH, "session_placeholder")
+
+    camera_stats = _make_stats()
+
+    writers = []
+    listeners = []
+
+    for cage_id in range(config.N_CAGES):
+        writer = FrameWriter(cage_id, camera_stats)
+        writer.start(session_dir)
+        writers.append(writer)
+
+        port = config.UDP_BASE_PORT + cage_id
+        listener = UDPreceiver(port, _make_callback(writer, cage_id, camera_stats))
+        listener.start()
+        listeners.append(listener)
+        log.info(f"Cage {cage_id} listening on UDP port {port}")
+
+    watchdog = Watchdog(camera_stats)
+    watchdog.start()
+
+    log.info(f"Acquisition running — {config.N_CAGES} cages, session: {session_dir}")
+
+    def shutdown(sig, frame):
+        log.info("Shutting down acquisition...")
+        for l in listeners:
+            l.stop()
+        for w in writers:
+            w.stop()
+        watchdog.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
+    while True:
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()

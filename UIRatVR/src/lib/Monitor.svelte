@@ -41,6 +41,9 @@
         <VideoStreamer websocketName="ttlcam2" title="TTL2 Camera"/>
         <VideoStreamer websocketName="ttlcam3" title="TTL3 Camera"/>
         <VideoStreamer websocketName="ttlcam4" title="TTL4 Camera"/>
+        {#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as cageId}
+            <VideoStreamer websocketName="cagecam/{cageId}" title="Cage {cageId}"/>
+        {/each}
         <Environment/>
         
         <VideoStreamer websocketName="unitycam" title="Unity View"/>

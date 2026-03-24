@@ -61,6 +61,7 @@
    } from "../setup_api";
 
   import SetupUiButton from "./SetupUIButton.svelte";
+  import { POSTCreateCagecam, POSTLaunch_cagecam2shm } from "../setup_api";
 
   function handlePOSTResult(result) {
     console.log(result);
@@ -156,6 +157,11 @@
     handlePOSTResult(result);
   }
 
+  async function createCagecam(cageId) {
+    const result = await POSTCreateCagecam(cageId);
+    handlePOSTResult(result);
+  }
+
   async function createAll() {
     createTermflag();
     createParadigmRunningFlag();
@@ -246,6 +252,10 @@
     handlePOSTResult(result);
   }
   
+  async function launch_cagecam2shm(cageId) {
+    const result = await POSTLaunch_cagecam2shm(cageId);
+    handlePOSTResult(result);
+  }
   async function launch_log_ephys() {
     const result = await POSTLaunch_log_ephys();
     handlePOSTResult(result);
@@ -439,7 +449,18 @@
             onClickCallback={createTTL4cam}
             stateDependancy={$store.ttlcam4}
           />
-
+        <div class="button-row-div" style="margin-top: 10px;">
+          <p style="margin-right: 10px; color: #888; font-size: 0.9em;">Cages:</p>
+          {#each [1,2,3,4,5,6] as cageId}
+            <SetupUIButton label="C{cageId}" onClickCallback={() => createCagecam(cageId)} />
+          {/each}
+        </div>
+        <div class="button-row-div">
+          <p style="margin-right: 10px; color: #888; font-size: 0.9em;">Cages:</p>
+          {#each [7,8,9,10,11,12] as cageId}
+            <SetupUIButton label="C{cageId}" onClickCallback={() => createCagecam(cageId)} />
+          {/each}
+        </div>
           <SetupUIButton
             label="bodycam"
             onClickCallback={createBodycam}
@@ -609,6 +630,18 @@
             onClickCallback={launch_face_bodycam}
             isEnabled={false}
           /> -->
+        </div>
+        <div class="button-row-div">
+          <p style="margin-right:10px; color:var(--fgFaint-color)">Cages (Launch):</p>
+          {#each [1,2,3,4,5,6] as cageId}
+            <SetupUiButton label="C{cageId}" onClickCallback={() => launch_cagecam2shm(cageId)} />
+          {/each}
+        </div>
+        <div class="button-row-div">
+          <p style="margin-right:10px; color:var(--fgFaint-color)">Cages (Launch):</p>
+          {#each [7,8,9,10,11,12] as cageId}
+            <SetupUiButton label="C{cageId}" onClickCallback={() => launch_cagecam2shm(cageId)} />
+          {/each}
         </div>
         <div class="button-row-div">
           <SetupUiButton

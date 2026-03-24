@@ -245,3 +245,11 @@ export async function POSTLaunch_scope() {
 export async function POSTLaunch_mxserver() {
   return await handlePOST(`${BASE_URL}/procs/launch_mxserver`);
 }
+
+export async function POSTCreateCagecam(cageId) {
+  return await handlePOST(`${BASE_URL}/shm/create_cagecam_shm/${cageId}`);
+}
+
+export async function POSTLaunch_cagecam2shm(cageId) {
+  return await handlePOST(`${BASE_URL}/procs/launch_cagecam/${cageId}`);
+}
