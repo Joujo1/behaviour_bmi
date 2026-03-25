@@ -97,6 +97,9 @@ class UDPreceiver:
     def is_active(self):
         return self.is_running
 
+    def queue_size(self):
+        return self.packet_queue.qsize()
+
     
     def __del__(self):
         self.stop()

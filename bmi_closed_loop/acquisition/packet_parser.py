@@ -1,19 +1,15 @@
-# Parses raw UDP packets from the Pis.
-
 import json
 import struct
 from dataclasses import dataclass, field
 from typing import Optional
 
 HEADER_FORMAT = "<IQIIBBBBBBB"
-HEADER_SIZE = struct.calcsize(HEADER_FORMAT)  # 27 bytes
+HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
 
 @dataclass
 class ParsedFrame:
-    # --- fields parsed from the 27-byte header ---
     # used by the Postgres write (frame metadata + GPIO state per chunk)
-    # events_size is also needed to locate the jpeg inside raw_packet
     frame_num: int
     timestamp: int          # microseconds, from Pi
     jpeg_size: int
@@ -27,8 +23,6 @@ class ParsedFrame:
     trial_state: int
     events: list
 
-    # --- full UDP payload kept verbatim ---
-    # used CoreRatVR/udp_receiver.pyby the NAS write (written as-is so nothing is lost if Postgres fails)
     # jpeg is sliced from here for Valkey: raw_packet[HEADER_SIZE + events_size:]
     raw_packet: bytes
 
@@ -36,9 +30,7 @@ class ParsedFrame:
     sender_ip: str
 
 
-def parse_packet(
-    raw_data: bytes, sender_ip: str, network_arrival_time: float
-) -> Optional[ParsedFrame]:
+def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
     if len(raw_data) < HEADER_SIZE:
         return None
 

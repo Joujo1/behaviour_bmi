@@ -11,8 +11,7 @@ from shared.logger import get_logger
 
 class FrameWriter:
     """
-    Writer thread for one cage.
-
+    Writer thread per cage.
     Three writes per frame (in order):
       1. NAS  — 4-byte length prefix + full raw UDP packet (header + events + jpeg)
       2. Valkey — SET cage:{id}:latest_frame = jpeg_bytes (TTL self-cleaning)
@@ -72,6 +71,9 @@ class FrameWriter:
             self._file.close()
         self._log.info(f"Writer stopped (cage {self.cage_id})")
 
+    def queue_size(self):
+        return self._write_queue.qsize()
+
     def push(self, frame: ParsedFrame):
         try:
             self._write_queue.put_nowait(frame)
@@ -79,7 +81,6 @@ class FrameWriter:
             self._stats[self.cage_id]["drop_count"] += 1
             self._log.warning("Write queue full — frame dropped")
 
-    # ------------------------------------------------------------------ #
 
     def _write_loop(self):
         while self._running:

@@ -10,17 +10,6 @@ def _get_db():
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
-@trial_bp.get("/cage/<int:cage_id>/trial")
-def get_next_trial(cage_id: int):
-    """Pi polls this to get the next trial config."""
-    if not (0 <= cage_id < config.N_CAGES):
-        abort(404)
-
-    # TODO: implement trial queue logic
-    # For now returns an empty placeholder so the Pi can poll without error.
-    return jsonify({"cage_id": cage_id, "trial": None})
-
-
 @trial_bp.post("/cage/<int:cage_id>/trial/<int:trial_id>/result")
 def post_trial_result(cage_id: int, trial_id: int):
     """Pi posts the result of a completed trial."""

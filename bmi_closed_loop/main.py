@@ -8,16 +8,26 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def main():
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <session_name>")
+        print("Example: python main.py joel_2024_03_25")
+        sys.exit(1)
+
+    session_name = sys.argv[1]
+
     procs = {}
 
     procs["acquisition"] = subprocess.Popen(
-        [sys.executable, "-m", "acquisition.acquisition_main"],
+        [sys.executable, "-m", "acquisition.acquisition_main", session_name],
         cwd=PROJECT_ROOT,
     )
     procs["ui"] = subprocess.Popen(
         [sys.executable, "-m", "ui.ui_main"],
         cwd=PROJECT_ROOT,
     )
+
+    print(f"\n  Session : {session_name}")
+    print(f"  UI      : http://localhost:5000\n")
 
     def shutdown(sig, frame):
         print("\nShutting down...")

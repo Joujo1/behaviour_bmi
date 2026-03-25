@@ -7,6 +7,7 @@ import config
 from acquisition.frame_writer import FrameWriter
 from acquisition.packet_parser import parse_packet
 from acquisition.udp_receiver import UDPreceiver
+from acquisition.debug_monitor import DebugMonitor
 from acquisition.watchdog import Watchdog
 from shared.logger import get_logger
 
@@ -31,8 +32,7 @@ def _make_callback(writer: FrameWriter, cage_id: int, stats: dict):
 
 
 def main():
-    # TODO: derive session_dir from session open event (passed via argv or IPC)
-    session_dir = os.path.join(config.NAS_BASE_PATH, "session_placeholder")
+    session_dir = os.path.join(config.NAS_BASE_PATH, sys.argv[1])
 
     camera_stats = _make_stats()
 
@@ -53,6 +53,9 @@ def main():
     watchdog = Watchdog(camera_stats)
     watchdog.start()
 
+    debug_monitor = DebugMonitor(listeners, writers, camera_stats)
+    debug_monitor.start()
+
     log.info(f"Acquisition running — {config.N_CAGES} cages, session: {session_dir}")
 
     def shutdown(sig, frame):
@@ -62,6 +65,7 @@ def main():
         for w in writers:
             w.stop()
         watchdog.stop()
+        debug_monitor.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)

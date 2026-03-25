@@ -28,6 +28,9 @@ FRAME_QUEUE_MAXSIZE = 60  # per-camera write queue depth
 WATCHDOG_INTERVAL_SECONDS = 1
 WATCHDOG_DEAD_THRESHOLD_SECONDS = 5  # camera flagged dead if silent for this long
 
+# TCP command channel (PC → Pi)
+TCP_COMMAND_PORT = 6000  # Pi listens on this port; one connection per cage
+
 # Flask
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000
