@@ -49,14 +49,13 @@ class TCPCommandSender:
                 self._sock.close()
                 self._sock = None
 
-    # ------------------------------------------------------------------ #
 
     def _connect(self):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(3.0)
             sock.connect((self._host, self._port))
-            sock.settimeout(5.0)  # response timeout for individual commands
+            sock.settimeout(5.0)
             self._sock = sock
             return True, ""
         except Exception as e:
