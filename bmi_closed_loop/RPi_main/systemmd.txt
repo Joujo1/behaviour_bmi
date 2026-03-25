@@ -1,0 +1,36 @@
+[Unit]
+Description=Cage Controller Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/pi/closed_loop_behavior/src/pi_main/debug_stream_controller.py
+WorkingDirectory=/home/pi/closed_loop_behavior/src/pi_main
+Restart=always
+RestartSec=5
+StandardOutput=null
+User=pi
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+Step 1: Create file
+sudo nano /etc/systemd/system/cage_controller.service
+
+Step 2: Enable service
+# Reload the systemd manager configuration
+sudo systemctl daemon-reload
+
+# Enable it to run automatically on boot
+sudo systemctl enable cage_controller.service
+
+# Start it right now without having to reboot
+sudo systemctl start cage_controller.service
+
+
+
+#Check Status
+sudo systemctl status cage_controller.service
