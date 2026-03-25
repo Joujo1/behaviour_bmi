@@ -39,7 +39,7 @@ class DebugMonitor:
                 "timestamp", "cage_id",
                 "udp_queue", "udp_queue_max",
                 "write_queue", "write_queue_max",
-                "frame_count", "drop_count",
+                "frame_count", "drop_count", "network_drop_count",
             ])
             self._file.flush()
 
@@ -68,6 +68,7 @@ class DebugMonitor:
                     writer._write_queue.maxsize,
                     stats["frame_count"],
                     stats["drop_count"],
+                    stats["network_drop_count"],
                 ])
             self._file.flush()
             time.sleep(self._interval)

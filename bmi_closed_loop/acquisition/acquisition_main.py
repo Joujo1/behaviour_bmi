@@ -16,16 +16,30 @@ log = get_logger("acquisition", config.LOGGING_DIR, config.LOGGING_LEVEL)
 
 def _make_stats() -> dict:
     return {
-        cage_id: {"last_seen": 0.0, "frame_count": 0, "drop_count": 0}
+        cage_id: {"last_seen": 0.0, "frame_count": 0, "drop_count": 0, "network_drop_count": 0}
         for cage_id in range(config.N_CAGES)
     }
 
 
 def _make_callback(writer: FrameWriter, cage_id: int, stats: dict):
+    last_frame_num = 0
+
     def callback(data: bytes, ip: str, _port: int, arrival_time: float):
+        nonlocal last_frame_num
         frame = parse_packet(data, ip, arrival_time)
         if frame is None:
             return
+
+        # Detect gaps in the Pi's frame counter (network-level drops)
+        if last_frame_num > 0 and frame.frame_num > last_frame_num + 1:
+            gap = frame.frame_num - last_frame_num - 1
+            # Large gap likely means Pi restarted — don't count as drops
+            if gap < 10000:
+                stats[cage_id]["network_drop_count"] += gap
+                log.warning(f"Cage {cage_id}: {gap} frame(s) missing "
+                            f"(expected {last_frame_num + 1}, got {frame.frame_num})")
+        last_frame_num = frame.frame_num
+
         stats[cage_id]["last_seen"] = time.time()
         writer.push(frame)
     return callback

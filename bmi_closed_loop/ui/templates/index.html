@@ -204,7 +204,8 @@
           <span class="cage-title">Cage ${i}</span>
           <div class="cage-stats">
             <span id="fps-${i}">—</span> fps &nbsp;
-            <span id="drops-${i}">0</span> drops
+            <span id="drops-${i}">0</span> q &nbsp;
+            <span id="netdrops-${i}" style="color:var(--dead)">0</span> net
           </div>
           <div class="status-dot" id="dot-${i}"></div>
         </div>
@@ -296,7 +297,7 @@
       next.src = `/cage/${id}/frame?t=${Date.now()}`;
     }
     refresh();
-    refreshTimers[id] = setInterval(refresh, 200);
+    refreshTimers[id] = setInterval(refresh, 50);
   }
 
   function stopImageRefresh(id) {
@@ -314,8 +315,9 @@
         const id = parseInt(key.replace('cage_', ''));
         const parts = val.split('|');
         const alive = parts[0] === 'alive';
-        const fps   = parts.find(p => p.startsWith('fps='))?.split('=')[1] ?? '—';
-        const drops = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
+        const fps      = parts.find(p => p.startsWith('fps='))?.split('=')[1] ?? '—';
+        const drops    = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
+        const netDrops = parts.find(p => p.startsWith('net_drops='))?.split('=')[1] ?? '0';
 
         const dot = document.getElementById(`dot-${id}`);
         if (dot) dot.className = 'status-dot' + (alive ? ' alive' : '');
@@ -323,6 +325,11 @@
         if (fpsEl) fpsEl.textContent = fps;
         const dropEl = document.getElementById(`drops-${id}`);
         if (dropEl) dropEl.textContent = drops;
+        const netDropEl = document.getElementById(`netdrops-${id}`);
+        if (netDropEl) {
+          netDropEl.textContent = netDrops;
+          netDropEl.style.color = netDrops === '0' ? 'var(--fg-faint)' : 'var(--dead)';
+        }
       }
     } catch (_) {}
   }

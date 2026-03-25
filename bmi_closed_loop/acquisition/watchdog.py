@@ -46,7 +46,8 @@ class Watchdog:
                 stats = self._stats[cage_id]
                 last_seen = stats["last_seen"]
                 frame_count = stats["frame_count"]
-                drop_count = stats["drop_count"]
+                drop_count         = stats["drop_count"]
+                network_drop_count = stats["network_drop_count"]
 
                 elapsed = now - last_seen if last_seen > 0 else float("inf")
                 status = "alive" if elapsed < config.WATCHDOG_DEAD_THRESHOLD_SECONDS else "dead"
@@ -57,7 +58,7 @@ class Watchdog:
                 self._valkey.hset(
                     "camera_status",
                     f"cage_{cage_id}",
-                    f"{status}|last_seen={last_seen:.3f}|fps={fps}|drops={drop_count}",
+                    f"{status}|last_seen={last_seen:.3f}|fps={fps}|drops={drop_count}|net_drops={network_drop_count}",
                 )
 
                 if status == "dead" and last_seen > 0:
