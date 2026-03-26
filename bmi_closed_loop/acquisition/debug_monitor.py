@@ -6,23 +6,21 @@ import time
 
 class DebugMonitor:
     """
-    Periodically samples UDP receive queue and write queue depths for each cage
+    Periodically samples UDP receive queue depth for each cage
     and appends one row per cage per interval to a CSV file.
 
     CSV columns:
         timestamp         - wall clock (seconds since epoch)
         cage_id
         udp_queue         - packets waiting in UDPreceiver.packet_queue
-        write_queue       - frames waiting in FrameWriter._write_queue
         udp_queue_max     - queue capacity (constant, for reference)
-        write_queue_max   - queue capacity (constant, for reference)
-        frames_written       - total frames written so far for this cage
+        frames_written    - total frames written so far for this cage
         drop_count        - total frames dropped so far for this cage
+        network_drop_count
     """
 
-    def __init__(self, listeners, writers, camera_stats, interval_seconds=1.0, output_path="/tmp/bmi_logs/debug_queues.csv"):
+    def __init__(self, listeners, camera_stats, interval_seconds=1.0, output_path="/home/sentinel/new_vr/bmi_closed_loop/logs/debug_queues.csv"):
         self._listeners = listeners      # list of UDPreceiver, indexed by cage_id
-        self._writers = writers          # list of FrameWriter, indexed by cage_id
         self._stats = camera_stats       # shared stats dict from acquisition_main
         self._interval = interval_seconds
         self._output_path = output_path
@@ -38,7 +36,6 @@ class DebugMonitor:
             self._csv.writerow([
                 "timestamp", "cage_id",
                 "udp_queue", "udp_queue_max",
-                "write_queue", "write_queue_max",
                 "frames_written", "drop_count", "network_drop_count",
             ])
             self._file.flush()
@@ -57,15 +54,13 @@ class DebugMonitor:
     def _loop(self):
         while self._running:
             ts = time.time()
-            for cage_id, (listener, writer) in enumerate(zip(self._listeners, self._writers)):
+            for cage_id, listener in enumerate(self._listeners, start=1):
                 stats = self._stats[cage_id]
                 self._csv.writerow([
                     f"{ts:.3f}",
                     cage_id,
                     listener.queue_size(),
                     listener.packet_queue.maxsize,
-                    writer.queue_size(),
-                    writer._write_queue.maxsize,
                     stats["frames_written"],
                     stats["drop_count"],
                     stats["network_drop_count"],

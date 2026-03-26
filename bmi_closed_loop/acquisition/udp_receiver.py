@@ -9,9 +9,10 @@ class UDPreceiver:
     Handles UDP communication for receiving data from cages
     """
 
-    def __init__(self, local_port, data_callback):
+    def __init__(self, local_port, data_callback, on_drop=None):
         self.local_port = local_port
         self.callback = data_callback
+        self._on_drop = on_drop
         self.is_running = False
         self.sock = None
 
@@ -60,7 +61,9 @@ class UDPreceiver:
                     try:
                         self.packet_queue.put_nowait((data, ip, port, network_arrival_time))
                     except queue.Full:
-                        print("Warning: PC Processing cannot keep up")
+                        print(f"Warning: UDP queue full on port {self.local_port} — frame dropped")
+                        if self._on_drop:
+                            self._on_drop()
                     
             except socket.timeout:
                 continue

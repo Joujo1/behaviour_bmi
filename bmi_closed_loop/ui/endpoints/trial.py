@@ -13,7 +13,7 @@ def _get_db():
 @trial_bp.post("/cage/<int:cage_id>/trial/<int:trial_id>/result")
 def post_trial_result(cage_id: int, trial_id: int):
     """Pi posts the result of a completed trial."""
-    if not (0 <= cage_id < config.N_CAGES):
+    if not (1 <= cage_id <= config.N_CAGES):
         abort(404)
 
     result = request.get_json(force=True)

@@ -1,5 +1,8 @@
+import logging
 import socket
 import threading
+
+_log = logging.getLogger("tcp_cmd")
 
 
 class TCPCommandSender:
@@ -35,11 +38,15 @@ class TCPCommandSender:
                 self._sock.sendall((command + "\n").encode("utf-8"))
                 response = self._recv_line()
                 if response.startswith("ACK:"):
+                    _log.info(f"Cage {self._cage_id}: ACK [{command[:40]}]")
                     return True, response[4:]
                 if response.startswith("ERROR:"):
+                    _log.warning(f"Cage {self._cage_id}: ERROR [{command[:40]}] → {response[6:]}")
                     return False, response[6:]
+                _log.warning(f"Cage {self._cage_id}: unexpected response: {response}")
                 return False, f"unexpected response: {response}"
             except Exception as e:
+                _log.error(f"Cage {self._cage_id}: send failed [{command[:40]}] → {e}")
                 self._sock = None
                 return False, f"send failed: {e}"
 

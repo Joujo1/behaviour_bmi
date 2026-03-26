@@ -1,3 +1,4 @@
+import logging
 import config
 from command.tcp_command_sender import TCPCommandSender
 from flask import Flask, render_template
@@ -7,6 +8,8 @@ from ui.endpoints.stream import stream_bp
 from ui.endpoints.trial import trial_bp
 
 app = Flask(__name__)
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 app.config["COMMAND_SENDERS"] = {
     cage_id: TCPCommandSender(
@@ -14,7 +17,7 @@ app.config["COMMAND_SENDERS"] = {
         host=config.PI_IPS[cage_id],
         port=config.TCP_COMMAND_PORT,
     )
-    for cage_id in range(config.N_CAGES)
+    for cage_id in range(1, config.N_CAGES + 1)
 }
 
 app.register_blueprint(stream_bp)

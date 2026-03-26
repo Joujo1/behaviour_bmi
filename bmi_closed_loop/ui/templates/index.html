@@ -196,7 +196,7 @@
 
   // ── Build grid ──────────────────────────────────────────
   const grid = document.getElementById('cage-grid');
-  for (let i = 0; i < N_CAGES; i++) {
+  for (let i = 1; i <= N_CAGES; i++) {
     streamActive[i] = false;
     grid.innerHTML += `
       <div class="cage-card" id="card-${i}">

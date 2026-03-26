@@ -1,7 +1,5 @@
 import os
-import queue
 import struct
-import threading
 from typing import Optional
 
 import config
@@ -11,7 +9,7 @@ from shared.logger import get_logger
 
 class FrameWriter:
     """
-    Writer thread per cage.
+    Per-cage writer. Called synchronously from UDPreceiver's process thread.
     Three writes per frame (in order):
       1. NAS  — 4-byte length prefix + full raw UDP packet (header + events + jpeg)
       2. Valkey — SET cage:{id}:latest_frame = jpeg_bytes (TTL self-cleaning)
@@ -20,10 +18,7 @@ class FrameWriter:
 
     def __init__(self, cage_id: int, camera_stats: dict):
         self.cage_id = cage_id
-        self._stats = camera_stats  # shared dict, written by listener/writer, read by watchdog
-        self._write_queue: queue.Queue = queue.Queue(maxsize=config.FRAME_QUEUE_MAXSIZE)
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._stats = camera_stats
         self._log = get_logger(f"writer.cage{cage_id}", config.LOGGING_DIR, config.LOGGING_LEVEL)
 
         self._file = None
@@ -50,19 +45,9 @@ class FrameWriter:
         self._db_conn = psycopg2.connect(config.POSTGRES_DSN)
         self._db_cursor = self._db_conn.cursor()
 
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._write_loop,
-            daemon=True,
-            name=f"writer-cage-{self.cage_id}",
-        )
-        self._thread.start()
         self._log.info(f"Writer started → {filepath}")
 
     def stop(self):
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=3.0)
         self._flush_chunk()
         if self._db_conn:
             self._db_conn.commit()
@@ -71,28 +56,11 @@ class FrameWriter:
             self._file.close()
         self._log.info(f"Writer stopped (cage {self.cage_id})")
 
-    def queue_size(self):
-        return self._write_queue.qsize()
-
-    def push(self, frame: ParsedFrame):
-        try:
-            self._write_queue.put_nowait(frame)
-        except queue.Full:
-            self._stats[self.cage_id]["drop_count"] += 1
-            self._log.warning("Write queue full — frame dropped")
-
-
-    def _write_loop(self):
-        while self._running:
-            try:
-                frame = self._write_queue.get(timeout=0.5)
-                self._write_nas(frame)
-                self._write_valkey(frame)
-                self._write_postgres(frame)
-                self._write_queue.task_done()
-                self._stats[self.cage_id]["frames_written"] += 1
-            except queue.Empty:
-                continue
+    def write_frame(self, frame: ParsedFrame):
+        self._write_nas(frame)
+        self._write_valkey(frame)
+        self._write_postgres(frame)
+        self._stats[self.cage_id]["frames_written"] += 1
 
     def _write_nas(self, frame: ParsedFrame):
         # Store full raw packet so nothing is lost if Postgres is unavailable

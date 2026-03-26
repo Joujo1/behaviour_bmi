@@ -23,7 +23,7 @@ class Watchdog:
         self._thread = None
         self._valkey = None
         self._log = get_logger("watchdog", config.LOGGING_DIR, config.LOGGING_LEVEL)
-        self._prev_frames_written = {i: 0 for i in range(config.N_CAGES)}
+        self._prev_frames_written = {i: 0 for i in range(1, config.N_CAGES + 1)}
 
     def start(self):
         import valkey as valkey_client
@@ -42,7 +42,7 @@ class Watchdog:
     def _loop(self):
         while self._running:
             now = time.time()
-            for cage_id in range(config.N_CAGES):
+            for cage_id in range(1, config.N_CAGES + 1):
                 stats = self._stats[cage_id]
                 last_seen = stats["last_seen"]
                 frames_written = stats["frames_written"]
@@ -61,7 +61,10 @@ class Watchdog:
                     f"{status}|last_seen={last_seen:.3f}|fps={fps}|drops={drop_count}|net_drops={network_drop_count}",
                 )
 
-                if status == "dead" and last_seen > 0:
+                streaming = self._valkey.get(f"cage:{cage_id}:streaming")
+                intentionally_stopped = streaming == b"0"
+
+                if status == "dead" and last_seen > 0 and not intentionally_stopped:
                     self._log.warning(
                         f"Cage {cage_id} silent for {elapsed:.1f}s (threshold: {config.WATCHDOG_DEAD_THRESHOLD_SECONDS}s)"
                     )

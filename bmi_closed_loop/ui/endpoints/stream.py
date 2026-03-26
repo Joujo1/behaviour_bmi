@@ -9,7 +9,7 @@ _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 
 @stream_bp.get("/cage/<int:cage_id>/frame")
 def latest_frame(cage_id: int):
-    if not (0 <= cage_id < config.N_CAGES):
+    if not (1 <= cage_id <= config.N_CAGES):
         abort(404)
 
     jpeg = _valkey.get(f"cage:{cage_id}:latest_frame")
