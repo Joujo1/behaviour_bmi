@@ -90,7 +90,7 @@ class FrameWriter:
                 self._write_valkey(frame)
                 self._write_postgres(frame)
                 self._write_queue.task_done()
-                self._stats[self.cage_id]["frame_count"] += 1
+                self._stats[self.cage_id]["frames_written"] += 1
             except queue.Empty:
                 continue
 
@@ -108,14 +108,14 @@ class FrameWriter:
 
     def _write_postgres(self, frame: ParsedFrame):
         if self._chunk_frame_count == 0:
-            self._chunk_start_frame = frame.frame_num
+            self._chunk_start_frame = frame.pi_seq
             self._chunk_start_ts = frame.timestamp
             self._chunk_byte_offset = self._current_byte_offset
 
         self._chunk_frame_count += 1
 
         if self._chunk_frame_count >= config.DB_CHUNK_SIZE:
-            self._flush_chunk(end_frame=frame.frame_num, end_ts=frame.timestamp)
+            self._flush_chunk(end_frame=frame.pi_seq, end_ts=frame.timestamp)
 
     def _flush_chunk(self, end_frame: int = None, end_ts: int = None):
         if self._chunk_frame_count == 0 or self._chunk_start_frame is None:

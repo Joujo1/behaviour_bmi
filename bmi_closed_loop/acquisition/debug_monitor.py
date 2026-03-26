@@ -16,7 +16,7 @@ class DebugMonitor:
         write_queue       - frames waiting in FrameWriter._write_queue
         udp_queue_max     - queue capacity (constant, for reference)
         write_queue_max   - queue capacity (constant, for reference)
-        frame_count       - total frames written so far for this cage
+        frames_written       - total frames written so far for this cage
         drop_count        - total frames dropped so far for this cage
     """
 
@@ -39,7 +39,7 @@ class DebugMonitor:
                 "timestamp", "cage_id",
                 "udp_queue", "udp_queue_max",
                 "write_queue", "write_queue_max",
-                "frame_count", "drop_count", "network_drop_count",
+                "frames_written", "drop_count", "network_drop_count",
             ])
             self._file.flush()
 
@@ -66,7 +66,7 @@ class DebugMonitor:
                     listener.packet_queue.maxsize,
                     writer.queue_size(),
                     writer._write_queue.maxsize,
-                    stats["frame_count"],
+                    stats["frames_written"],
                     stats["drop_count"],
                     stats["network_drop_count"],
                 ])

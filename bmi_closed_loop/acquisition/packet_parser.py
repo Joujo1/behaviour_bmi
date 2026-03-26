@@ -10,7 +10,7 @@ HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 @dataclass
 class ParsedFrame:
     # used by the Postgres write (frame metadata + GPIO state per chunk)
-    frame_num: int
+    pi_seq: int             # Pi's frame counter, used for network drop detection
     timestamp: int          # microseconds, from Pi
     jpeg_size: int
     events_size: int        # bytes of JSON events between header and jpeg
@@ -35,7 +35,7 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
         return None
 
     (
-        frame_num, timestamp, jpeg_size, events_size,
+        pi_seq, timestamp, jpeg_size, events_size,
         led_center, valve_left, valve_right,
         sensor_left, sensor_right, sensor_center,
         trial_state,
@@ -58,7 +58,7 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
             pass
 
     return ParsedFrame(
-        frame_num=frame_num,
+        pi_seq=pi_seq,
         timestamp=timestamp,
         jpeg_size=jpeg_size,
         events_size=events_size,

@@ -23,7 +23,7 @@ class Watchdog:
         self._thread = None
         self._valkey = None
         self._log = get_logger("watchdog", config.LOGGING_DIR, config.LOGGING_LEVEL)
-        self._prev_frame_counts = {i: 0 for i in range(config.N_CAGES)}
+        self._prev_frames_written = {i: 0 for i in range(config.N_CAGES)}
 
     def start(self):
         import valkey as valkey_client
@@ -45,15 +45,15 @@ class Watchdog:
             for cage_id in range(config.N_CAGES):
                 stats = self._stats[cage_id]
                 last_seen = stats["last_seen"]
-                frame_count = stats["frame_count"]
+                frames_written = stats["frames_written"]
                 drop_count         = stats["drop_count"]
                 network_drop_count = stats["network_drop_count"]
 
                 elapsed = now - last_seen if last_seen > 0 else float("inf")
                 status = "alive" if elapsed < config.WATCHDOG_DEAD_THRESHOLD_SECONDS else "dead"
 
-                fps = frame_count - self._prev_frame_counts[cage_id]
-                self._prev_frame_counts[cage_id] = frame_count
+                fps = frames_written - self._prev_frames_written[cage_id]
+                self._prev_frames_written[cage_id] = frames_written
 
                 self._valkey.hset(
                     "camera_status",
