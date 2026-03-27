@@ -127,7 +127,26 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
     }
+
+    .camera-lost {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(205, 20, 20, 0.85);
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 6px;
+      flex-direction: column;
+    }
+    .camera-lost.visible { display: flex; }
 
     .cage-img-wrap img {
       width: 100%;
@@ -211,6 +230,10 @@
         </div>
         <div class="cage-img-wrap" id="wrap-${i}">
           <span class="no-feed">no feed</span>
+          <div class="camera-lost" id="lost-${i}">
+            <span>&#9888; Camera Lost</span>
+            <span id="lost-elapsed-${i}" style="font-size:0.65rem;font-weight:400;letter-spacing:0.05em"></span>
+          </div>
         </div>
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
@@ -319,6 +342,8 @@
         const drops    = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
         const netDrops = parts.find(p => p.startsWith('net_drops='))?.split('=')[1] ?? '0';
 
+        const lastSeen = parseFloat(parts.find(p => p.startsWith('last_seen='))?.split('=')[1] ?? '0');
+
         const dot = document.getElementById(`dot-${id}`);
         if (dot) dot.className = 'status-dot' + (alive ? ' alive' : '');
         const fpsEl = document.getElementById(`fps-${id}`);
@@ -329,6 +354,17 @@
         if (netDropEl) {
           netDropEl.textContent = netDrops;
           netDropEl.style.color = netDrops === '0' ? 'var(--fg-faint)' : 'var(--dead)';
+        }
+
+        const lostEl = document.getElementById(`lost-${id}`);
+        if (lostEl) {
+          const wasSeen = lastSeen > 0;
+          const show = !alive && wasSeen;
+          lostEl.classList.toggle('visible', show);
+          if (show) {
+            const elapsed = Math.round(Date.now() / 1000 - lastSeen);
+            document.getElementById(`lost-elapsed-${id}`).textContent = `silent for ${elapsed}s`;
+          }
         }
       }
     } catch (_) {}
