@@ -311,8 +311,17 @@
 
   function startImageRefresh(id) {
     const wrap = document.getElementById(`wrap-${id}`);
-    wrap.innerHTML = `<img id="img-${id}" src="" alt="cage ${id}" />`;
-    const img = document.getElementById(`img-${id}`);
+    const noFeed = wrap.querySelector('.no-feed');
+    if (noFeed) noFeed.style.display = 'none';
+
+    let img = document.getElementById(`img-${id}`);
+    if (!img) {
+      img = document.createElement('img');
+      img.id = `img-${id}`;
+      img.alt = `cage ${id}`;
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+      wrap.insertBefore(img, wrap.querySelector('.camera-lost'));
+    }
 
     function refresh() {
       const next = new Image();
@@ -326,6 +335,11 @@
   function stopImageRefresh(id) {
     clearInterval(refreshTimers[id]);
     delete refreshTimers[id];
+    const img = document.getElementById(`img-${id}`);
+    if (img) img.remove();
+    const wrap = document.getElementById(`wrap-${id}`);
+    const noFeed = wrap.querySelector('.no-feed');
+    if (noFeed) noFeed.style.display = '';
   }
 
   // ── Status polling ───────────────────────────────────────

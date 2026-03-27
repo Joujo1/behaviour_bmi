@@ -1,7 +1,7 @@
 import time
 import queue
 from picamera2 import Picamera2
-from picamera2.encoders import JpegEncoder
+from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import Output
 
 class UDPFrameOutput(Output):
@@ -54,9 +54,9 @@ class CameraStreamer:
         self.picam2 = Picamera2()
         
         self.stream_output = UDPFrameOutput(data_queue, gpio_controller, fsm_data_cb)
-        self.encoder = JpegEncoder(q=30)
+        self.encoder = MJPEGEncoder(bitrate=4_000_000)
         
-        fps = 120
+        fps = 60
         width = 1280
         height = 720
 
