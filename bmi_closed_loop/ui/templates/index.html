@@ -329,7 +329,7 @@
       next.src = `/cage/${id}/frame?t=${Date.now()}`;
     }
     refresh();
-    refreshTimers[id] = setInterval(refresh, 50);
+    refreshTimers[id] = setInterval(refresh, 16.7);
   }
 
   function stopImageRefresh(id) {

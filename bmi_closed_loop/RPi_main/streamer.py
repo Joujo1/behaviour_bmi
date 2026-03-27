@@ -19,10 +19,12 @@ class UDPFrameOutput(Output):
         self.frame_count += 1
         elapsed_time = time.time() - self.start_time
         
+        print(f"frame size: {len(frame_bytes)} bytes ({len(frame_bytes)/1024:.1f} KB)")
+
         if elapsed_time >= 1.0:
             self.fps = self.frame_count / elapsed_time
             print(f"{self.fps:.2f} fps | {len(frame_bytes)/1024:.1f} KB")
-            
+
             self.frame_count = 0
             self.start_time = time.time()
 
@@ -54,7 +56,7 @@ class CameraStreamer:
         self.picam2 = Picamera2()
         
         self.stream_output = UDPFrameOutput(data_queue, gpio_controller, fsm_data_cb)
-        self.encoder = MJPEGEncoder(bitrate=4_000_000)
+        self.encoder = MJPEGEncoder(bitrate=12_000_000)
         
         fps = 60
         width = 1280
