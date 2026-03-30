@@ -57,12 +57,24 @@ class UDPSender:
 
     
     def _pack_and_send(self, frame_bytes, gpio, timestamp, trial_state, events):
+        # TODO (GPIO key names):
+        #   The gpio dict here comes from _GPIOAdapter.get_current_state() in main.py.
+        #   Once the real adapter is implemented (calling gpio_handler.get_snapshot()),
+        #   verify that the keys below still match. Expected mapping:
+        #     "led_center"    ← gpio_handler "led_center_tracked"
+        #     "valve_left"    ← gpio_handler "valve_left_tracked"
+        #     "valve_right"   ← gpio_handler "valve_right_tracked"
+        #     "sensor_left"   ← gpio_handler "ir_left"
+        #     "sensor_right"  ← gpio_handler "ir_right"
+        #     "sensor_center" ← gpio_handler "ir_center"
+        #   Also verify the PC-side parser still matches this header format
+        #   after any changes.
         self.frame_counter += 1
         jpeg_size = len(frame_bytes)
 
         events_json_bytes = json.dumps(events).encode('utf-8')
         events_size = len(events_json_bytes)
-        
+
         header = struct.pack(
             '<IQIIBBBBBBB', # Format: < I(frame) Q(time) I(jpeg_size) I(events_size) Bx7(gpio+state)
             self.frame_counter,

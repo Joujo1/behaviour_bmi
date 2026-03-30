@@ -8,10 +8,7 @@ from shared.logger import get_logger
 class Watchdog:
     """
     Monitors camera liveness and writes status to Valkey.
-
     Reads from the shared camera_stats dict (written by listener/writer threads).
-    Writes only to Valkey — no DB, no NAS.
-
     Valkey key: camera_status (HSET)
       field: cage_{id}
       value: "alive|dead" + last_seen + rolling_fps + drop_count

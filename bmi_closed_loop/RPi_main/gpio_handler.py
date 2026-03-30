@@ -20,39 +20,7 @@ import threading
 logger = logging.getLogger(__name__)
 
 
-try:
-    import RPi.GPIO as _GPIO
-    _ON_PI = True
-    logger.debug("RPi.GPIO loaded")
-except ImportError:
-    _ON_PI = False
-    logger.warning("RPi.GPIO not available — using mock GPIO (non-Pi machine)")
-
-    class _MockGPIO:
-        """Minimal mock with correct constant values so comparisons work."""
-        BCM      = 11
-        IN       = 1
-        OUT      = 0
-        HIGH     = 1
-        LOW      = 0
-        RISING   = 31
-        FALLING  = 32
-        BOTH     = 33
-        PUD_UP   = 22
-        PUD_DOWN = 21
-
-        def setmode(self, mode):                                    pass
-        def setwarnings(self, w):                                   pass
-        def setup(self, pin, direction, pull_up_down=None,
-                  initial=None):                                    pass
-        def output(self, pin, value):                               pass
-        def input(self, pin):                                       return 0
-        def add_event_detect(self, pin, edge, callback=None,
-                             bouncetime=0):                         pass
-        def remove_event_detect(self, pin):                         pass
-        def cleanup(self):                                          pass
-
-    _GPIO = _MockGPIO()
+import RPi.GPIO as _GPIO
 
 
 
@@ -94,7 +62,7 @@ def setup() -> None:
         for pin in all_output_pins:
             _output_state[pin] = False
 
-    logger.info("GPIO setup complete (on_pi=%s)", _ON_PI)
+    logger.info("GPIO setup complete")
 
 
 def cleanup() -> None:
@@ -154,7 +122,7 @@ def start_monitoring(on_event) -> None:
                                callback=_handler,
                                bouncetime=IR_DEBOUNCE_MS)
 
-    logger.debug("IR monitoring started")
+    logger.info("IR monitoring started")
 
 
 def stop_monitoring() -> None:
@@ -164,16 +132,15 @@ def stop_monitoring() -> None:
             _GPIO.remove_event_detect(pin)
         except Exception:
             pass
-    logger.debug("IR monitoring stopped")
+    logger.info("IR monitoring stopped")
 
 
 def get_snapshot() -> dict:
     """
     Return the current binary state of all hardware as a flat dict.
-
-    IR values are normalised to logical 'active' level (1 = beam broken /
-    animal present) regardless of pull direction.  Output values come from
-    internal tracking, not hardware read-back.
+    For output pins both sources are included so they can be compared:
+      *_tracked  — internal _output_state dict (what we wrote)
+      *_readback — GPIO.input() on the output pin (what the hardware reports)
     """
     snapshot = {}
 
@@ -182,12 +149,22 @@ def get_snapshot() -> dict:
         active = (raw == _GPIO.LOW) if IR_ACTIVE_LOW[target] else (raw == _GPIO.HIGH)
         snapshot[f"ir_{target}"] = int(active)
 
+    all_output_pins = {
+        "led":   LED_PINS,
+        "valve": VALVE_PINS,
+        "audio": AUDIO_PINS,
+    }
     with _output_lock:
-        for target, pin in LED_PINS.items():
-            snapshot[f"led_{target}"] = int(_output_state.get(pin, False))
-        for target, pin in VALVE_PINS.items():
-            snapshot[f"valve_{target}"] = int(_output_state.get(pin, False))
-        for target, pin in AUDIO_PINS.items():
-            snapshot[f"audio_{target}"] = int(_output_state.get(pin, False))
+        for prefix, pins in all_output_pins.items():
+            for target, pin in pins.items():
+                tracked  = int(_output_state.get(pin, False))
+                readback = int(_GPIO.input(pin) == _GPIO.HIGH)
+                snapshot[f"{prefix}_{target}_tracked"]  = tracked
+                snapshot[f"{prefix}_{target}_readback"] = readback
+                if tracked != readback:
+                    logger.warning(
+                        "Output state mismatch on %s_%s (pin %d): tracked=%d readback=%d",
+                        prefix, target, pin, tracked, readback,
+                    )
 
     return snapshot
