@@ -9,7 +9,6 @@ entry and exit edges.
 
 Audio is GPIO-based: a brief HIGH pulse on an AUDIO_PIN drives the PAM8302
 amplifier input directly, producing an audible click.
-
 On non-Pi machines the module loads normally using a minimal mock, allowing
 development and testing on the Linux PC without any hardware present.
 """

@@ -12,8 +12,7 @@ VALVE_PINS = {
     "right": 6,     # physical 31  (VALVE3 on schematic)
 }
 # NOTE: schematic VALVE1 is on physical 27 → BCM 0 (HAT EEPROM SDA pin).
-# RPi.GPIO blocks BCM 0/1 — they are reserved for HAT detection.
-# VALVE1 is skipped; left/right valves use VALVE2 and VALVE3 instead.
+
 
 IR_PINS = {
     "left":   2,    # physical 3  (DIST1)
