@@ -176,6 +176,122 @@
       flex-wrap: wrap;
     }
 
+    /* ── Trial Builder ──────────────────────────────────── */
+    #builder {
+      padding: 24px;
+      border-top: 2px solid var(--fg);
+    }
+
+    #bldr-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    #bldr-header h2 {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .bldr-label {
+      font-size: 0.78rem;
+      color: var(--fg-faint);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .bldr-input {
+      border: 1px solid var(--border);
+      background: var(--bg-faint);
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 0.82rem;
+      outline: none;
+      color: var(--fg);
+    }
+    .bldr-input:focus { border-color: var(--fg); }
+
+    #bldr-states-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .bldr-state-card {
+      border: 1.5px solid var(--border);
+      padding: 14px;
+    }
+
+    .bldr-state-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .bldr-state-id {
+      border: none;
+      border-bottom: 1.5px solid var(--fg);
+      background: transparent;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 700;
+      outline: none;
+      width: 160px;
+      padding: 2px 0;
+    }
+
+    .bldr-phase-block { margin-bottom: 10px; }
+
+    .bldr-phase-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--fg-faint);
+      margin-bottom: 6px;
+    }
+
+    .bldr-action-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+
+    .bldr-remove {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--fg-faint);
+      font-size: 0.8rem;
+      padding: 2px 6px;
+      font-family: inherit;
+    }
+    .bldr-remove:hover { color: var(--dead); }
+
+    #bldr-json {
+      width: 100%;
+      height: 180px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      border: 1px solid var(--border);
+      background: var(--bg-faint);
+      padding: 10px;
+      resize: vertical;
+      outline: none;
+      margin-top: 6px;
+      color: var(--fg);
+    }
+
     /* ── Toast ───────────────────────────────────────────── */
     #toast {
       position: fixed;
@@ -205,6 +321,34 @@
 </header>
 
 <div class="grid" id="cage-grid"></div>
+
+<section id="builder">
+  <div id="bldr-header">
+    <h2>Trial Builder</h2>
+    <span class="bldr-label">Cage
+      <select id="bldr-cage" class="bldr-input"></select>
+    </span>
+    <span class="bldr-label">Trial ID
+      <input id="bldr-trial-id" class="bldr-input" value="trial_001"
+             style="width:120px;" onchange="updateJSONPreview()" />
+    </span>
+    <span class="bldr-label">Initial State
+      <select id="bldr-initial-state" class="bldr-input"
+              onchange="updateJSONPreview()">
+        <option value="">—</option>
+      </select>
+    </span>
+    <button class="btn accent" onclick="sendBuilderTrial()">Send Trial ▶</button>
+    <button class="btn"        onclick="stopBuilderTrial()">Stop Trial ■</button>
+  </div>
+
+  <div id="bldr-states-container"></div>
+  <button class="btn small" onclick="addState()">+ Add State</button>
+
+  <div class="bldr-phase-label" style="margin-top:18px;">JSON Preview</div>
+  <textarea id="bldr-json" readonly placeholder="Add states to preview JSON…"></textarea>
+</section>
+
 <div id="toast"></div>
 
 <script>
@@ -286,24 +430,16 @@
     }
   }
 
-  // ── Trial ────────────────────────────────────────────────
-  const DEFAULT_TRIAL = {
-    states: { wait_for_cpoke: 10.0, cpoke_in: 2.0, wait_for_spoke: 5.0 },
-    clickTimesR: [0.1, 0.3],
-    clickTimesL: [],
-    side: "R",
-    task: "simpleConditioning",
-    centralPokeTime: 0.5
-  };
-
+  // ── Trial (cage card buttons use the builder's JSON) ─────
   async function startTrial(id) {
-    const res = await post(`/cage/${id}/trial/start`, DEFAULT_TRIAL);
-    toast(`Cage ${id} trial: ${res.data?.msg || (res.ok ? 'started' : 'failed')}`);
+    if (!bldrStates.length) { toast('Build a trial first — see Trial Builder below'); return; }
+    const res = await post(`/cage/${id}/trial/start`, buildTrialJSON());
+    toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'trial started' : 'failed')}`);
   }
 
   async function stopTrial(id) {
     const res = await post(`/cage/${id}/trial/stop`);
-    toast(`Cage ${id} trial: ${res.data?.msg || (res.ok ? 'stopped' : 'failed')}`);
+    toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'trial stopped' : 'failed')}`);
   }
 
   // ── Live image refresh ───────────────────────────────────
@@ -403,6 +539,162 @@
     }
   }
 
+  // ── Trial Builder ─────────────────────────────────────────
+  const ACTION_TYPES  = ['led_on','led_off','valve_open','valve_close','play_audio'];
+  const ALL_TARGETS   = ['left','right','center'];
+  const TRIGGER_TYPES = ['ir_break','timeout'];
+
+  let bldrStates     = [];
+  let bldrStateCount = 1;
+
+  // Populate cage dropdown once
+  const bldrCageSel = document.getElementById('bldr-cage');
+  for (let i = 1; i <= N_CAGES; i++)
+    bldrCageSel.innerHTML += `<option value="${i}">Cage ${i}</option>`;
+
+  function addState() {
+    bldrStates.push({ id: `state_${bldrStateCount++}`, duration: null,
+                      entry_actions: [], exit_actions: [], transitions: [] });
+    renderBuilder();
+  }
+
+  function removeState(idx) { bldrStates.splice(idx, 1); renderBuilder(); }
+
+  function updateStateField(idx, field, value) {
+    bldrStates[idx][field] = field === 'duration'
+      ? (value === '' ? null : parseFloat(value)) : value;
+    if (field === 'id') updateInitialStateOptions();
+    updateJSONPreview();
+  }
+
+  function addAction(si, phase) {
+    bldrStates[si][phase].push({ type: 'led_on', target: 'center' });
+    renderBuilder();
+  }
+  function removeAction(si, phase, ai) { bldrStates[si][phase].splice(ai,1); renderBuilder(); }
+  function updateAction(si, phase, ai, field, value) {
+    bldrStates[si][phase][ai][field] = value; updateJSONPreview();
+  }
+
+  function addTransition(si) {
+    bldrStates[si].transitions.push({ trigger: 'timeout', target: 'center', next_state: '__end__' });
+    renderBuilder();
+  }
+  function removeTransition(si, ti) { bldrStates[si].transitions.splice(ti,1); renderBuilder(); }
+  function updateTransition(si, ti, field, value) {
+    bldrStates[si].transitions[ti][field] = value;
+    if (field === 'trigger') renderBuilder(); else updateJSONPreview();
+  }
+
+  function opts(list, selected) {
+    return list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+  }
+
+  function renderStateCard(s, idx) {
+    const renderActions = phase => s[phase].map((a, ai) => `
+      <div class="bldr-action-row">
+        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'type',this.value)">${opts(ACTION_TYPES,a.type)}</select>
+        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target)}</select>
+        <button class="bldr-remove" onclick="removeAction(${idx},'${phase}',${ai})">✕</button>
+      </div>`).join('');
+
+    const renderTransitions = () => s.transitions.map((t, ti) => `
+      <div class="bldr-action-row">
+        <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
+        ${t.trigger==='ir_break'
+          ? `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>`
+          : `<span style="display:inline-block;width:98px"></span>`}
+        <span style="color:var(--fg-faint);padding:0 4px;">→</span>
+        <input class="bldr-input" type="text" value="${t.next_state}" placeholder="next state"
+               style="width:130px;" onchange="updateTransition(${idx},${ti},'next_state',this.value)" />
+        <button class="bldr-remove" onclick="removeTransition(${idx},${ti})">✕</button>
+      </div>`).join('');
+
+    return `
+      <div class="bldr-state-card">
+        <div class="bldr-state-header">
+          <input class="bldr-state-id" value="${s.id}"
+                 onchange="updateStateField(${idx},'id',this.value)" />
+          <span class="bldr-label">duration
+            <input class="bldr-input" type="number" step="0.1" min="0"
+                   value="${s.duration??''}" placeholder="none" style="width:70px;"
+                   onchange="updateStateField(${idx},'duration',this.value)" /> s
+          </span>
+          <button class="bldr-remove" onclick="removeState(${idx})">✕ remove</button>
+        </div>
+        <div class="bldr-phase-block">
+          <div class="bldr-phase-label">Entry Actions</div>
+          ${renderActions('entry_actions')}
+          <button class="btn small" onclick="addAction(${idx},'entry_actions')">+ entry action</button>
+        </div>
+        <div class="bldr-phase-block">
+          <div class="bldr-phase-label">Exit Actions</div>
+          ${renderActions('exit_actions')}
+          <button class="btn small" onclick="addAction(${idx},'exit_actions')">+ exit action</button>
+        </div>
+        <div class="bldr-phase-block">
+          <div class="bldr-phase-label">Transitions</div>
+          ${renderTransitions()}
+          <button class="btn small" onclick="addTransition(${idx})">+ transition</button>
+        </div>
+      </div>`;
+  }
+
+  function renderBuilder() {
+    document.getElementById('bldr-states-container').innerHTML =
+      bldrStates.map((s,i) => renderStateCard(s,i)).join('');
+    updateInitialStateOptions();
+    updateJSONPreview();
+  }
+
+  function updateInitialStateOptions() {
+    const sel = document.getElementById('bldr-initial-state');
+    const cur = sel.value;
+    sel.innerHTML = bldrStates.length
+      ? bldrStates.map(s => `<option value="${s.id}"${s.id===cur?' selected':''}>${s.id}</option>`).join('')
+      : '<option value="">—</option>';
+  }
+
+  function buildTrialJSON() {
+    return {
+      trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
+      initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
+      states: bldrStates.map(s => {
+        const state = {
+          id:            s.id,
+          entry_actions: s.entry_actions.map(a => ({...a})),
+          exit_actions:  s.exit_actions.map(a => ({...a})),
+          transitions:   s.transitions.map(t => {
+            const tr = { trigger: t.trigger, next_state: t.next_state };
+            if (t.trigger === 'ir_break') tr.target = t.target;
+            return tr;
+          }),
+        };
+        if (s.duration !== null && !isNaN(s.duration)) state.duration = s.duration;
+        return state;
+      }),
+    };
+  }
+
+  function updateJSONPreview() {
+    document.getElementById('bldr-json').value =
+      bldrStates.length ? JSON.stringify(buildTrialJSON(), null, 2) : '';
+  }
+
+  async function sendBuilderTrial() {
+    if (!bldrStates.length) { toast('Add at least one state first'); return; }
+    const cage = parseInt(document.getElementById('bldr-cage').value);
+    const res  = await post(`/cage/${cage}/trial/start`, buildTrialJSON());
+    toast(`Cage ${cage}: ${res.data?.msg || (res.data?.ok !== false ? 'trial started' : 'failed')}`);
+  }
+
+  async function stopBuilderTrial() {
+    const cage = parseInt(document.getElementById('bldr-cage').value);
+    const res  = await post(`/cage/${cage}/trial/stop`);
+    toast(`Cage ${cage}: ${res.data?.msg || (res.ok ? 'trial stopped' : 'failed')}`);
+  }
+
+  // ── Toast ─────────────────────────────────────────────────
   let toastTimer;
   function toast(msg) {
     const el = document.getElementById('toast');

@@ -8,10 +8,9 @@ LED_PINS = {
 }
 
 VALVE_PINS = {
-    "left":  5,     # physical 29  (VALVE2 on schematic — see note below)
-    "right": 6,     # physical 31  (VALVE3 on schematic)
+    "left":  0,     # physical 27  (VALVE1 on schematic, BCM 0)
+    "right": 5,     # physical 29  (VALVE2 on schematic, BCM 5)
 }
-# NOTE: schematic VALVE1 is on physical 27 → BCM 0 (HAT EEPROM SDA pin).
 
 
 IR_PINS = {

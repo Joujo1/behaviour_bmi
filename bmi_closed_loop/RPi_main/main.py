@@ -175,6 +175,8 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         logger.info("Interrupted — shutting down")
+    except Exception as e:
+        logger.error("Fatal error: %s", e, exc_info=True)
     finally:
         if current_engine is not None:
             current_engine.stop()

@@ -46,7 +46,7 @@ def trial_start(cage_id: int):
     if not (1 <= cage_id <= config.N_CAGES):
         abort(404)
     body = request.get_json(force=True) or {}
-    ok, msg = _sender(cage_id).send("START_TRIAL:" + json.dumps(body))
+    ok, msg = _sender(cage_id).send(json.dumps(body))
     return jsonify({"ok": ok, "msg": msg})
 
 
