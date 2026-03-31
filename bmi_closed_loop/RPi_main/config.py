@@ -1,26 +1,26 @@
 LED_PINS = {
-    "center": 17,
-    "left":   27,
-    "right":  22,
+    "center": 33,
+    "left":   35,
+    "right":  37,
 }
 
 VALVE_PINS = {
-    "left":  5,
-    "right": 6,
+    "left":  27,
+    "right": 29,
 }
 
 IR_PINS = {
-    "left":   23,
-    "right":  24,
-    "center": 25,
+    "left":   3,
+    "right":  5,
+    "center": 7,
 }
 
-# GPIO pins connected directly to the amplifier audio inputs.
-# A brief HIGH pulse (CLICK_PULSE_US microseconds) produces an audible click.
 AUDIO_PINS = {
-    "left":  12,
-    "right": 13,
+    "left":  19,
+    "right": 21,
 }
+
+# All values are physical header pin numbers (gpio_handler uses GPIO.BOARD mode).
 
 # Each IR sensor's active logic and the GPIO edge that signals beam break
 # (animal entering the port).
@@ -41,3 +41,6 @@ IR_DEBOUNCE_MS        = 50    # bouncetime passed to GPIO.add_event_detect
 
 # Trial safety
 TRIAL_WATCHDOG_S = 300        # abort trial after 5 minutes regardless
+
+TCP_PORT        = 6000
+UDP_STREAM_PORT = 5005

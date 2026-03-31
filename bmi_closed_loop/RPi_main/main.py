@@ -5,7 +5,7 @@ Start-up sequence:
   1. Configure logging
   2. Set up GPIO pins
   3. Start the TCP receiver
-  4. Wait — all further activity is event-driven (TCP commands, GPIO, timers)
+  4. All further activity is event-driven (TCP commands, GPIO, timers)
 
 TCP protocol (newline-terminated):
   PC → Pi   START_STREAMING\n   start camera + UDP stream to PC
@@ -30,9 +30,8 @@ from engine import Engine
 from tcp_command_receiver import TCPCommandReceiver
 from streamer import CameraStreamer
 from udp_sender_pi import UDPSender
+from config import TCP_PORT, UDP_STREAM_PORT
 
-TCP_PORT        = 6000
-UDP_STREAM_PORT = 5005
 
 logging.basicConfig( 
     level=logging.INFO,
@@ -74,7 +73,6 @@ def main():
     gpio_handler.setup()
     logger.info("GPIO ready")
 
-    # Mutable state — modified inside nested callbacks via nonlocal
     current_engine: Engine          = None
     frame_queue:    queue.Queue     = None
     sender:         UDPSender       = None
@@ -85,9 +83,6 @@ def main():
     receiver: TCPCommandReceiver = None
     gpio_adapter = _GPIOAdapter()
 
-    # ------------------------------------------------------------------
-    # Trial completion callback
-    # ------------------------------------------------------------------
 
     def on_trial_complete(trial_id: str, aborted: bool) -> None:
         """Push a trial_complete or trial_aborted event back to the PC over TCP."""
@@ -96,15 +91,9 @@ def main():
         logger.info("Trial finished: event=%s  trial_id=%s", event, trial_id)
         receiver.push(payload)
 
-    # ------------------------------------------------------------------
-    # TCP command handler
-    # ------------------------------------------------------------------
-
     def handle_command(command: str):
         """Dispatch a single newline-terminated command from the PC."""
         nonlocal current_engine, frame_queue, sender, camera, is_streaming
-
-        # ---- Streaming ----
 
         if command == "START_STREAMING":
             if is_streaming:
@@ -140,16 +129,12 @@ def main():
             logger.info("Streaming stopped")
             return True, "ok"
 
-        # ---- Trial control ----
-
         if command == "STOP_TRIAL":
             if current_engine is None:
                 return False, "no trial running"
             current_engine.stop()
             current_engine = None
             return True, "trial stopped"
-
-        # ---- JSON trial definition ----
 
         try:
             trial_data = json.loads(command)
@@ -170,19 +155,12 @@ def main():
         current_engine.start()
         return True, "ok"
 
-    # ------------------------------------------------------------------
-    # PC connect callback — capture IP for UDP
-    # ------------------------------------------------------------------
 
     def on_connect(ip: str) -> None:
         """Record the PC's IP address so the UDP stream knows where to send frames."""
         nonlocal pc_ip
         pc_ip = ip
         logger.info("PC IP set to %s", ip)
-
-    # ------------------------------------------------------------------
-    # Start receiver and block
-    # ------------------------------------------------------------------
 
     receiver = TCPCommandReceiver(
         port=TCP_PORT,
