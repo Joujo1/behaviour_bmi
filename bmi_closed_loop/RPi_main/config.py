@@ -1,35 +1,40 @@
+# All values are BCM numbers (gpio_handler uses GPIO.BCM mode).
+# Physical header pin numbers from the PCB schematic shown in comments.
+
 LED_PINS = {
-    "center": 33,
-    "left":   35,
-    "right":  37,
+    "center": 13,   # physical 33
+    "left":   19,   # physical 35
+    "right":  26,   # physical 37
 }
 
 VALVE_PINS = {
-    "left":  27,
-    "right": 29,
+    "left":  5,     # physical 29  (VALVE2 on schematic — see note below)
+    "right": 6,     # physical 31  (VALVE3 on schematic)
 }
+# NOTE: schematic VALVE1 is on physical 27 → BCM 0 (HAT EEPROM SDA pin).
+# RPi.GPIO blocks BCM 0/1 — they are reserved for HAT detection.
+# VALVE1 is skipped; left/right valves use VALVE2 and VALVE3 instead.
 
 IR_PINS = {
-    "left":   3,
-    "right":  5,
-    "center": 7,
+    "left":   2,    # physical 3  (DIST1)
+    "right":  3,    # physical 5  (DIST2)
+    "center": 4,    # physical 7  (DIST3)
 }
 
+# GPIO pins connected directly to the PAM8302 amplifier audio inputs.
+# A brief HIGH pulse (CLICK_PULSE_US microseconds) produces an audible click.
 AUDIO_PINS = {
-    "left":  19,
-    "right": 21,
+    "left":  10,    # physical 19 (AUD1)
+    "right": 9,     # physical 21 (AUD2)
 }
 
-# All values are physical header pin numbers (gpio_handler uses GPIO.BOARD mode).
-
-# Each IR sensor's active logic and the GPIO edge that signals beam break
-# (animal entering the port).
-#   All ports wired with pull-down, active HIGH — beam break = RISING edge.
-#   Override to True for any port wired active-LOW (pull-up).
+# Each IR sensor's active logic level.
+# False = PUD_DOWN, active HIGH (beam break = RISING edge)
+# True  = PUD_UP,   active LOW  (beam break = FALLING edge)
 IR_ACTIVE_LOW = {
-    "left":   False,   # PUD_DOWN, active HIGH
-    "right":  False,   # PUD_DOWN, active HIGH
-    "center": True,    # PUD_UP,   active LOW  (center poke wired inverted)
+    "left":   False,
+    "right":  False,
+    "center": True,    # center poke wired with pull-up, active LOW
 }
 
 # Click pulse width in microseconds — how long the GPIO pin stays HIGH.

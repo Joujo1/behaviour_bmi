@@ -43,7 +43,7 @@ def _drive(pin: int, state: bool) -> None:
 
 def setup() -> None:
     """Configure all GPIO pins; must be called once at process start."""
-    _GPIO.setmode(_GPIO.BOARD)
+    _GPIO.setmode(_GPIO.BCM)
     _GPIO.setwarnings(False)
 
     for pin in LED_PINS.values():
