@@ -292,6 +292,35 @@
       color: var(--fg);
     }
 
+    .bldr-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+
+    #bldr-graph {
+      border: 1px solid var(--border);
+      background: var(--bg-faint);
+      padding: 12px;
+      min-height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      position: sticky;
+      top: 12px;
+    }
+
+    #bldr-graph svg { max-width: 100%; height: auto; }
+
+    #bldr-graph .no-graph-msg {
+      font-size: 0.72rem;
+      color: var(--fg-faint);
+      letter-spacing: 0.05em;
+    }
+
     /* ── Toast ───────────────────────────────────────────── */
     #toast {
       position: fixed;
@@ -342,8 +371,13 @@
     <button class="btn"        onclick="stopBuilderTrial()">Stop Trial ■</button>
   </div>
 
-  <div id="bldr-states-container"></div>
-  <button class="btn small" onclick="addState()">+ Add State</button>
+  <div class="bldr-content">
+    <div>
+      <div id="bldr-states-container"></div>
+      <button class="btn small" onclick="addState()" style="margin-top:8px">+ Add State</button>
+    </div>
+    <div id="bldr-graph"><span class="no-graph-msg">Add states to see graph</span></div>
+  </div>
 
   <div class="bldr-phase-label" style="margin-top:18px;">JSON Preview</div>
   <textarea id="bldr-json" readonly placeholder="Add states to preview JSON…"></textarea>
@@ -542,7 +576,7 @@
   // ── Trial Builder ─────────────────────────────────────────
   const ACTION_TYPES  = ['led_on','led_off','valve_open','valve_close','play_audio'];
   const ALL_TARGETS   = ['left','right','center'];
-  const TRIGGER_TYPES = ['ir_break','timeout'];
+  const TRIGGER_TYPES = ['beam_break','timeout'];
 
   let bldrStates     = [];
   let bldrStateCount = 1;
@@ -553,7 +587,7 @@
     bldrCageSel.innerHTML += `<option value="${i}">Cage ${i}</option>`;
 
   function addState() {
-    bldrStates.push({ id: `state_${bldrStateCount++}`, duration: null,
+    bldrStates.push({ id: `state_${bldrStateCount++}`,
                       entry_actions: [], exit_actions: [], transitions: [] });
     renderBuilder();
   }
@@ -561,8 +595,7 @@
   function removeState(idx) { bldrStates.splice(idx, 1); renderBuilder(); }
 
   function updateStateField(idx, field, value) {
-    bldrStates[idx][field] = field === 'duration'
-      ? (value === '' ? null : parseFloat(value)) : value;
+    bldrStates[idx][field] = value;
     if (field === 'id') updateInitialStateOptions();
     updateJSONPreview();
   }
@@ -577,12 +610,14 @@
   }
 
   function addTransition(si) {
-    bldrStates[si].transitions.push({ trigger: 'timeout', target: 'center', next_state: '__end__' });
+    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: '__end__' });
     renderBuilder();
   }
   function removeTransition(si, ti) { bldrStates[si].transitions.splice(ti,1); renderBuilder(); }
   function updateTransition(si, ti, field, value) {
-    bldrStates[si].transitions[ti][field] = value;
+    bldrStates[si].transitions[ti][field] = field === 'duration'
+      ? (value === '' || isNaN(parseFloat(value)) ? null : parseFloat(value))
+      : value;
     if (field === 'trigger') renderBuilder(); else updateJSONPreview();
   }
 
@@ -601,9 +636,11 @@
     const renderTransitions = () => s.transitions.map((t, ti) => `
       <div class="bldr-action-row">
         <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
-        ${t.trigger==='ir_break'
+        ${t.trigger === 'beam_break'
           ? `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>`
-          : `<span style="display:inline-block;width:98px"></span>`}
+          : `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
+               style="width:90px;" value="${t.duration??''}"
+               onchange="updateTransition(${idx},${ti},'duration',this.value)" />`}
         <span style="color:var(--fg-faint);padding:0 4px;">→</span>
         <input class="bldr-input" type="text" value="${t.next_state}" placeholder="next state"
                style="width:130px;" onchange="updateTransition(${idx},${ti},'next_state',this.value)" />
@@ -615,11 +652,6 @@
         <div class="bldr-state-header">
           <input class="bldr-state-id" value="${s.id}"
                  onchange="updateStateField(${idx},'id',this.value)" />
-          <span class="bldr-label">duration
-            <input class="bldr-input" type="number" step="0.1" min="0"
-                   value="${s.duration??''}" placeholder="none" style="width:70px;"
-                   onchange="updateStateField(${idx},'duration',this.value)" /> s
-          </span>
           <button class="bldr-remove" onclick="removeState(${idx})">✕ remove</button>
         </div>
         <div class="bldr-phase-block">
@@ -660,17 +692,19 @@
       trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
       initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
       states: bldrStates.map(s => {
+        const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
         const state = {
           id:            s.id,
           entry_actions: s.entry_actions.map(a => ({...a})),
           exit_actions:  s.exit_actions.map(a => ({...a})),
           transitions:   s.transitions.map(t => {
             const tr = { trigger: t.trigger, next_state: t.next_state };
-            if (t.trigger === 'ir_break') tr.target = t.target;
+            if (t.trigger === 'beam_break') tr.target = t.target;
             return tr;
           }),
         };
-        if (s.duration !== null && !isNaN(s.duration)) state.duration = s.duration;
+        if (timeoutT?.duration !== null && timeoutT?.duration !== undefined)
+          state.duration = timeoutT.duration;
         return state;
       }),
     };
@@ -679,6 +713,26 @@
   function updateJSONPreview() {
     document.getElementById('bldr-json').value =
       bldrStates.length ? JSON.stringify(buildTrialJSON(), null, 2) : '';
+    updateGraph();
+  }
+
+  async function updateGraph() {
+    const graphEl = document.getElementById('bldr-graph');
+    if (!bldrStates.length) {
+      graphEl.innerHTML = '<span class="no-graph-msg">Add states to see graph</span>';
+      return;
+    }
+    try {
+      const res = await fetch('/trial/graph', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildTrialJSON()),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      graphEl.innerHTML = await res.text();
+    } catch (e) {
+      graphEl.innerHTML = `<span class="no-graph-msg" style="color:var(--dead)">Graph error: ${e.message}</span>`;
+    }
   }
 
   async function sendBuilderTrial() {

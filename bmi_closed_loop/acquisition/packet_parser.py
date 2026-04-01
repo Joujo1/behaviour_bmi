@@ -17,9 +17,9 @@ class ParsedFrame:
     led_center: int
     valve_left: int
     valve_right: int
-    sensor_left: int
-    sensor_right: int
-    sensor_center: int
+    beam_left: int
+    beam_right: int
+    beam_center: int
     trial_state: int
     events: list
 
@@ -37,7 +37,7 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
     (
         pi_seq, timestamp, jpeg_size, events_size,
         led_center, valve_left, valve_right,
-        sensor_left, sensor_right, sensor_center,
+        beam_left, beam_right, beam_center,
         trial_state,
     ) = struct.unpack(HEADER_FORMAT, raw_data[:HEADER_SIZE])
 
@@ -65,9 +65,9 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
         led_center=led_center,
         valve_left=valve_left,
         valve_right=valve_right,
-        sensor_left=sensor_left,
-        sensor_right=sensor_right,
-        sensor_center=sensor_center,
+        beam_left=beam_left,
+        beam_right=beam_right,
+        beam_center=beam_center,
         trial_state=trial_state,
         events=events,
         raw_packet=raw_data[:expected_size],

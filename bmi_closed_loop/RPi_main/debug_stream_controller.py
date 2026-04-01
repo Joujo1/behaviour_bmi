@@ -10,7 +10,7 @@ class MockGPIO:
     def get_current_state(self):
         return {
             'led_center': False, 'valve_left': False, 'valve_right': False,
-            'sensor_left': False, 'sensor_right': False, 'sensor_center': True
+            'beam_left': False, 'beam_right': False, 'beam_center': True
         }
 
 

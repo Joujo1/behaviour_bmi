@@ -4,7 +4,7 @@ GPIO hardware abstraction layer.
 All pin numbers and all RPi.GPIO calls are confined to this module.
 Engine and actions interact with hardware exclusively through the functions here.
 
-All IR sensors are monitored continuously for the entire trial with both
+All beam sensors are monitored continuously for the entire trial with both
 entry and exit edges.
 
 Audio is GPIO-based: a brief HIGH pulse on an AUDIO_PIN drives the PAM8302
@@ -24,8 +24,8 @@ import RPi.GPIO as _GPIO
 
 
 from config import (
-    LED_PINS, VALVE_PINS, IR_PINS, AUDIO_PINS,
-    IR_ACTIVE_LOW, IR_DEBOUNCE_MS,
+    LED_PINS, VALVE_PINS, BEAM_PINS, AUDIO_PINS,
+    BEAM_ACTIVE_LOW, BEAM_DEBOUNCE_MS,
 )
 
 # Internal output-state tracking
@@ -52,8 +52,8 @@ def setup() -> None:
     for pin in AUDIO_PINS.values():
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
 
-    for target, pin in IR_PINS.items():
-        pull = _GPIO.PUD_UP if IR_ACTIVE_LOW[target] else _GPIO.PUD_DOWN
+    for target, pin in BEAM_PINS.items():
+        pull = _GPIO.PUD_UP if BEAM_ACTIVE_LOW[target] else _GPIO.PUD_DOWN
         _GPIO.setup(pin, _GPIO.IN, pull_up_down=pull)
 
     all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) + list(AUDIO_PINS.values()))
@@ -99,16 +99,16 @@ def safety_sweep() -> None:
 
 
 def _read_active(target: str, pin: int) -> bool:
-    """Return the normalised logical state of an IR sensor (True = beam broken)."""
+    """Return the normalised logical state of a beam sensor (True = beam broken)."""
     raw = _GPIO.input(pin)
-    return (raw == _GPIO.LOW) if IR_ACTIVE_LOW[target] else (raw == _GPIO.HIGH)
+    return (raw == _GPIO.LOW) if BEAM_ACTIVE_LOW[target] else (raw == _GPIO.HIGH)
 
 
 def start_monitoring(on_event) -> None:
     """
     Begin monitoring all IR sensors for the duration of a trial.
     """
-    for target, pin in IR_PINS.items():
+    for target, pin in BEAM_PINS.items():
         try:
             _GPIO.remove_event_detect(pin)
         except Exception:
@@ -119,19 +119,19 @@ def start_monitoring(on_event) -> None:
 
         _GPIO.add_event_detect(pin, _GPIO.BOTH,
                                callback=_handler,
-                               bouncetime=IR_DEBOUNCE_MS)
+                               bouncetime=BEAM_DEBOUNCE_MS)
 
-    logger.info("IR monitoring started")
+    logger.info("Beam monitoring started")
 
 
 def stop_monitoring() -> None:
     """Remove all IR event detection; called at trial end."""
-    for pin in IR_PINS.values():
+    for pin in BEAM_PINS.values():
         try:
             _GPIO.remove_event_detect(pin)
         except Exception:
             pass
-    logger.info("IR monitoring stopped")
+    logger.info("Beam monitoring stopped")
 
 
 def get_snapshot() -> dict:
@@ -143,10 +143,10 @@ def get_snapshot() -> dict:
     """
     snapshot = {}
 
-    for target, pin in IR_PINS.items():
+    for target, pin in BEAM_PINS.items():
         raw    = _GPIO.input(pin)
-        active = (raw == _GPIO.LOW) if IR_ACTIVE_LOW[target] else (raw == _GPIO.HIGH)
-        snapshot[f"ir_{target}"] = int(active)
+        active = (raw == _GPIO.LOW) if BEAM_ACTIVE_LOW[target] else (raw == _GPIO.HIGH)
+        snapshot[f"beam_{target}"] = int(active)
 
     all_output_pins = {
         "led":   LED_PINS,

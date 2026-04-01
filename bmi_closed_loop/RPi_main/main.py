@@ -49,9 +49,9 @@ logger = logging.getLogger(__name__)
 #     "led_center_tracked"      →  "led_center"
 #     "valve_left_tracked"      →  "valve_left"
 #     "valve_right_tracked"     →  "valve_right"
-#     "ir_left"                 →  "sensor_left"
-#     "ir_right"                →  "sensor_right"
-#     "ir_center"               →  "sensor_center"
+#     "beam_left"                 →  "beam_left"
+#     "beam_right"                →  "beam_right"
+#     "beam_center"               →  "beam_center"
 #   Once this is done, delete _GPIOAdapter entirely and pass the real
 #   adapter to CameraStreamer in handle_command("START_STREAMING").
 class _GPIOAdapter:
@@ -63,9 +63,9 @@ class _GPIOAdapter:
             "led_center":    False,
             "valve_left":    False,
             "valve_right":   False,
-            "sensor_left":   False,
-            "sensor_right":  False,
-            "sensor_center": False,
+            "beam_left":   False,
+            "beam_right":  False,
+            "beam_center": False,
         }
 
 

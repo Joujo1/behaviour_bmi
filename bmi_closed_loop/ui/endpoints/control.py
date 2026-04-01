@@ -1,8 +1,9 @@
 import json
 import logging
 
+import graphviz
 import valkey as valkey_client
-from flask import Blueprint, abort, jsonify, request, current_app
+from flask import Blueprint, Response, abort, jsonify, request, current_app
 
 import config
 
@@ -56,3 +57,62 @@ def trial_stop(cage_id: int):
         abort(404)
     ok, msg = _sender(cage_id).send("STOP_TRIAL")
     return jsonify({"ok": ok, "msg": msg})
+
+
+@control_bp.post("/trial/graph")
+def trial_graph():
+    """Render a trial JSON definition as a Graphviz state machine SVG."""
+    body = request.get_json(force=True) or {}
+
+    dot = graphviz.Digraph(
+        graph_attr={"rankdir": "LR", "bgcolor": "transparent", "pad": "0.3"},
+        node_attr={"fontname": "Helvetica", "fontsize": "11"},
+        edge_attr={"fontname": "Helvetica", "fontsize": "10"},
+    )
+
+    dot.node("__start__", "", shape="point", width="0.2")
+    initial = body.get("initial_state", "")
+    if initial:
+        dot.edge("__start__", initial)
+
+    end_added = False
+    for state in body.get("states", []):
+        sid = state["id"]
+
+        # Build a Stateflow-style label: state name, then entry/exit action lines
+        label = sid
+        entry = state.get("entry_actions", [])
+        exit_ = state.get("exit_actions", [])
+        if entry or exit_:
+            label += "\\l│"
+            for a in entry:
+                label += f"\\lentry: {a['type']}({a.get('target', '')})"
+            for a in exit_:
+                label += f"\\lexit:  {a['type']}({a.get('target', '')})"
+            label += "\\l"   # trailing newline keeps text left-aligned
+
+        dot.node(sid, label, shape="rectangle", style="rounded")
+
+        for t in state.get("transitions", []):
+            next_s = t.get("next_state", "")
+            trigger = t.get("trigger", "")
+
+            if trigger == "beam_break":
+                label = f"beam / {t.get('target', '')}"
+            elif trigger == "timeout":
+                dur = state.get("duration")
+                label = f"timeout {dur}s" if dur is not None else "timeout"
+            else:
+                label = trigger
+
+            if next_s == "__end__":
+                if not end_added:
+                    dot.node("__end__", "", shape="doublecircle", width="0.25",
+                             style="filled", fillcolor="black")
+                    end_added = True
+                dot.edge(sid, "__end__", label=label)
+            else:
+                dot.edge(sid, next_s, label=label)
+
+    svg = dot.pipe(format="svg").decode("utf-8")
+    return Response(svg, mimetype="image/svg+xml")

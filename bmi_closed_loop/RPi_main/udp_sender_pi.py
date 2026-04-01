@@ -64,9 +64,9 @@ class UDPSender:
         #     "led_center"    ← gpio_handler "led_center_tracked"
         #     "valve_left"    ← gpio_handler "valve_left_tracked"
         #     "valve_right"   ← gpio_handler "valve_right_tracked"
-        #     "sensor_left"   ← gpio_handler "ir_left"
-        #     "sensor_right"  ← gpio_handler "ir_right"
-        #     "sensor_center" ← gpio_handler "ir_center"
+        #     "beam_left"   ← gpio_handler "ir_left"
+        #     "beam_right"  ← gpio_handler "ir_right"
+        #     "beam_center" ← gpio_handler "ir_center"
         #   Also verify the PC-side parser still matches this header format
         #   after any changes.
         self.frame_counter += 1
@@ -84,9 +84,9 @@ class UDPSender:
             1 if gpio.get('led_center', False) else 0,
             1 if gpio.get('valve_left', False) else 0,
             1 if gpio.get('valve_right', False) else 0,
-            1 if gpio.get('sensor_left', False) else 0,
-            1 if gpio.get('sensor_right', False) else 0,
-            1 if gpio.get('sensor_center', False) else 0,
+            1 if gpio.get('beam_left', False) else 0,
+            1 if gpio.get('beam_right', False) else 0,
+            1 if gpio.get('beam_center', False) else 0,
             trial_state
         )
         

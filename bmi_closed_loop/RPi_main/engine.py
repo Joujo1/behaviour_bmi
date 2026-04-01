@@ -15,7 +15,7 @@ Expected JSON format:
             "entry_actions": [{ "type": "led_on", "target": "center" }],
             "exit_actions":  [{ "type": "led_off", "target": "center" }],
             "transitions": [
-                { "trigger": "ir_break", "target": "center", "next_state": "reward" },
+                { "trigger": "beam_break", "target": "center", "next_state": "reward" },
                 { "trigger": "timeout",                       "next_state": "iti" }
             ]
         }
@@ -69,7 +69,7 @@ class Engine:
         logger.info("Trial '%s' loaded — %d states", self._trial_id, len(self._states))
 
     def start(self) -> None:
-        """Arm the watchdog, start IR monitoring, and enter the initial state."""
+        """Arm the watchdog, start beam monitoring, and enter the initial state."""
         if not self._states:
             raise RuntimeError("call load() before start()")
 
@@ -77,7 +77,7 @@ class Engine:
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
 
-        gpio_handler.start_monitoring(self._on_ir_event)
+        gpio_handler.start_monitoring(self._on_beam_event)
         self.enter_state(self._initial_state)
 
     def stop(self) -> None:
@@ -130,15 +130,15 @@ class Engine:
     # Event handlers — called from background threads
     # ------------------------------------------------------------------
 
-    def _on_ir_event(self, target: str, is_active: bool) -> None:
+    def _on_beam_event(self, target: str, is_active: bool) -> None:
         """
-        Fired by gpio_handler on any IR edge (both entry and exit).
+        Fired by gpio_handler on any beam sensor edge (both entry and exit).
 
         All events are logged regardless of the current state. A transition is
         only triggered on beam-break (is_active=True) if the current state has
-        a matching ir_break transition for this target.
+        a matching beam_break transition for this target.
         """
-        logger.info("IR event  target=%-6s  active=%s", target, is_active)
+        logger.info("Beam event  target=%-6s  active=%s", target, is_active)
 
         with self._lock:
             if self._current_state_id is None:
@@ -151,7 +151,7 @@ class Engine:
             # TODO (event logging):
             #   Add a thread-safe event buffer (list + lock, same pattern as
             #   the old TrialStateMachine.frame_event_buffer) to this class.
-            #   Push a log entry here for every IR event regardless of whether
+            #   Push a log entry here for every Beam event regardless of whether
             #   it drives a transition, e.g.:
             #     {"t": time.time() - self._trial_start, "sensor": target, "active": is_active}
             #   Then expose pop_frame_events() so the camera thread can drain
@@ -163,11 +163,11 @@ class Engine:
                 return
 
             for t in state.get("transitions", []):
-                if t.get("trigger") == "ir_break" and t.get("target") == target:
+                if t.get("trigger") == "beam_break" and t.get("target") == target:
                     self.transition_to(t["next_state"])
                     return  # first matching transition wins
 
-            logger.info("IR break on '%s' — no transition defined in state '%s' (recorded only)",
+            logger.info("Beam break on '%s' — no transition defined in state '%s' (recorded only)",
                         target, self._current_state_id)
 
     def _on_timeout(self) -> None:
