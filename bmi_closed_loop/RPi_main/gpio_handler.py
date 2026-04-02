@@ -53,7 +53,7 @@ def setup() -> None:
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
 
     for target, pin in BEAM_PINS.items():
-        pull = _GPIO.PUD_UP if BEAM_ACTIVE_LOW[target] else _GPIO.PUD_DOWN
+        pull = _GPIO.PUD_DOWN if BEAM_ACTIVE_LOW[target] else _GPIO.PUD_UP
         _GPIO.setup(pin, _GPIO.IN, pull_up_down=pull)
 
     all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) + list(AUDIO_PINS.values()))

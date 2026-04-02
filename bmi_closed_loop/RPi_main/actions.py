@@ -6,6 +6,7 @@ All hardware interaction goes exclusively through gpio_handler.
 """
 
 import logging
+import threading
 import time
 
 import gpio_handler
@@ -46,13 +47,55 @@ def _stop_audio(target: str) -> None:
     pass
 
 
+# Note frequencies in Hz
+_NOTES = {
+    "C4": 261.63, "D4": 293.66, "E4": 329.63, "F4": 349.23,
+    "G4": 392.00, "A4": 440.00, "Bb4": 466.16, "C5": 523.25,
+    "R":  0.0,  # rest
+}
+
+# Happy Birthday: (note, duration_seconds) at ~100 BPM, quarter = 0.6s
+_HAPPY_BIRTHDAY = [
+    ("C4", 0.3), ("C4", 0.3), ("D4", 0.6), ("C4", 0.6), ("F4", 0.6), ("E4", 1.2),
+    ("C4", 0.3), ("C4", 0.3), ("D4", 0.6), ("C4", 0.6), ("G4", 0.6), ("F4", 1.2),
+    ("C4", 0.3), ("C4", 0.3), ("C5", 0.6), ("A4", 0.6), ("F4", 0.6), ("E4", 0.6), ("D4", 1.2),
+    ("Bb4", 0.3), ("Bb4", 0.3), ("A4", 0.6), ("F4", 0.6), ("G4", 0.6), ("F4", 1.5),
+]
+
+
+def _buzz_note(target: str, frequency: float, duration: float) -> None:
+    """Buzz the audio pin at the given frequency for the given duration."""
+    if frequency == 0.0:
+        time.sleep(duration)
+        return
+    pulse = CLICK_PULSE_US / 1_000_000
+    period = 1.0 / frequency
+    low_time = period - pulse
+    end = time.time() + duration
+    while time.time() < end:
+        gpio_handler.set_audio(target, True)
+        time.sleep(pulse)
+        gpio_handler.set_audio(target, False)
+        time.sleep(max(0.0, low_time))
+
+
+def _play_birthday(target: str) -> None:
+    """Play Happy Birthday on the given audio channel in a background thread."""
+    def _run():
+        for note, duration in _HAPPY_BIRTHDAY:
+            _buzz_note(target, _NOTES[note], duration)
+            time.sleep(0.05)  # brief gap between notes
+    threading.Thread(target=_run, daemon=True, name="happy-birthday").start()
+
+
 ACTIONS: dict = {
     "led_on":      _led_on,
     "led_off":     _led_off,
     "valve_open":  _valve_open,
     "valve_close": _valve_close,
-    "play_audio":  _play_audio,
-    "stop_audio":  _stop_audio,
+    "play_audio":    _play_audio,
+    "stop_audio":    _stop_audio,
+    "play_birthday": _play_birthday,
 }
 
 

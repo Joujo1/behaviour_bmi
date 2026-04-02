@@ -27,12 +27,13 @@ AUDIO_PINS = {
 }
 
 # Each beam sensor's active logic level.
-# False = PUD_DOWN, active HIGH (beam break = RISING edge)
-# True  = PUD_UP,   active LOW  (beam break = FALLING edge)
+# NPN open-collector sensors always need PUD_UP (pin floats HIGH when sensor off).
+# False = active HIGH: beam break = sensor transistor OFF = pin HIGH (Light-ON mode, default)
+# True  = active LOW:  beam break = sensor transistor ON  = pin LOW  (Dark-ON mode)
 BEAM_ACTIVE_LOW = {
-    "left":   False,
-    "right":  False,
-    "center": True,    # center poke wired with pull-up, active LOW
+    "left":   True,
+    "right":  True,
+    "center": True,
 }
 
 # Click pulse width in microseconds — how long the GPIO pin stays HIGH.
