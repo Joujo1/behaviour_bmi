@@ -1,36 +1,45 @@
 [Unit]
-Description=Cage Controller Service
+Description=Cage Controller
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /home/pi/closed_loop_behavior/src/pi_main/debug_stream_controller.py
-WorkingDirectory=/home/pi/closed_loop_behavior/src/pi_main
+ExecStart=/usr/bin/python3 /home/pi/behaviour_bmi/bmi_closed_loop/RPi_main/main.py
+WorkingDirectory=/home/pi/behaviour_bmi/bmi_closed_loop/RPi_main
 Restart=always
 RestartSec=5
-StandardOutput=null
 User=pi
 Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 
 
+# ── Setup ────────────────────────────────────────────────────────────────────
 
-Step 1: Create file
+# Step 1: Create the service file
 sudo nano /etc/systemd/system/cage_controller.service
 
-Step 2: Enable service
-# Reload the systemd manager configuration
+# Step 2: Paste the contents above, then save (Ctrl+X → Y → Enter)
+
+# Step 3: Enable and start
 sudo systemctl daemon-reload
-
-# Enable it to run automatically on boot
 sudo systemctl enable cage_controller.service
-
-# Start it right now without having to reboot
 sudo systemctl start cage_controller.service
 
 
+# ── Useful commands ───────────────────────────────────────────────────────────
 
-#Check Status
+# Check status
 sudo systemctl status cage_controller.service
+
+# Live logs
+journalctl -u cage_controller.service -f
+
+# Restart after code changes
+sudo systemctl restart cage_controller.service
+
+# Stop
+sudo systemctl stop cage_controller.service

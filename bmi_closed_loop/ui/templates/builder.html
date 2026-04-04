@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trial Builder — BMI</title>
+  <style>
+    :root {
+      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
+      --bg:       #ffffff;
+      --bg-faint: #f0f0f0;
+      --fg:       #000000;
+      --fg-faint: #888888;
+      --accent:   #ffd000;
+      --dead:     rgb(205, 20, 20);
+      --border:   #e0e0e0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--fg); min-height: 100vh; }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 24px;
+      border-bottom: 2px solid var(--fg);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    header a  { margin-left: auto; }
+
+    .btn {
+      padding: 6px 14px;
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1.5px solid var(--fg);
+      background: var(--bg);
+      color: var(--fg);
+      text-decoration: none;
+      transition: background 0.1s, color 0.1s;
+    }
+    .btn:hover { background: var(--fg); color: var(--bg); }
+    .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--fg); }
+    .btn.accent:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+    .btn.small { padding: 4px 8px; font-size: 0.72rem; }
+
+    #builder { padding: 24px; }
+
+    #bldr-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    #bldr-header h2 { font-size: 1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+
+    .bldr-label {
+      font-size: 0.78rem;
+      color: var(--fg-faint);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .bldr-input {
+      border: 1px solid var(--border);
+      background: var(--bg-faint);
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 0.82rem;
+      outline: none;
+      color: var(--fg);
+    }
+    .bldr-input:focus { border-color: var(--fg); }
+
+    #bldr-save-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    #bldr-save-bar label { font-size: 0.78rem; color: var(--fg-faint); }
+
+    #bldr-states-container { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+
+    .bldr-state-card { border: 1.5px solid var(--border); padding: 14px; }
+    .bldr-state-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .bldr-state-id {
+      border: none;
+      border-bottom: 1.5px solid var(--fg);
+      background: transparent;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 700;
+      outline: none;
+      width: 160px;
+      padding: 2px 0;
+    }
+
+    .bldr-phase-block { margin-bottom: 10px; }
+    .bldr-phase-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--fg-faint);
+      margin-bottom: 6px;
+    }
+    .bldr-action-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+    .bldr-remove { background: none; border: none; cursor: pointer; color: var(--fg-faint); font-size: 0.8rem; padding: 2px 6px; font-family: inherit; }
+    .bldr-remove:hover { color: var(--dead); }
+
+    .bldr-content { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-bottom: 12px; }
+
+    #bldr-graph {
+      border: 1px solid var(--border);
+      background: var(--bg-faint);
+      padding: 12px;
+      min-height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      position: sticky;
+      top: 12px;
+    }
+    #bldr-graph svg { max-width: 100%; height: auto; }
+    #bldr-graph .no-graph-msg { font-size: 0.72rem; color: var(--fg-faint); letter-spacing: 0.05em; }
+
+    #bldr-json {
+      width: 100%;
+      height: 180px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      border: 1px solid var(--border);
+      background: var(--bg-faint);
+      padding: 10px;
+      resize: vertical;
+      outline: none;
+      margin-top: 6px;
+      color: var(--fg);
+    }
+
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--fg);
+      color: var(--bg);
+      padding: 10px 18px;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Trial Builder</h1>
+  <a href="/" class="btn small">← Main UI</a>
+</header>
+
+<section id="builder">
+  <div id="bldr-header">
+    <h2>State Machine</h2>
+    <span class="bldr-label">Trial ID
+      <input id="bldr-trial-id" class="bldr-input" value="trial_001"
+             style="width:120px;" onchange="updateJSONPreview()" />
+    </span>
+    <span class="bldr-label">Initial State
+      <select id="bldr-initial-state" class="bldr-input" onchange="updateJSONPreview()">
+        <option value="">—</option>
+      </select>
+    </span>
+  </div>
+
+  <div id="bldr-save-bar">
+    <label>Name</label>
+    <input id="bldr-name" class="bldr-input" placeholder="e.g. center_beam_10s" style="width:200px" />
+    <label>Description</label>
+    <input id="bldr-desc" class="bldr-input" placeholder="optional" style="width:260px" />
+    <button class="btn accent" onclick="saveConfig()">Save to DB</button>
+  </div>
+
+  <div class="bldr-content">
+    <div>
+      <div id="bldr-states-container"></div>
+      <button class="btn small" onclick="addState()" style="margin-top:8px">+ Add State</button>
+    </div>
+    <div id="bldr-graph"><span class="no-graph-msg">Add states to see graph</span></div>
+  </div>
+
+  <div class="bldr-phase-label" style="margin-top:18px;">JSON Preview</div>
+  <textarea id="bldr-json" readonly placeholder="Add states to preview JSON…"></textarea>
+</section>
+
+<div id="toast"></div>
+
+<script>
+  const ACTION_TYPES  = ['led_on','led_off','valve_open','valve_close','play_audio','play_birthday'];
+  const ALL_TARGETS   = ['left','right','center'];
+  const TRIGGER_TYPES = ['beam_break','timeout'];
+
+  let bldrStates     = [];
+  let bldrStateCount = 1;
+
+  function addState() {
+    bldrStates.push({ id: `state_${bldrStateCount++}`, entry_actions: [], exit_actions: [], transitions: [] });
+    renderBuilder();
+  }
+  function removeState(idx) { bldrStates.splice(idx, 1); renderBuilder(); }
+  function updateStateField(idx, field, value) {
+    bldrStates[idx][field] = value;
+    if (field === 'id') updateInitialStateOptions();
+    updateJSONPreview();
+  }
+  function addAction(si, phase) { bldrStates[si][phase].push({ type: 'led_on', target: 'center' }); renderBuilder(); }
+  function removeAction(si, phase, ai) { bldrStates[si][phase].splice(ai, 1); renderBuilder(); }
+  function updateAction(si, phase, ai, field, value) { bldrStates[si][phase][ai][field] = value; updateJSONPreview(); }
+  function addTransition(si) {
+    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: '__end__' });
+    renderBuilder();
+  }
+  function removeTransition(si, ti) { bldrStates[si].transitions.splice(ti, 1); renderBuilder(); }
+  function updateTransition(si, ti, field, value) {
+    bldrStates[si].transitions[ti][field] = field === 'duration'
+      ? (value === '' || isNaN(parseFloat(value)) ? null : parseFloat(value))
+      : value;
+    if (field === 'trigger') renderBuilder(); else updateJSONPreview();
+  }
+
+  function opts(list, selected) {
+    return list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+  }
+
+  function renderStateCard(s, idx) {
+    const renderActions = phase => s[phase].map((a, ai) => `
+      <div class="bldr-action-row">
+        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'type',this.value)">${opts(ACTION_TYPES,a.type)}</select>
+        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target)}</select>
+        <button class="bldr-remove" onclick="removeAction(${idx},'${phase}',${ai})">✕</button>
+      </div>`).join('');
+
+    const renderTransitions = () => s.transitions.map((t, ti) => `
+      <div class="bldr-action-row">
+        <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
+        ${t.trigger === 'beam_break'
+          ? `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>`
+          : `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
+               style="width:90px;" value="${t.duration??''}"
+               onchange="updateTransition(${idx},${ti},'duration',this.value)" />`}
+        <span style="color:var(--fg-faint);padding:0 4px;">→</span>
+        <input class="bldr-input" type="text" value="${t.next_state}" placeholder="next state"
+               style="width:130px;" onchange="updateTransition(${idx},${ti},'next_state',this.value)" />
+        <button class="bldr-remove" onclick="removeTransition(${idx},${ti})">✕</button>
+      </div>`).join('');
+
+    return `
+      <div class="bldr-state-card">
+        <div class="bldr-state-header">
+          <input class="bldr-state-id" value="${s.id}" onchange="updateStateField(${idx},'id',this.value)" />
+          <button class="bldr-remove" onclick="removeState(${idx})">✕ remove</button>
+        </div>
+        <div class="bldr-phase-block">
+          <div class="bldr-phase-label">Entry Actions</div>
+          ${renderActions('entry_actions')}
+          <button class="btn small" onclick="addAction(${idx},'entry_actions')">+ entry action</button>
+        </div>
+        <div class="bldr-phase-block">
+          <div class="bldr-phase-label">Exit Actions</div>
+          ${renderActions('exit_actions')}
+          <button class="btn small" onclick="addAction(${idx},'exit_actions')">+ exit action</button>
+        </div>
+        <div class="bldr-phase-block">
+          <div class="bldr-phase-label">Transitions</div>
+          ${renderTransitions()}
+          <button class="btn small" onclick="addTransition(${idx})">+ transition</button>
+        </div>
+      </div>`;
+  }
+
+  function renderBuilder() {
+    document.getElementById('bldr-states-container').innerHTML = bldrStates.map((s,i) => renderStateCard(s,i)).join('');
+    updateInitialStateOptions();
+    updateJSONPreview();
+  }
+
+  function updateInitialStateOptions() {
+    const sel = document.getElementById('bldr-initial-state');
+    const cur = sel.value;
+    sel.innerHTML = bldrStates.length
+      ? bldrStates.map(s => `<option value="${s.id}"${s.id===cur?' selected':''}>${s.id}</option>`).join('')
+      : '<option value="">—</option>';
+  }
+
+  function buildTrialJSON() {
+    return {
+      trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
+      initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
+      states: bldrStates.map(s => {
+        const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
+        const state = {
+          id:            s.id,
+          entry_actions: s.entry_actions.map(a => ({...a})),
+          exit_actions:  s.exit_actions.map(a => ({...a})),
+          transitions:   s.transitions.map(t => {
+            const tr = { trigger: t.trigger, next_state: t.next_state };
+            if (t.trigger === 'beam_break') tr.target = t.target;
+            return tr;
+          }),
+        };
+        if (timeoutT?.duration !== null && timeoutT?.duration !== undefined)
+          state.duration = timeoutT.duration;
+        return state;
+      }),
+    };
+  }
+
+  function updateJSONPreview() {
+    document.getElementById('bldr-json').value = bldrStates.length ? JSON.stringify(buildTrialJSON(), null, 2) : '';
+    updateGraph();
+  }
+
+  async function updateGraph() {
+    const graphEl = document.getElementById('bldr-graph');
+    if (!bldrStates.length) { graphEl.innerHTML = '<span class="no-graph-msg">Add states to see graph</span>'; return; }
+    try {
+      const res = await fetch('/trial/graph', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildTrialJSON()),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      graphEl.innerHTML = await res.text();
+    } catch (e) {
+      graphEl.innerHTML = `<span class="no-graph-msg" style="color:var(--dead)">Graph error: ${e.message}</span>`;
+    }
+  }
+
+  async function saveConfig() {
+    if (!bldrStates.length) { toast('Add at least one state first'); return; }
+    const name = document.getElementById('bldr-name').value.trim();
+    if (!name) { toast('Enter a name before saving'); return; }
+    const res = await post('/trial-configs', {
+      name,
+      description: document.getElementById('bldr-desc').value.trim(),
+      definition:  buildTrialJSON(),
+    });
+    if (res.ok) toast(`Saved as "${name}" (id ${res.data.id})`);
+    else        toast(`Save failed: ${res.data?.msg}`);
+  }
+
+  async function post(url, body) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, data };
+    } catch (e) {
+      return { ok: false, data: { msg: e.message } };
+    }
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  }
+</script>
+</body>
+</html>

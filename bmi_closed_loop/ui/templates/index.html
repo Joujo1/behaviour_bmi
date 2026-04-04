@@ -176,28 +176,100 @@
       flex-wrap: wrap;
     }
 
-    /* ── Trial Builder ──────────────────────────────────── */
-    #builder {
-      padding: 24px;
+    /* ── Dev strip ───────────────────────────────────────────── */
+    #dev-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 24px;
+      background: var(--bg-faint);
+      border-bottom: 1px solid var(--border);
+    }
+
+    #dev-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--fg-faint);
+      margin-right: 4px;
+    }
+
+    /* ── Metrics grid ───────────────────────────────────────── */
+    #metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
       border-top: 2px solid var(--fg);
     }
 
-    #bldr-header {
+    .metric-card {
+      background: var(--bg);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .metric-card-header {
       display: flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 20px;
+      justify-content: space-between;
+    }
+
+    .metric-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .metric-last-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .metric-last-dot.success { background: var(--alive); }
+    .metric-last-dot.fail    { background: var(--dead); }
+
+    .metric-row {
+      display: flex;
+      gap: 12px;
+      font-size: 0.72rem;
+      color: var(--fg-faint);
       flex-wrap: wrap;
     }
 
-    #bldr-header h2 {
+    .metric-row b { color: var(--fg); font-weight: 600; }
+
+    .metric-pct {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    /* ── Trial Runner ────────────────────────────────────── */
+    #trial-runner {
+      padding: 18px 24px;
+      border-top: 2px solid var(--fg);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    #trial-runner h2 {
       font-size: 1rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      margin-right: 4px;
     }
 
-    .bldr-label {
+    .runner-label {
       font-size: 0.78rem;
       color: var(--fg-faint);
       display: flex;
@@ -205,7 +277,7 @@
       gap: 6px;
     }
 
-    .bldr-input {
+    .runner-input {
       border: 1px solid var(--border);
       background: var(--bg-faint);
       padding: 5px 8px;
@@ -214,112 +286,7 @@
       outline: none;
       color: var(--fg);
     }
-    .bldr-input:focus { border-color: var(--fg); }
-
-    #bldr-states-container {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .bldr-state-card {
-      border: 1.5px solid var(--border);
-      padding: 14px;
-    }
-
-    .bldr-state-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
-
-    .bldr-state-id {
-      border: none;
-      border-bottom: 1.5px solid var(--fg);
-      background: transparent;
-      font-family: inherit;
-      font-size: 0.9rem;
-      font-weight: 700;
-      outline: none;
-      width: 160px;
-      padding: 2px 0;
-    }
-
-    .bldr-phase-block { margin-bottom: 10px; }
-
-    .bldr-phase-label {
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--fg-faint);
-      margin-bottom: 6px;
-    }
-
-    .bldr-action-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-      flex-wrap: wrap;
-    }
-
-    .bldr-remove {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: var(--fg-faint);
-      font-size: 0.8rem;
-      padding: 2px 6px;
-      font-family: inherit;
-    }
-    .bldr-remove:hover { color: var(--dead); }
-
-    #bldr-json {
-      width: 100%;
-      height: 180px;
-      font-family: monospace;
-      font-size: 0.75rem;
-      border: 1px solid var(--border);
-      background: var(--bg-faint);
-      padding: 10px;
-      resize: vertical;
-      outline: none;
-      margin-top: 6px;
-      color: var(--fg);
-    }
-
-    .bldr-content {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      align-items: start;
-      margin-bottom: 12px;
-    }
-
-    #bldr-graph {
-      border: 1px solid var(--border);
-      background: var(--bg-faint);
-      padding: 12px;
-      min-height: 260px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: auto;
-      position: sticky;
-      top: 12px;
-    }
-
-    #bldr-graph svg { max-width: 100%; height: auto; }
-
-    #bldr-graph .no-graph-msg {
-      font-size: 0.72rem;
-      color: var(--fg-faint);
-      letter-spacing: 0.05em;
-    }
+    .runner-input:focus { border-color: var(--fg); }
 
     /* ── Toast ───────────────────────────────────────────── */
     #toast {
@@ -349,38 +316,35 @@
   <span id="session-status">no session</span>
 </header>
 
+<div id="dev-strip">
+  <span id="dev-label">DEV</span>
+  <button class="btn small" onclick="truncate('trial_results')">Truncate trial_results</button>
+  <button class="btn small" onclick="truncate('trial_configs')">Truncate trial_configs</button>
+  <button class="btn small" onclick="truncate('recordings')">Truncate recordings</button>
+</div>
+
 <div class="grid" id="cage-grid"></div>
 
-<section id="builder">
-  <div id="bldr-header">
-    <h2>Trial Builder</h2>
-    <span class="bldr-label">Cage
-      <select id="bldr-cage" class="bldr-input"></select>
-    </span>
-    <span class="bldr-label">Trial ID
-      <input id="bldr-trial-id" class="bldr-input" value="trial_001"
-             style="width:120px;" onchange="updateJSONPreview()" />
-    </span>
-    <span class="bldr-label">Initial State
-      <select id="bldr-initial-state" class="bldr-input"
-              onchange="updateJSONPreview()">
-        <option value="">—</option>
-      </select>
-    </span>
-    <button class="btn accent" onclick="sendBuilderTrial()">Send Trial ▶</button>
-    <button class="btn"        onclick="stopBuilderTrial()">Stop Trial ■</button>
-  </div>
+<div id="metrics-grid"></div>
 
-  <div class="bldr-content">
-    <div>
-      <div id="bldr-states-container"></div>
-      <button class="btn small" onclick="addState()" style="margin-top:8px">+ Add State</button>
-    </div>
-    <div id="bldr-graph"><span class="no-graph-msg">Add states to see graph</span></div>
-  </div>
-
-  <div class="bldr-phase-label" style="margin-top:18px;">JSON Preview</div>
-  <textarea id="bldr-json" readonly placeholder="Add states to preview JSON…"></textarea>
+<section id="trial-runner">
+  <h2>Trial Runner</h2>
+  <span class="runner-label">Config
+    <select id="runner-config" class="runner-input" style="width:220px">
+      <option value="">— select trial —</option>
+    </select>
+  </span>
+  <button class="btn small" onclick="loadTrialConfigs()">↻</button>
+  <span class="runner-label">Reps
+    <input id="runner-reps" class="runner-input" type="number" min="1" value="10" style="width:60px" />
+  </span>
+  <span class="runner-label">ITI (s)
+    <input id="runner-iti" class="runner-input" type="number" min="0" step="0.5" value="5" style="width:60px" />
+  </span>
+  <span class="runner-label">Fail ITI (s)
+    <input id="runner-fail-iti" class="runner-input" type="number" min="0" step="0.5" value="15" style="width:60px" />
+  </span>
+  <a href="/builder" class="btn small" style="text-decoration:none;margin-left:auto">Trial Builder ↗</a>
 </section>
 
 <div id="toast"></div>
@@ -464,16 +428,49 @@
     }
   }
 
-  // ── Trial (cage card buttons use the builder's JSON) ─────
+  // ── Trial runner ─────────────────────────────────────────
+  async function loadTrialConfigs() {
+    try {
+      const res  = await fetch('/trial-configs');
+      const data = await res.json();
+      const sel  = document.getElementById('runner-config');
+      sel.innerHTML = '<option value="">— select trial —</option>' +
+        data.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      toast(`Loaded ${data.length} trial config(s)`);
+    } catch (e) {
+      toast(`Failed to load configs: ${e.message}`);
+    }
+  }
+
   async function startTrial(id) {
-    if (!bldrStates.length) { toast('Build a trial first — see Trial Builder below'); return; }
-    const res = await post(`/cage/${id}/trial/start`, buildTrialJSON());
-    toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'trial started' : 'failed')}`);
+    const configId  = parseInt(document.getElementById('runner-config').value);
+    const nReps     = parseInt(document.getElementById('runner-reps').value)    || 1;
+    const baseIti   = parseFloat(document.getElementById('runner-iti').value)   || 5;
+    const failIti   = parseFloat(document.getElementById('runner-fail-iti').value) || 15;
+    if (!configId) { toast('Select a trial config first'); return; }
+    const res = await post(`/cage/${id}/trial/run`, {
+      trial_config_id: configId,
+      n_reps:          nReps,
+      base_iti_s:      baseIti,
+      fail_iti_s:      failIti,
+    });
+    toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'run started' : 'failed')}`);
   }
 
   async function stopTrial(id) {
-    const res = await post(`/cage/${id}/trial/stop`);
-    toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'trial stopped' : 'failed')}`);
+    const res = await post(`/cage/${id}/trial/run/stop`);
+    toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'stop requested' : 'failed')}`);
+  }
+
+  // Load configs on page load
+  loadTrialConfigs();
+
+  // ── Dev helpers ───────────────────────────────────────────
+  async function truncate(table) {
+    if (!confirm(`Truncate ${table}? This cannot be undone.`)) return;
+    const res = await post(`/dev/truncate/${table}`);
+    toast(res.data?.msg || (res.ok ? 'done' : 'failed'));
+    if (res.ok) pollMetrics();
   }
 
   // ── Live image refresh ───────────────────────────────────
@@ -557,6 +554,61 @@
   setInterval(pollStatus, 1000);
   pollStatus();
 
+  // ── Metrics polling ──────────────────────────────────────
+  async function pollMetrics() {
+    try {
+      const res  = await fetch('/metrics');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Index by cage_id for quick lookup
+      const byId = {};
+      data.forEach(m => { byId[m.cage_id] = m; });
+
+      const grid = document.getElementById('metrics-grid');
+      let html = '';
+      for (let i = 1; i <= N_CAGES; i++) {
+        const m = byId[i];
+        if (!m) {
+          html += `
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Cage ${i}</span>
+                <div class="metric-last-dot"></div>
+              </div>
+              <div class="metric-pct" style="color:var(--fg-faint)">—</div>
+              <div class="metric-row">no data</div>
+            </div>`;
+          continue;
+        }
+        const lastDot = m.last_aborted === null ? '' : m.last_aborted ? 'fail' : 'success';
+        const avgSucc = m.avg_success_s !== null ? `${m.avg_success_s}s` : '—';
+        const avgFail = m.avg_fail_s    !== null ? `${m.avg_fail_s}s`    : '—';
+        html += `
+          <div class="metric-card">
+            <div class="metric-card-header">
+              <span class="metric-title">Cage ${i}</span>
+              <div class="metric-last-dot ${lastDot}"></div>
+            </div>
+            <div class="metric-pct">${m.success_pct}%</div>
+            <div class="metric-row">
+              <span><b>${m.successes}</b> ok</span>
+              <span><b>${m.failures}</b> fail</span>
+              <span><b>${m.total}</b> total</span>
+            </div>
+            <div class="metric-row">
+              <span>avg ok <b>${avgSucc}</b></span>
+              <span>avg fail <b>${avgFail}</b></span>
+            </div>
+          </div>`;
+      }
+      grid.innerHTML = html;
+    } catch (_) {}
+  }
+
+  setInterval(pollMetrics, 5000);
+  pollMetrics();
+
   // ── Helpers ──────────────────────────────────────────────
   async function post(url, body = null) {
     try {
@@ -571,181 +623,6 @@
     } catch (e) {
       return { ok: false, data: { msg: e.message } };
     }
-  }
-
-  // ── Trial Builder ─────────────────────────────────────────
-  const ACTION_TYPES  = ['led_on','led_off','valve_open','valve_close','play_audio','play_birthday'];
-  const ALL_TARGETS   = ['left','right','center'];
-  const TRIGGER_TYPES = ['beam_break','timeout'];
-
-  let bldrStates     = [];
-  let bldrStateCount = 1;
-
-  // Populate cage dropdown once
-  const bldrCageSel = document.getElementById('bldr-cage');
-  for (let i = 1; i <= N_CAGES; i++)
-    bldrCageSel.innerHTML += `<option value="${i}">Cage ${i}</option>`;
-
-  function addState() {
-    bldrStates.push({ id: `state_${bldrStateCount++}`,
-                      entry_actions: [], exit_actions: [], transitions: [] });
-    renderBuilder();
-  }
-
-  function removeState(idx) { bldrStates.splice(idx, 1); renderBuilder(); }
-
-  function updateStateField(idx, field, value) {
-    bldrStates[idx][field] = value;
-    if (field === 'id') updateInitialStateOptions();
-    updateJSONPreview();
-  }
-
-  function addAction(si, phase) {
-    bldrStates[si][phase].push({ type: 'led_on', target: 'center' });
-    renderBuilder();
-  }
-  function removeAction(si, phase, ai) { bldrStates[si][phase].splice(ai,1); renderBuilder(); }
-  function updateAction(si, phase, ai, field, value) {
-    bldrStates[si][phase][ai][field] = value; updateJSONPreview();
-  }
-
-  function addTransition(si) {
-    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: '__end__' });
-    renderBuilder();
-  }
-  function removeTransition(si, ti) { bldrStates[si].transitions.splice(ti,1); renderBuilder(); }
-  function updateTransition(si, ti, field, value) {
-    bldrStates[si].transitions[ti][field] = field === 'duration'
-      ? (value === '' || isNaN(parseFloat(value)) ? null : parseFloat(value))
-      : value;
-    if (field === 'trigger') renderBuilder(); else updateJSONPreview();
-  }
-
-  function opts(list, selected) {
-    return list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
-  }
-
-  function renderStateCard(s, idx) {
-    const renderActions = phase => s[phase].map((a, ai) => `
-      <div class="bldr-action-row">
-        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'type',this.value)">${opts(ACTION_TYPES,a.type)}</select>
-        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target)}</select>
-        <button class="bldr-remove" onclick="removeAction(${idx},'${phase}',${ai})">✕</button>
-      </div>`).join('');
-
-    const renderTransitions = () => s.transitions.map((t, ti) => `
-      <div class="bldr-action-row">
-        <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
-        ${t.trigger === 'beam_break'
-          ? `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>`
-          : `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
-               style="width:90px;" value="${t.duration??''}"
-               onchange="updateTransition(${idx},${ti},'duration',this.value)" />`}
-        <span style="color:var(--fg-faint);padding:0 4px;">→</span>
-        <input class="bldr-input" type="text" value="${t.next_state}" placeholder="next state"
-               style="width:130px;" onchange="updateTransition(${idx},${ti},'next_state',this.value)" />
-        <button class="bldr-remove" onclick="removeTransition(${idx},${ti})">✕</button>
-      </div>`).join('');
-
-    return `
-      <div class="bldr-state-card">
-        <div class="bldr-state-header">
-          <input class="bldr-state-id" value="${s.id}"
-                 onchange="updateStateField(${idx},'id',this.value)" />
-          <button class="bldr-remove" onclick="removeState(${idx})">✕ remove</button>
-        </div>
-        <div class="bldr-phase-block">
-          <div class="bldr-phase-label">Entry Actions</div>
-          ${renderActions('entry_actions')}
-          <button class="btn small" onclick="addAction(${idx},'entry_actions')">+ entry action</button>
-        </div>
-        <div class="bldr-phase-block">
-          <div class="bldr-phase-label">Exit Actions</div>
-          ${renderActions('exit_actions')}
-          <button class="btn small" onclick="addAction(${idx},'exit_actions')">+ exit action</button>
-        </div>
-        <div class="bldr-phase-block">
-          <div class="bldr-phase-label">Transitions</div>
-          ${renderTransitions()}
-          <button class="btn small" onclick="addTransition(${idx})">+ transition</button>
-        </div>
-      </div>`;
-  }
-
-  function renderBuilder() {
-    document.getElementById('bldr-states-container').innerHTML =
-      bldrStates.map((s,i) => renderStateCard(s,i)).join('');
-    updateInitialStateOptions();
-    updateJSONPreview();
-  }
-
-  function updateInitialStateOptions() {
-    const sel = document.getElementById('bldr-initial-state');
-    const cur = sel.value;
-    sel.innerHTML = bldrStates.length
-      ? bldrStates.map(s => `<option value="${s.id}"${s.id===cur?' selected':''}>${s.id}</option>`).join('')
-      : '<option value="">—</option>';
-  }
-
-  function buildTrialJSON() {
-    return {
-      trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
-      initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
-      states: bldrStates.map(s => {
-        const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
-        const state = {
-          id:            s.id,
-          entry_actions: s.entry_actions.map(a => ({...a})),
-          exit_actions:  s.exit_actions.map(a => ({...a})),
-          transitions:   s.transitions.map(t => {
-            const tr = { trigger: t.trigger, next_state: t.next_state };
-            if (t.trigger === 'beam_break') tr.target = t.target;
-            return tr;
-          }),
-        };
-        if (timeoutT?.duration !== null && timeoutT?.duration !== undefined)
-          state.duration = timeoutT.duration;
-        return state;
-      }),
-    };
-  }
-
-  function updateJSONPreview() {
-    document.getElementById('bldr-json').value =
-      bldrStates.length ? JSON.stringify(buildTrialJSON(), null, 2) : '';
-    updateGraph();
-  }
-
-  async function updateGraph() {
-    const graphEl = document.getElementById('bldr-graph');
-    if (!bldrStates.length) {
-      graphEl.innerHTML = '<span class="no-graph-msg">Add states to see graph</span>';
-      return;
-    }
-    try {
-      const res = await fetch('/trial/graph', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildTrialJSON()),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      graphEl.innerHTML = await res.text();
-    } catch (e) {
-      graphEl.innerHTML = `<span class="no-graph-msg" style="color:var(--dead)">Graph error: ${e.message}</span>`;
-    }
-  }
-
-  async function sendBuilderTrial() {
-    if (!bldrStates.length) { toast('Add at least one state first'); return; }
-    const cage = parseInt(document.getElementById('bldr-cage').value);
-    const res  = await post(`/cage/${cage}/trial/start`, buildTrialJSON());
-    toast(`Cage ${cage}: ${res.data?.msg || (res.data?.ok !== false ? 'trial started' : 'failed')}`);
-  }
-
-  async function stopBuilderTrial() {
-    const cage = parseInt(document.getElementById('bldr-cage').value);
-    const res  = await post(`/cage/${cage}/trial/stop`);
-    toast(`Cage ${cage}: ${res.data?.msg || (res.ok ? 'trial stopped' : 'failed')}`);
   }
 
   // ── Toast ─────────────────────────────────────────────────

@@ -15,8 +15,8 @@ TCP protocol (newline-terminated):
 
   Pi → PC   ACK:ok\n            command accepted
   Pi → PC   ERROR:reason\n      command rejected
-  Pi → PC   {"event": "trial_complete", "trial_id": "..."}\n
-  Pi → PC   {"event": "trial_aborted",  "trial_id": "..."}\n
+  Pi → PC   {"event": "trial_complete", "trial_id": "...", "events": [...]}\n
+  Pi → PC   {"event": "trial_aborted",  "trial_id": "...", "events": [...]}\n
 """
 
 import json
@@ -41,31 +41,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# TODO (GPIO state → frames):
-#   Replace _GPIOAdapter with a real implementation that calls
-#   gpio_handler.get_snapshot() and maps the key names to what
-#   UDPSender._pack_and_send expects:
-#     gpio_handler key          →  UDPSender key
-#     "led_center_tracked"      →  "led_center"
-#     "valve_left_tracked"      →  "valve_left"
-#     "valve_right_tracked"     →  "valve_right"
-#     "beam_left"                 →  "beam_left"
-#     "beam_right"                →  "beam_right"
-#     "beam_center"               →  "beam_center"
-#   Once this is done, delete _GPIOAdapter entirely and pass the real
-#   adapter to CameraStreamer in handle_command("START_STREAMING").
 class _GPIOAdapter:
-    """Minimal adapter so CameraStreamer compiles; returns empty state for now."""
+    """Translates gpio_handler.get_snapshot() into the flat dict CameraStreamer expects."""
 
     def get_current_state(self):
-        """Return a zeroed hardware state dict until snapshot integration is done."""
+        snap = gpio_handler.get_snapshot()
         return {
-            "led_center":    False,
-            "valve_left":    False,
-            "valve_right":   False,
-            "beam_left":   False,
-            "beam_right":  False,
-            "beam_center": False,
+            "led_center":  bool(snap.get("led_center_tracked",   0)),
+            "led_left":    bool(snap.get("led_left_tracked",     0)),
+            "led_right":   bool(snap.get("led_right_tracked",    0)),
+            "valve_left":  bool(snap.get("valve_left_tracked",   0)),
+            "valve_right": bool(snap.get("valve_right_tracked",  0)),
+            "beam_left":   bool(snap.get("beam_left",            0)),
+            "beam_right":  bool(snap.get("beam_right",           0)),
+            "beam_center": bool(snap.get("beam_center",          0)),
         }
 
 
@@ -73,22 +62,22 @@ def main():
     gpio_handler.setup()
     logger.info("GPIO ready")
 
-    current_engine: Engine          = None
-    frame_queue:    queue.Queue     = None
-    sender:         UDPSender       = None
-    camera:         CameraStreamer  = None
-    is_streaming:   bool            = False
-    pc_ip:          str             = None
+    current_engine: Engine = None
+    frame_queue: queue.Queue = None
+    sender: UDPSender = None
+    camera: CameraStreamer = None
+    is_streaming: bool = False
+    pc_ip: str = None
 
     receiver: TCPCommandReceiver = None
     gpio_adapter = _GPIOAdapter()
 
 
-    def on_trial_complete(trial_id: str, aborted: bool) -> None:
+    def on_trial_complete(trial_id: str, aborted: bool, events: list) -> None:
         """Push a trial_complete or trial_aborted event back to the PC over TCP."""
         event = "trial_aborted" if aborted else "trial_complete"
-        payload = json.dumps({"event": event, "trial_id": trial_id})
-        logger.info("Trial finished: event=%s  trial_id=%s", event, trial_id)
+        payload = json.dumps({"event": event, "trial_id": trial_id, "events": events})
+        logger.info("Trial finished: event=%s  trial_id=%s  n_events=%d", event, trial_id, len(events))
         receiver.push(payload)
 
     def handle_command(command: str):
@@ -104,16 +93,10 @@ def main():
             sender = UDPSender(target_ip=pc_ip, target_port=UDP_STREAM_PORT,
                                data_queue=frame_queue)
             sender.start()
-            # TODO (event data → frames):
-            #   Replace fsm_data_cb=None with a real callback once the engine
-            #   exposes an event buffer. The callback must return:
-            #     (current_state_id: int/str, recent_events: list[dict])
-            #   The engine's pop_frame_events() (to be added) should drain a
-            #   thread-safe buffer of all events since the last frame.
-            #   See engine.py TODO for the buffer implementation.
             camera = CameraStreamer(data_queue=frame_queue,
                                     gpio_controller=gpio_adapter,
-                                    fsm_data_cb=None)
+                                    fsm_data_cb=lambda: current_engine.pop_frame_events()
+                                                        if current_engine else (0, []))
             camera.start()
             is_streaming = True
             logger.info("Streaming started → %s:%d", pc_ip, UDP_STREAM_PORT)

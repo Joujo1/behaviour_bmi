@@ -3,7 +3,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Optional
 
-HEADER_FORMAT = "<IQIIBBBBBBB"
+HEADER_FORMAT = "<IQIIBBBBBBBBB"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
 
@@ -15,6 +15,8 @@ class ParsedFrame:
     jpeg_size: int
     events_size: int        # bytes of JSON events between header and jpeg
     led_center: int
+    led_left: int
+    led_right: int
     valve_left: int
     valve_right: int
     beam_left: int
@@ -36,7 +38,8 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
 
     (
         pi_seq, timestamp, jpeg_size, events_size,
-        led_center, valve_left, valve_right,
+        led_center, led_left, led_right,
+        valve_left, valve_right,
         beam_left, beam_right, beam_center,
         trial_state,
     ) = struct.unpack(HEADER_FORMAT, raw_data[:HEADER_SIZE])
@@ -63,6 +66,8 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
         jpeg_size=jpeg_size,
         events_size=events_size,
         led_center=led_center,
+        led_left=led_left,
+        led_right=led_right,
         valve_left=valve_left,
         valve_right=valve_right,
         beam_left=beam_left,

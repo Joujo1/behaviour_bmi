@@ -26,6 +26,7 @@ Expected JSON format:
 import json
 import logging
 import threading
+import time
 
 import gpio_handler
 import actions
@@ -40,7 +41,7 @@ class Engine:
     def __init__(self, on_complete=None):
         """
         Args:
-            on_complete: callable(trial_id, aborted) fired when the trial finishes
+            on_complete: callable(trial_id, aborted, events) fired when the trial finishes
                          or is killed by the watchdog.
         """
         self._on_complete = on_complete
@@ -54,6 +55,11 @@ class Engine:
         self._watchdog_timer: threading.Timer = None
 
         self._lock = threading.Lock()
+
+        self._trial_start:  float = None
+        self._event_buffer: list  = []   # drained every frame by pop_frame_events()
+        self._trial_events: list  = []   # full trial log, sent at completion
+        self._event_lock = threading.Lock()
 
 
     def load(self, trial_json) -> None:
@@ -73,6 +79,8 @@ class Engine:
         if not self._states:
             raise RuntimeError("call load() before start()")
 
+        self._trial_start = time.time()
+
         self._watchdog_timer = threading.Timer(TRIAL_WATCHDOG_S, self._on_watchdog)
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
@@ -87,6 +95,12 @@ class Engine:
         gpio_handler.stop_monitoring()
         actions.safety_sweep()
         logger.info("Trial '%s' aborted", self._trial_id)
+
+    def pop_frame_events(self) -> tuple:
+        """Drain the event buffer and return (current_state_id, events) for the current frame."""
+        with self._event_lock:
+            events, self._event_buffer = self._event_buffer, []
+        return self._current_state_id, events
 
 
     def enter_state(self, state_id: str) -> None:
@@ -124,11 +138,16 @@ class Engine:
                 actions.dispatch(action)
 
         logger.info("Transition  '%s' → '%s'", self._current_state_id, next_state_id)
+        with self._event_lock:
+            entry = {
+                "t":    time.time() - self._trial_start,
+                "from": self._current_state_id,
+                "to":   next_state_id,
+            }
+            self._event_buffer.append(entry)
+            self._trial_events.append(entry)
         self.enter_state(next_state_id)
-
-    # ------------------------------------------------------------------
-    # Event handlers — called from background threads
-    # ------------------------------------------------------------------
+        
 
     def _on_beam_event(self, target: str, is_active: bool) -> None:
         """
@@ -148,15 +167,14 @@ class Engine:
             if state is None:
                 return
 
-            # TODO (event logging):
-            #   Add a thread-safe event buffer (list + lock, same pattern as
-            #   the old TrialStateMachine.frame_event_buffer) to this class.
-            #   Push a log entry here for every Beam event regardless of whether
-            #   it drives a transition, e.g.:
-            #     {"t": time.time() - self._trial_start, "sensor": target, "active": is_active}
-            #   Then expose pop_frame_events() so the camera thread can drain
-            #   the buffer once per frame and bundle the events into the UDP packet.
-            #   Also log state transitions in transition_to() the same way.
+            with self._event_lock:
+                entry = {
+                    "t":      time.time() - self._trial_start,
+                    "sensor": target,
+                    "active": is_active,
+                }
+                self._event_buffer.append(entry)
+                self._trial_events.append(entry)
 
             # Beam restore events are recorded but never drive transitions
             if not is_active:
@@ -202,7 +220,9 @@ class Engine:
             self.stop()
 
         if self._on_complete:
-            self._on_complete(self._trial_id, aborted=True)
+            with self._event_lock:
+                events = list(self._trial_events)
+            self._on_complete(self._trial_id, aborted=True, events=events)
 
     def _end_trial(self) -> None:
         """Shut down cleanly and notify the caller that the trial completed normally."""
@@ -211,7 +231,9 @@ class Engine:
         actions.safety_sweep()
         logger.info("Trial '%s' complete", self._trial_id)
         if self._on_complete:
-            self._on_complete(self._trial_id, aborted=False)
+            with self._event_lock:
+                events = list(self._trial_events)
+            self._on_complete(self._trial_id, aborted=False, events=events)
 
     def _cancel_timeout(self) -> None:
         """Cancel the per-state timeout timer if one is armed."""
