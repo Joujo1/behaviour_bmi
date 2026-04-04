@@ -230,14 +230,17 @@
   function removeAction(si, phase, ai) { bldrStates[si][phase].splice(ai, 1); renderBuilder(); }
   function updateAction(si, phase, ai, field, value) { bldrStates[si][phase][ai][field] = value; updateJSONPreview(); }
   function addTransition(si) {
-    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: '__end__' });
+    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: '__end__', hold_ms: null });
     renderBuilder();
   }
   function removeTransition(si, ti) { bldrStates[si].transitions.splice(ti, 1); renderBuilder(); }
   function updateTransition(si, ti, field, value) {
-    bldrStates[si].transitions[ti][field] = field === 'duration'
-      ? (value === '' || isNaN(parseFloat(value)) ? null : parseFloat(value))
-      : value;
+    if (field === 'duration' || field === 'hold_ms') {
+      bldrStates[si].transitions[ti][field] =
+        (value === '' || isNaN(parseFloat(value))) ? null : parseFloat(value);
+    } else {
+      bldrStates[si].transitions[ti][field] = value;
+    }
     if (field === 'trigger') renderBuilder(); else updateJSONPreview();
   }
 
@@ -257,7 +260,11 @@
       <div class="bldr-action-row">
         <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
         ${t.trigger === 'beam_break'
-          ? `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>`
+          ? `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>
+             <input class="bldr-input" type="number" min="0" step="50" placeholder="hold ms"
+               style="width:80px;" value="${t.hold_ms??''}"
+               title="Hold duration in ms (leave empty for immediate)"
+               onchange="updateTransition(${idx},${ti},'hold_ms',this.value)" />`
           : `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
                style="width:90px;" value="${t.duration??''}"
                onchange="updateTransition(${idx},${ti},'duration',this.value)" />`}
@@ -317,7 +324,10 @@
           exit_actions:  s.exit_actions.map(a => ({...a})),
           transitions:   s.transitions.map(t => {
             const tr = { trigger: t.trigger, next_state: t.next_state };
-            if (t.trigger === 'beam_break') tr.target = t.target;
+            if (t.trigger === 'beam_break') {
+              tr.target = t.target;
+              if (t.hold_ms) tr.hold_ms = t.hold_ms;
+            }
             return tr;
           }),
         };

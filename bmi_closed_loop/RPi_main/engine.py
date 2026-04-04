@@ -61,6 +61,11 @@ class Engine:
         self._trial_events: list  = []   # full trial log, sent at completion
         self._event_lock = threading.Lock()
 
+        # Per-sensor hold timers: sensor_target → threading.Timer
+        # A hold timer is armed on beam-break and cancelled on beam-restore.
+        # The transition only fires after the beam has been held for hold_ms.
+        self._hold_timers: dict = {}
+
 
     def load(self, trial_json) -> None:
         """Parse a JSON trial definition and index all states by their id field."""
@@ -92,6 +97,7 @@ class Engine:
         """Abort the trial immediately: cancel all timers, sweep outputs, stop monitoring."""
         self._cancel_timeout()
         self._cancel_watchdog()
+        self._cancel_all_hold_timers()
         gpio_handler.stop_monitoring()
         actions.safety_sweep()
         logger.info("Trial '%s' aborted", self._trial_id)
@@ -131,6 +137,7 @@ class Engine:
     def transition_to(self, next_state_id: str) -> None:
         """Cancel the running timer, run exit_actions of current state, enter the next state."""
         self._cancel_timeout()
+        self._cancel_all_hold_timers()
 
         current = self._states.get(self._current_state_id)
         if current is not None:
@@ -176,13 +183,19 @@ class Engine:
                 self._event_buffer.append(entry)
                 self._trial_events.append(entry)
 
-            # Beam restore events are recorded but never drive transitions
+            # Beam restore: cancel any pending hold timer for this sensor
             if not is_active:
+                self._cancel_hold_timer(target)
                 return
 
             for t in state.get("transitions", []):
                 if t.get("trigger") == "beam_break" and t.get("target") == target:
-                    self.transition_to(t["next_state"])
+                    hold_ms = t.get("hold_ms", 0) or 0
+                    if hold_ms > 0:
+                        logger.info("Beam break on '%s' — starting hold timer %.0fms", target, hold_ms)
+                        self._start_hold_timer(target, t["next_state"], hold_ms)
+                    else:
+                        self.transition_to(t["next_state"])
                     return  # first matching transition wins
 
             logger.info("Beam break on '%s' — no transition defined in state '%s' (recorded only)",
@@ -246,3 +259,40 @@ class Engine:
         if self._watchdog_timer is not None:
             self._watchdog_timer.cancel()
             self._watchdog_timer = None
+
+    def _start_hold_timer(self, target: str, next_state: str, hold_ms: float) -> None:
+        """Arm a hold timer for a sensor. Cancels any existing timer for that sensor first."""
+        self._cancel_hold_timer(target)
+        timer = threading.Timer(
+            hold_ms / 1000.0,
+            self._on_hold_complete,
+            args=(target, next_state, self._current_state_id),
+        )
+        timer.daemon = True
+        self._hold_timers[target] = timer
+        timer.start()
+
+    def _cancel_hold_timer(self, target: str) -> None:
+        """Cancel the hold timer for a specific sensor if one is armed."""
+        timer = self._hold_timers.pop(target, None)
+        if timer is not None:
+            timer.cancel()
+            logger.info("Hold timer cancelled for sensor '%s'", target)
+
+    def _cancel_all_hold_timers(self) -> None:
+        """Cancel all pending hold timers (called on state transition or abort)."""
+        for target in list(self._hold_timers):
+            self._cancel_hold_timer(target)
+
+    def _on_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
+        """
+        Fired when a sensor has been held for the required hold_ms duration.
+        Checks we are still in the same state before triggering the transition.
+        """
+        with self._lock:
+            if self._current_state_id != expected_state:
+                logger.info("Hold complete for '%s' but state changed — ignoring", target)
+                return
+            self._hold_timers.pop(target, None)
+            logger.info("Hold complete for '%s' — transitioning to '%s'", target, next_state)
+            self.transition_to(next_state)
