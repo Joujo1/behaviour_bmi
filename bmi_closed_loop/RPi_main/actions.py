@@ -46,6 +46,56 @@ def _stop_audio(target: str) -> None:
     """No-op for GPIO-based audio — clicks are instantaneous pulses."""
     pass
 
+# Module-level stop event; replaced each time _play_clicks() is called.
+# Setting it stops all click threads that share a reference to the same event.
+_click_stop: threading.Event = threading.Event()
+_click_stop.set()   # start in the "stopped / idle" state
+
+
+def _click_loop(side: str, click_times: list, stop_event: threading.Event) -> None:
+    """Play pre-computed click times for one side, interruptible via stop_event."""
+    t0 = time.monotonic()
+    for click_t in click_times:
+        remaining = click_t - (time.monotonic() - t0)
+        if remaining > 0:
+            if stop_event.wait(timeout=remaining):
+                return
+        if stop_event.is_set():
+            return
+        _play_audio(side)
+
+
+def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None) -> None:
+    """
+    Play two independent Poisson click trains (one per ear) in background threads.
+
+    When both threads finish naturally (i.e. stop_clicks() was NOT called),
+    on_complete() is fired so the engine can trigger the clicks_done transition.
+    """
+    global _click_stop
+    _click_stop.set()               # cancel any previous playback
+    _click_stop = threading.Event() # fresh event for this run
+    stop = _click_stop              # local ref shared by all threads below
+
+    t_left  = threading.Thread(target=_click_loop,
+                               args=("left",  left_clicks,  stop),
+                               daemon=True, name="clicks-left")
+    t_right = threading.Thread(target=_click_loop,
+                               args=("right", right_clicks, stop),
+                               daemon=True, name="clicks-right")
+
+    def _watcher():
+        t_left.join()
+        t_right.join()
+        if not stop.is_set() and on_complete is not None:
+            logger.info("Click trains finished — firing on_complete")
+            on_complete()
+
+    t_left.start()
+    t_right.start()
+    threading.Thread(target=_watcher, daemon=True, name="clicks-watcher").start()
+    logger.info("Click trains started: %d left, %d right", len(left_clicks), len(right_clicks))
+
 
 # Note frequencies in Hz
 _NOTES = {
@@ -88,19 +138,31 @@ def _play_birthday(target: str) -> None:
     threading.Thread(target=_run, daemon=True, name="happy-birthday").start()
 
 
+def stop_clicks() -> None:
+    """Interrupt any in-progress click train playback immediately."""
+    _click_stop.set()
+    logger.info("Click trains stopped")
+
+
 ACTIONS: dict = {
-    "led_on":      _led_on,
-    "led_off":     _led_off,
-    "valve_open":  _valve_open,
-    "valve_close": _valve_close,
+    "led_on":        _led_on,
+    "led_off":       _led_off,
+    "valve_open":    _valve_open,
+    "valve_close":   _valve_close,
     "play_audio":    _play_audio,
     "stop_audio":    _stop_audio,
     "play_birthday": _play_birthday,
+    "play_clicks":   _play_clicks,
 }
 
 
-def dispatch(action_dict: dict) -> None:
-    """Look up the action type, pass remaining fields as kwargs, and execute it."""
+def dispatch(action_dict: dict, on_complete=None) -> None:
+    """
+    Look up the action type, pass remaining fields as kwargs, and execute it.
+
+    on_complete is forwarded only for the 'play_clicks' action type, so the
+    engine can receive a callback when both click trains finish naturally.
+    """
     action_dict = dict(action_dict)
     action_type = action_dict.pop("type", None)
 
@@ -112,6 +174,9 @@ def dispatch(action_dict: dict) -> None:
     if fn is None:
         logger.error("Unknown action type '%s' — skipping", action_type)
         return
+
+    if action_type == "play_clicks" and on_complete is not None:
+        action_dict["on_complete"] = on_complete
 
     try:
         logger.info("Action  %s  %s", action_type, action_dict)

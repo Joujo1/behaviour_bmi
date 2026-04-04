@@ -86,9 +86,19 @@ def trial_graph():
         if entry or exit_:
             label += "\\l│"
             for a in entry:
-                label += f"\\lentry: {a['type']}({a.get('target', '')})"
+                if a.get("type") == "play_clicks":
+                    label += (f"\\lentry: play_clicks("
+                              f"L={a.get('left_rate','?')} R={a.get('right_rate','?')} "
+                              f"dur={a.get('click_duration','?')}s)")
+                else:
+                    label += f"\\lentry: {a['type']}({a.get('target', '')})"
             for a in exit_:
-                label += f"\\lexit:  {a['type']}({a.get('target', '')})"
+                if a.get("type") == "play_clicks":
+                    label += (f"\\lexit:  play_clicks("
+                              f"L={a.get('left_rate','?')} R={a.get('right_rate','?')} "
+                              f"dur={a.get('click_duration','?')}s)")
+                else:
+                    label += f"\\lexit:  {a['type']}({a.get('target', '')})"
             label += "\\l"   # trailing newline keeps text left-aligned
 
         dot.node(sid, label, shape="rectangle", style="rounded")
@@ -98,10 +108,14 @@ def trial_graph():
             trigger = t.get("trigger", "")
 
             if trigger == "beam_break":
-                label = f"beam / {t.get('target', '')}"
+                hold_ms = t.get("hold_ms")
+                hold_str = f" hold {hold_ms:.0f}ms" if hold_ms else ""
+                label = f"beam / {t.get('target', '')}{hold_str}"
             elif trigger == "timeout":
                 dur = state.get("duration")
                 label = f"timeout {dur}s" if dur is not None else "timeout"
+            elif trigger == "clicks_done":
+                label = "clicks done"
             else:
                 label = trigger
 

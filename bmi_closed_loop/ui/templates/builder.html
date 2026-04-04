@@ -209,9 +209,9 @@
 <div id="toast"></div>
 
 <script>
-  const ACTION_TYPES  = ['led_on','led_off','valve_open','valve_close','play_audio','play_birthday'];
+  const ACTION_TYPES  = ['led_on','led_off','valve_open','valve_close','play_audio','play_birthday','play_clicks'];
   const ALL_TARGETS   = ['left','right','center'];
-  const TRIGGER_TYPES = ['beam_break','timeout'];
+  const TRIGGER_TYPES = ['beam_break','timeout','clicks_done'];
 
   let bldrStates     = [];
   let bldrStateCount = 1;
@@ -249,30 +249,50 @@
   }
 
   function renderStateCard(s, idx) {
-    const renderActions = phase => s[phase].map((a, ai) => `
+    const renderActions = phase => s[phase].map((a, ai) => {
+      const typeSelect = `<select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'type',this.value)">${opts(ACTION_TYPES,a.type)}</select>`;
+      const extraFields = a.type === 'play_clicks'
+        ? `<input class="bldr-input" type="number" min="0" step="1" placeholder="left rate" title="Left click rate (clicks/s)"
+               style="width:80px;" value="${a.left_rate??''}"
+               onchange="updateAction(${idx},'${phase}',${ai},'left_rate',parseFloat(this.value)||0)" />
+           <input class="bldr-input" type="number" min="0" step="1" placeholder="right rate" title="Right click rate (clicks/s)"
+               style="width:80px;" value="${a.right_rate??''}"
+               onchange="updateAction(${idx},'${phase}',${ai},'right_rate',parseFloat(this.value)||0)" />
+           <input class="bldr-input" type="number" min="0" step="0.1" placeholder="dur s" title="Click train duration (s)"
+               style="width:64px;" value="${a.click_duration??''}"
+               onchange="updateAction(${idx},'${phase}',${ai},'click_duration',parseFloat(this.value)||1)" />`
+        : `<select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target??'center')}</select>`;
+      return `
       <div class="bldr-action-row">
-        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'type',this.value)">${opts(ACTION_TYPES,a.type)}</select>
-        <select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target)}</select>
+        ${typeSelect}${extraFields}
         <button class="bldr-remove" onclick="removeAction(${idx},'${phase}',${ai})">✕</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
-    const renderTransitions = () => s.transitions.map((t, ti) => `
+    const renderTransitions = () => s.transitions.map((t, ti) => {
+      let extra = '';
+      if (t.trigger === 'beam_break') {
+        extra = `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>
+                 <input class="bldr-input" type="number" min="0" step="50" placeholder="hold ms"
+                   style="width:80px;" value="${t.hold_ms??''}"
+                   title="Hold duration in ms (leave empty for immediate)"
+                   onchange="updateTransition(${idx},${ti},'hold_ms',this.value)" />`;
+      } else if (t.trigger === 'timeout') {
+        extra = `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
+                   style="width:90px;" value="${t.duration??''}"
+                   onchange="updateTransition(${idx},${ti},'duration',this.value)" />`;
+      }
+      // clicks_done: no extra fields — fires automatically when click trains finish
+      return `
       <div class="bldr-action-row">
         <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
-        ${t.trigger === 'beam_break'
-          ? `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>
-             <input class="bldr-input" type="number" min="0" step="50" placeholder="hold ms"
-               style="width:80px;" value="${t.hold_ms??''}"
-               title="Hold duration in ms (leave empty for immediate)"
-               onchange="updateTransition(${idx},${ti},'hold_ms',this.value)" />`
-          : `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
-               style="width:90px;" value="${t.duration??''}"
-               onchange="updateTransition(${idx},${ti},'duration',this.value)" />`}
+        ${extra}
         <span style="color:var(--fg-faint);padding:0 4px;">→</span>
         <input class="bldr-input" type="text" value="${t.next_state}" placeholder="next state"
                style="width:130px;" onchange="updateTransition(${idx},${ti},'next_state',this.value)" />
         <button class="bldr-remove" onclick="removeTransition(${idx},${ti})">✕</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     return `
       <div class="bldr-state-card">
@@ -320,14 +340,33 @@
         const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
         const state = {
           id:            s.id,
-          entry_actions: s.entry_actions.map(a => ({...a})),
-          exit_actions:  s.exit_actions.map(a => ({...a})),
+          entry_actions: s.entry_actions.map(a => {
+            if (a.type === 'play_clicks') {
+              const ac = { type: 'play_clicks' };
+              if (a.left_rate  != null) ac.left_rate       = a.left_rate;
+              if (a.right_rate != null) ac.right_rate      = a.right_rate;
+              if (a.click_duration != null) ac.click_duration = a.click_duration;
+              return ac;
+            }
+            return {...a};
+          }),
+          exit_actions:  s.exit_actions.map(a => {
+            if (a.type === 'play_clicks') {
+              const ac = { type: 'play_clicks' };
+              if (a.left_rate  != null) ac.left_rate       = a.left_rate;
+              if (a.right_rate != null) ac.right_rate      = a.right_rate;
+              if (a.click_duration != null) ac.click_duration = a.click_duration;
+              return ac;
+            }
+            return {...a};
+          }),
           transitions:   s.transitions.map(t => {
             const tr = { trigger: t.trigger, next_state: t.next_state };
             if (t.trigger === 'beam_break') {
               tr.target = t.target;
               if (t.hold_ms) tr.hold_ms = t.hold_ms;
             }
+            // clicks_done and timeout need no extra fields here
             return tr;
           }),
         };

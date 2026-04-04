@@ -98,6 +98,7 @@ class Engine:
         self._cancel_timeout()
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
+        actions.stop_clicks()
         gpio_handler.stop_monitoring()
         actions.safety_sweep()
         logger.info("Trial '%s' aborted", self._trial_id)
@@ -127,7 +128,10 @@ class Engine:
                     state_id, duration if duration is not None else "none")
 
         for action in state.get("entry_actions", []):
-            actions.dispatch(action)
+            if action.get("type") == "play_clicks":
+                actions.dispatch(action, on_complete=self._on_clicks_done)
+            else:
+                actions.dispatch(action)
 
         if duration is not None:
             self._timeout_timer = threading.Timer(duration, self._on_timeout)
@@ -138,6 +142,7 @@ class Engine:
         """Cancel the running timer, run exit_actions of current state, enter the next state."""
         self._cancel_timeout()
         self._cancel_all_hold_timers()
+        actions.stop_clicks()
 
         current = self._states.get(self._current_state_id)
         if current is not None:
@@ -222,6 +227,29 @@ class Engine:
                 self._current_state_id,
             )
             self.stop()
+
+    def _on_clicks_done(self) -> None:
+        """
+        Fired by the click-watcher thread when both click trains finish naturally.
+        Executes the 'clicks_done' transition of the current state, if one exists.
+        """
+        with self._lock:
+            if self._current_state_id is None:
+                return
+
+            state = self._states.get(self._current_state_id)
+            if state is None:
+                return
+
+            for t in state.get("transitions", []):
+                if t.get("trigger") == "clicks_done":
+                    logger.info("Clicks done in state '%s' → '%s'",
+                                self._current_state_id, t["next_state"])
+                    self.transition_to(t["next_state"])
+                    return
+
+            logger.info("Clicks done in state '%s' — no clicks_done transition (ignoring)",
+                        self._current_state_id)
 
     def _on_watchdog(self) -> None:
         """Fire if the total trial duration exceeds TRIAL_WATCHDOG_S; aborts and notifies caller."""

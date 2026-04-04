@@ -5,9 +5,12 @@ Runs a trial config N times on a cage, waiting for the Pi's trial_complete
 or trial_aborted event between each repetition. Completion events are
 delivered by the TCP reader thread via on_trial_complete().
 """
+import copy
 import json
 import logging
 import threading
+
+from ui.click_generator import generate_clicks
 
 _log = logging.getLogger("runner")
 
@@ -71,6 +74,31 @@ def is_running(cage_id: int) -> bool:
     return bool(s and s["thread"].is_alive())
 
 
+def _expand_clicks(trial_definition: dict) -> dict:
+    """
+    Deep-copy the trial definition and replace any play_clicks action that
+    carries rate parameters (left_rate, right_rate, click_duration) with
+    pre-generated left_clicks / right_clicks arrays.
+
+    Actions that already contain left_clicks / right_clicks are passed through unchanged
+    """
+    trial = copy.deepcopy(trial_definition)
+    for state in trial.get("states", []):
+        for phase in ("entry_actions", "exit_actions"):
+            for action in state.get(phase, []):
+                if action.get("type") != "play_clicks":
+                    continue
+                if "left_clicks" in action or "right_clicks" in action:
+                    continue  # already expanded
+                left_rate  = action.pop("left_rate",       0)
+                right_rate = action.pop("right_rate",      0)
+                duration   = action.pop("click_duration",  1.0)
+                clicks = generate_clicks(left_rate, right_rate, duration)
+                action["left_clicks"]  = clicks["left_clicks"]
+                action["right_clicks"] = clicks["right_clicks"]
+    return trial
+
+
 def _run_loop(cage_id, trial_definition, n_reps, sender, ev, base_iti_s, fail_iti_s):
     _log.info("Cage %d: starting %d-rep run (iti=%.1fs fail_iti=%.1fs)",
               cage_id, n_reps, base_iti_s, fail_iti_s)
@@ -84,7 +112,8 @@ def _run_loop(cage_id, trial_definition, n_reps, sender, ev, base_iti_s, fail_it
         _log.info("Cage %d: rep %d/%d — sending trial", cage_id, i + 1, n_reps)
         ev.clear()
 
-        ok, msg = sender.send(json.dumps(trial_definition))
+        trial_to_send = _expand_clicks(trial_definition)
+        ok, msg = sender.send(json.dumps(trial_to_send))
         if not ok:
             _log.error("Cage %d: failed to send trial: %s", cage_id, msg)
             break
