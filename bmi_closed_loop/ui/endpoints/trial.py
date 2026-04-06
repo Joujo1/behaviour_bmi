@@ -122,9 +122,12 @@ def run_start(cage_id: int):
 
 @trial_bp.post("/cage/<int:cage_id>/trial/run/stop")
 def run_stop(cage_id: int):
-    """Signal the runner for a cage to stop after the current trial."""
+    """Abort the current trial on the Pi immediately and stop the runner."""
     if not (1 <= cage_id <= config.N_CAGES):
         abort(404)
+    sender = current_app.config["COMMAND_SENDERS"].get(cage_id)
+    if sender:
+        sender.send("STOP_TRIAL")
     ok, msg = stop_run(cage_id)
     return jsonify({"ok": ok, "msg": msg})
 

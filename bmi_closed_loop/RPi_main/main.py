@@ -75,6 +75,8 @@ def main():
 
     def on_trial_complete(trial_id: str, outcome: str, events: list) -> None:
         """Push a trial_complete or trial_aborted event back to the PC over TCP."""
+        nonlocal current_engine
+        current_engine = None
         event = "trial_aborted" if outcome == "aborted" else "trial_complete"
         payload = json.dumps({"event": event, "trial_id": trial_id, "outcome": outcome, "events": events})
         logger.info("Trial finished: event=%s  outcome=%s  trial_id=%s  n_events=%d", event, outcome, trial_id, len(events))
