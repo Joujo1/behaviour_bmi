@@ -581,7 +581,7 @@
             </div>`;
           continue;
         }
-        const lastDot = m.last_aborted === null ? '' : m.last_aborted ? 'fail' : 'success';
+        const lastDot = m.last_outcome === 'correct' ? 'success' : m.last_outcome === 'wrong' ? 'fail' : '';
         const avgSucc = m.avg_success_s !== null ? `${m.avg_success_s}s` : '—';
         const avgFail = m.avg_fail_s    !== null ? `${m.avg_fail_s}s`    : '—';
         html += `
@@ -592,8 +592,9 @@
             </div>
             <div class="metric-pct">${m.success_pct}%</div>
             <div class="metric-row">
-              <span><b>${m.successes}</b> ok</span>
-              <span><b>${m.failures}</b> fail</span>
+              <span><b>${m.successes}</b> correct</span>
+              <span><b>${m.failures}</b> wrong</span>
+              <span><b>${m.aborted_count}</b> aborted</span>
               <span><b>${m.total}</b> total</span>
             </div>
             <div class="metric-row">

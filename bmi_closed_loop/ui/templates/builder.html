@@ -212,6 +212,7 @@
   const ACTION_TYPES  = ['led_on','led_off','valve_open','valve_close','play_audio','play_birthday','play_clicks'];
   const ALL_TARGETS   = ['left','right','center'];
   const TRIGGER_TYPES = ['beam_break','timeout','clicks_done'];
+  const TERMINAL_STATES = ['__correct__','__wrong__'];
 
   let bldrStates     = [];
   let bldrStateCount = 1;
@@ -248,9 +249,15 @@
     return list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
   }
 
+  function nextStateOpts(selected) {
+    const stateIds = bldrStates.map(s => s.id);
+    const all = [...stateIds, ...TERMINAL_STATES];
+    return all.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+  }
+
   function renderStateCard(s, idx) {
     const renderActions = phase => s[phase].map((a, ai) => {
-      const typeSelect = `<select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'type',this.value)">${opts(ACTION_TYPES,a.type)}</select>`;
+      const typeSelect = `<select class="bldr-input" onchange="bldrStates[${idx}]['${phase}'][${ai}]['type']=this.value; renderBuilder();">${opts(ACTION_TYPES,a.type)}</select>`;
       const extraFields = a.type === 'play_clicks'
         ? `<input class="bldr-input" type="number" min="0" step="1" placeholder="left rate" title="Left click rate (clicks/s)"
                style="width:80px;" value="${a.left_rate??''}"
@@ -288,8 +295,9 @@
         <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
         ${extra}
         <span style="color:var(--fg-faint);padding:0 4px;">→</span>
-        <input class="bldr-input" type="text" value="${t.next_state}" placeholder="next state"
-               style="width:130px;" onchange="updateTransition(${idx},${ti},'next_state',this.value)" />
+        <select class="bldr-input" onchange="updateTransition(${idx},${ti},'next_state',this.value)">
+          ${nextStateOpts(t.next_state)}
+        </select>
         <button class="bldr-remove" onclick="removeTransition(${idx},${ti})">✕</button>
       </div>`;
     }).join('');

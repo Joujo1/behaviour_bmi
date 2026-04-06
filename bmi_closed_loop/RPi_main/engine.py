@@ -112,8 +112,9 @@ class Engine:
 
     def enter_state(self, state_id: str) -> None:
         """Run entry_actions for the new state and arm its timeout timer if duration is set."""
-        if state_id == "__end__":
-            self._end_trial()
+        if state_id in ("__end__", "__correct__", "__wrong__"):
+            outcome_map = {"__correct__": "correct", "__wrong__": "wrong", "__end__": "correct"}
+            self._end_trial(outcome=outcome_map[state_id])
             return
 
         state = self._states.get(state_id)
@@ -263,18 +264,18 @@ class Engine:
         if self._on_complete:
             with self._event_lock:
                 events = list(self._trial_events)
-            self._on_complete(self._trial_id, aborted=True, events=events)
+            self._on_complete(self._trial_id, outcome="aborted", events=events)
 
-    def _end_trial(self) -> None:
-        """Shut down cleanly and notify the caller that the trial completed normally."""
+    def _end_trial(self, outcome: str = "correct") -> None:
+        """Shut down cleanly and notify the caller of the trial outcome."""
         self._cancel_watchdog()
         gpio_handler.stop_monitoring()
         actions.safety_sweep()
-        logger.info("Trial '%s' complete", self._trial_id)
+        logger.info("Trial '%s' complete — outcome: %s", self._trial_id, outcome)
         if self._on_complete:
             with self._event_lock:
                 events = list(self._trial_events)
-            self._on_complete(self._trial_id, aborted=False, events=events)
+            self._on_complete(self._trial_id, outcome=outcome, events=events)
 
     def _cancel_timeout(self) -> None:
         """Cancel the per-state timeout timer if one is armed."""

@@ -18,7 +18,7 @@ POSTGRES_DSN = "postgresql://bmi:yaniklab@localhost/bmi_closed_loop"
 DB_CHUNK_SIZE = 1000  # commit a recordings row every N frames per camera
 
 # Storage
-NAS_BASE_PATH = "/home/sentinel/new_vr/bmi_closed_loop/NAS"
+NAS_BASE_PATH = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/NAS"
 SESSION_DIR = ""  # set at session open, left empty until defined
 
 # Acquisition
@@ -36,5 +36,5 @@ FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000
 
 # Logging
-LOGGING_DIR = "/home/sentinel/new_vr/bmi_closed_loop/logs"
+LOGGING_DIR = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs"
 LOGGING_LEVEL = "INFO"

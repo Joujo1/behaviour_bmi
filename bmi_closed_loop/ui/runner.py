@@ -131,8 +131,9 @@ def _run_loop(cage_id, trial_definition, n_reps, sender, ev, base_iti_s, fail_it
             _log.info("Cage %d: run stopped after rep %d", cage_id, i + 1)
             break
 
-        failed = result.get("aborted", False)
-        iti    = fail_iti_s if failed else base_iti_s
+        outcome = result.get("outcome", "correct")
+        failed  = outcome != "correct"
+        iti     = fail_iti_s if failed else base_iti_s
         _log.info("Cage %d: rep %d/%d done (aborted=%s) — ITI %.1fs",
                   cage_id, i + 1, n_reps, failed, iti)
 

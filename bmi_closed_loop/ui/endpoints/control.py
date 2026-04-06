@@ -75,7 +75,7 @@ def trial_graph():
     if initial:
         dot.edge("__start__", initial)
 
-    end_added = False
+    end_added = set()
     for state in body.get("states", []):
         sid = state["id"]
 
@@ -119,12 +119,18 @@ def trial_graph():
             else:
                 label = trigger
 
-            if next_s == "__end__":
-                if not end_added:
-                    dot.node("__end__", "", shape="doublecircle", width="0.25",
-                             style="filled", fillcolor="black")
-                    end_added = True
-                dot.edge(sid, "__end__", label=label)
+            TERMINALS = {
+                "__end__":     ("black",                  "black"),
+                "__correct__": ("rgb(64,202,114)",        "rgb(64,202,114)"),
+                "__wrong__":   ("rgb(205,20,20)",         "rgb(205,20,20)"),
+            }
+            if next_s in TERMINALS:
+                if next_s not in end_added:
+                    color, fill = TERMINALS[next_s]
+                    dot.node(next_s, "", shape="doublecircle", width="0.25",
+                             style="filled", fillcolor=fill, color=color)
+                    end_added.add(next_s)
+                dot.edge(sid, next_s, label=label)
             else:
                 dot.edge(sid, next_s, label=label)
 

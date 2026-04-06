@@ -31,11 +31,12 @@ class UDPFrameOutput(Output):
         current_gpio = self.gpio.get_current_state()
         current_timestamp = timestamp if timestamp is not None else int(time.time() * 1_000_000)
 
-        trial_state = 0
         recent_events = []
-        
+
         if self.fsm_data_cb is not None:
-            trial_state, recent_events = self.fsm_data_cb()
+            _, recent_events = self.fsm_data_cb()
+
+        trial_state = 0
 
         bundle = {
             'frame': frame_bytes,

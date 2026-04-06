@@ -73,11 +73,11 @@ def main():
     gpio_adapter = _GPIOAdapter()
 
 
-    def on_trial_complete(trial_id: str, aborted: bool, events: list) -> None:
+    def on_trial_complete(trial_id: str, outcome: str, events: list) -> None:
         """Push a trial_complete or trial_aborted event back to the PC over TCP."""
-        event = "trial_aborted" if aborted else "trial_complete"
-        payload = json.dumps({"event": event, "trial_id": trial_id, "events": events})
-        logger.info("Trial finished: event=%s  trial_id=%s  n_events=%d", event, trial_id, len(events))
+        event = "trial_aborted" if outcome == "aborted" else "trial_complete"
+        payload = json.dumps({"event": event, "trial_id": trial_id, "outcome": outcome, "events": events})
+        logger.info("Trial finished: event=%s  outcome=%s  trial_id=%s  n_events=%d", event, outcome, trial_id, len(events))
         receiver.push(payload)
 
     def handle_command(command: str):

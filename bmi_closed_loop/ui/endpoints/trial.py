@@ -29,20 +29,21 @@ def get_metrics():
             cur.execute("""
                 SELECT
                     cage_id,
-                    COUNT(*)                                              AS total,
-                    COUNT(*) FILTER (WHERE NOT aborted)                  AS successes,
-                    COUNT(*) FILTER (WHERE aborted)                      AS failures,
+                    COUNT(*)                                                    AS total,
+                    COUNT(*) FILTER (WHERE outcome = 'correct')                 AS successes,
+                    COUNT(*) FILTER (WHERE outcome = 'wrong')                   AS failures,
+                    COUNT(*) FILTER (WHERE outcome = 'aborted')                 AS aborted_count,
                     AVG(
                         CASE WHEN jsonb_array_length(events) > 0
                              THEN (events -> -1 ->> 't')::float
                         END
-                    ) FILTER (WHERE NOT aborted)                         AS avg_success_s,
+                    ) FILTER (WHERE outcome = 'correct')                        AS avg_success_s,
                     AVG(
                         CASE WHEN jsonb_array_length(events) > 0
                              THEN (events -> -1 ->> 't')::float
                         END
-                    ) FILTER (WHERE aborted)                             AS avg_fail_s,
-                    (array_agg(aborted ORDER BY completed_at DESC))[1]  AS last_aborted
+                    ) FILTER (WHERE outcome = 'wrong')                          AS avg_fail_s,
+                    (array_agg(outcome ORDER BY completed_at DESC))[1]          AS last_outcome
                 FROM trial_results
                 GROUP BY cage_id
                 ORDER BY cage_id
@@ -55,8 +56,8 @@ def get_metrics():
     result = []
     for row in rows:
         d = dict(zip(cols, row))
-        total = d["total"] or 0
-        d["success_pct"]  = round(100 * d["successes"] / total, 1) if total > 0 else 0
+        decided = (d["successes"] or 0) + (d["failures"] or 0)
+        d["success_pct"]   = round(100 * d["successes"] / decided, 1) if decided > 0 else 0
         d["avg_success_s"] = round(float(d["avg_success_s"]), 2) if d["avg_success_s"] is not None else None
         d["avg_fail_s"]    = round(float(d["avg_fail_s"]),    2) if d["avg_fail_s"]    is not None else None
         result.append(d)
@@ -143,10 +144,10 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
         return
 
     trial_id = event.get("trial_id", "unknown")
-    aborted  = event_type == "trial_aborted"
+    outcome  = event.get("outcome", "aborted" if event_type == "trial_aborted" else "correct")
     events   = event.get("events", [])
 
-    _log.info("Cage %d: %s  trial_id=%s  n_events=%d", cage_id, event_type, trial_id, len(events))
+    _log.info("Cage %d: %s  outcome=%s  trial_id=%s  n_events=%d", cage_id, event_type, outcome, trial_id, len(events))
 
     # Unblock the runner loop so the next rep can be sent
     on_trial_complete(cage_id, event)
@@ -159,10 +160,10 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                 cur.execute(
                     """
                     INSERT INTO trial_results
-                        (cage_id, trial_id, aborted, events, completed_at)
+                        (cage_id, trial_id, outcome, events, completed_at)
                     VALUES (%s, %s, %s, %s, NOW())
                     """,
-                    (cage_id, trial_id, aborted, psycopg2.extras.Json(events)),
+                    (cage_id, trial_id, outcome, psycopg2.extras.Json(events)),
                 )
     except Exception as e:
         _log.error("Cage %d: failed to write trial result: %s", cage_id, e)
