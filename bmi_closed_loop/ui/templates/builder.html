@@ -118,21 +118,21 @@
     .bldr-remove { background: none; border: none; cursor: pointer; color: var(--fg-faint); font-size: 0.8rem; padding: 2px 6px; font-family: inherit; }
     .bldr-remove:hover { color: var(--dead); }
 
-    .bldr-content { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-bottom: 12px; }
+    #bldr-states-wrap { margin-bottom: 12px; }
 
     #bldr-graph {
       border: 1px solid var(--border);
       background: var(--bg-faint);
-      padding: 12px;
-      min-height: 260px;
+      padding: 16px;
+      min-height: 180px;
+      max-height: 420px;
+      overflow: auto;
+      margin-bottom: 12px;
       display: flex;
       align-items: center;
-      justify-content: center;
-      overflow: auto;
-      position: sticky;
-      top: 12px;
+      justify-content: flex-start;
     }
-    #bldr-graph svg { max-width: 100%; height: auto; }
+    #bldr-graph svg { height: 100%; width: auto; min-height: 120px; max-height: 380px; display: block; }
     #bldr-graph .no-graph-msg { font-size: 0.72rem; color: var(--fg-faint); letter-spacing: 0.05em; }
 
     #bldr-json {
@@ -192,14 +192,20 @@
     <label>Description</label>
     <input id="bldr-desc" class="bldr-input" placeholder="optional" style="width:260px" />
     <button class="btn accent" onclick="saveConfig()">Save to DB</button>
+    <span style="border-left:1px solid var(--border);margin:0 4px;align-self:stretch"></span>
+    <label>Load</label>
+    <select id="bldr-load-select" class="bldr-input" style="width:220px">
+      <option value="">— saved configs —</option>
+    </select>
+    <button class="btn small" onclick="refreshConfigs()">↻</button>
+    <button class="btn small" onclick="loadSelected()">Load ↓</button>
   </div>
 
-  <div class="bldr-content">
-    <div>
-      <div id="bldr-states-container"></div>
-      <button class="btn small" onclick="addState()" style="margin-top:8px">+ Add State</button>
-    </div>
-    <div id="bldr-graph"><span class="no-graph-msg">Add states to see graph</span></div>
+  <div id="bldr-graph"><span class="no-graph-msg">Add states to see graph</span></div>
+
+  <div id="bldr-states-wrap">
+    <div id="bldr-states-container"></div>
+    <button class="btn small" onclick="addState()" style="margin-top:8px">+ Add State</button>
   </div>
 
   <div class="bldr-phase-label" style="margin-top:18px;">JSON Preview</div>
@@ -406,6 +412,55 @@
     }
   }
 
+  async function refreshConfigs() {
+    try {
+      const res  = await fetch('/trial-configs');
+      const data = await res.json();
+      const sel  = document.getElementById('bldr-load-select');
+      sel.innerHTML = '<option value="">— saved configs —</option>' +
+        data.map(c => `<option value="${c.id}" data-def='${JSON.stringify(c)}'>${c.name}</option>`).join('');
+      toast(`Loaded ${data.length} config(s)`);
+    } catch (e) {
+      toast(`Failed: ${e.message}`);
+    }
+  }
+
+  async function loadSelected() {
+    const sel = document.getElementById('bldr-load-select');
+    const opt = sel.selectedOptions[0];
+    if (!opt || !opt.value) { toast('Select a config to load'); return; }
+    const cfg = JSON.parse(opt.dataset.def);
+    loadDefinition(cfg.definition);
+    document.getElementById('bldr-name').value = cfg.name;
+    document.getElementById('bldr-desc').value = cfg.description || '';
+    toast(`Loaded "${cfg.name}"`);
+  }
+
+  function loadDefinition(def) {
+    document.getElementById('bldr-trial-id').value = def.trial_id || 'trial';
+    bldrStateCount = 1;
+    bldrStates = (def.states || []).map(s => {
+      const timeoutT = (s.transitions || []).find(t => t.trigger === 'timeout');
+      return {
+        id: s.id,
+        entry_actions: (s.entry_actions || []).map(a => ({...a})),
+        exit_actions:  (s.exit_actions  || []).map(a => ({...a})),
+        transitions: (s.transitions || []).map(t => ({
+          trigger:    t.trigger,
+          target:     t.target    || 'center',
+          next_state: t.next_state,
+          hold_ms:    t.hold_ms   ?? null,
+          duration:   timeoutT && t.trigger === 'timeout' ? (s.duration ?? null) : null,
+        })),
+      };
+    });
+    renderBuilder();
+    // restore initial state selection
+    const sel = document.getElementById('bldr-initial-state');
+    sel.value = def.initial_state || '';
+    updateJSONPreview();
+  }
+
   async function saveConfig() {
     if (!bldrStates.length) { toast('Add at least one state first'); return; }
     const name = document.getElementById('bldr-name').value.trim();
@@ -432,6 +487,8 @@
       return { ok: false, data: { msg: e.message } };
     }
   }
+
+  refreshConfigs();
 
   let toastTimer;
   function toast(msg) {
