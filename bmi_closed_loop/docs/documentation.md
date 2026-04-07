@@ -2,9 +2,10 @@
 
 ## Contents
 1. [Database Schema](#1-database-schema)
-2. [Trial Data Flow](#2-trial-data-flow)
-3. [UI Backend — Endpoints](#3-ui-backend--endpoints)
-4. [UI Backend — Core Modules](#4-ui-backend--core-modules)
+2. [Full Setup — From Zero to Running Trials](#2-full-setup--from-zero-to-running-trials)
+3. [Trial Data Flow](#3-trial-data-flow)
+4. [UI Backend — Endpoints](#4-ui-backend--endpoints)
+5. [UI Backend — Core Modules](#5-ui-backend--core-modules)
 
 ---
 
@@ -163,6 +164,19 @@ This JSONB field is sent verbatim to the Raspberry Pi engine (after click arrays
         { "trigger": "beam_break", "target": "center", "hold_ms": 50, "next_state": "reward" },
         { "trigger": "timeout",                                        "next_state": "__wrong__" }
       ]
+    },
+    {
+      "id":       "reward",
+      "duration": 0.5,
+      "entry_actions": [
+        { "type": "valve_open", "target": "center" }
+      ],
+      "exit_actions": [
+        { "type": "valve_close", "target": "center" }
+      ],
+      "transitions": [
+        { "trigger": "timeout", "next_state": "__correct__" }
+      ]
     }
   ]
 }
@@ -172,7 +186,133 @@ Terminal state names with special meaning: `__correct__` (trial ends as correct)
 
 ---
 
-## 2. Trial Data Flow
+## 2. Full Setup — From Zero to Running Trials
+
+This section describes how to go from a completely empty database to having trials running on a live animal. There are three one-time setup steps (curriculum, then subjects), and then a daily workflow that repeats every session.
+
+---
+
+### Step A — Build the curriculum (one time, before any animals)
+
+The curriculum is the training ladder every animal climbs. It is made up of stages and substages. Stages are broad groupings (e.g. "Habituation", "Easy clicks", "Hard clicks"). Substages are the actual levels — each one defines exactly what trial the Pi runs and when an animal moves up or down.
+
+**Navigate to `/curriculum` in the browser (linked from the dashboard header).**
+
+#### A1. Create a stage
+
+In the left sidebar, fill in a stage name and click **+ Stage**. A stage is just a label and an ordering. It appears immediately in the sidebar tree.
+
+#### A2. Create substages inside the stage
+
+Click on the stage name in the sidebar to expand it. Fill in a substage label and click **+ Substage**. A new empty substage appears under the stage. Click it to open the editor panel on the right.
+
+#### A3. Build the trial definition
+
+The editor panel has a state builder. This is where you define what the Pi does during each trial:
+
+1. Type a state name in the **State** field and click **+ State** to create a state.
+2. Select the state from the list — the action and transition editors below become active for that state.
+3. Add **entry actions** (what happens when the state is entered — e.g. LED on, valve open, click playback).
+4. Add **exit actions** (what happens when the state is left — e.g. LED off, valve close). These always fire regardless of which transition fires.
+5. Add **transitions** — each transition has a trigger type (`beam_break`, `timeout`, `clicks_done`) and a target state. For `beam_break` you can also specify which beam and a `hold_ms` debounce time. Terminal states are `__correct__`, `__wrong__`, `__end__`.
+6. Set the **duration** on the state if it needs a timeout transition.
+
+The Graphviz diagram updates live as you build — it shows the full state machine with all transitions and action labels. Use this to visually verify the logic.
+
+Click **Save trial definition** when done. This writes the `task_config` JSON to the substage row in the database.
+
+#### A4. Set advancement criteria
+
+Below the state builder, the **Criteria** bar has two rows: Advance and Fallback.
+
+- **Advance**: select `pct_correct`, set a window (number of non-aborted trials to look back) and a threshold percentage. Select the substage the animal should move to when criteria are met.
+- **Fallback**: same, but the substage the animal drops back to.
+
+Both are optional. If left empty, advancement on that direction is manual only.
+
+Click **Save criteria** to persist. This writes `advance_criteria`, `fallback_criteria`, `advance_to_substage_id`, and `fallback_to_substage_id` to the substage row.
+
+#### A5. Repeat for all substages in the curriculum
+
+Build every substage the animals will need. You can revisit and edit any substage at any time — click it in the sidebar to reload the editor with all saved values. Retired substages can be flagged with the **Retired** checkbox; they disappear from all dropdowns but are not deleted.
+
+---
+
+### Step B — Register subjects (one time per animal)
+
+**Navigate to `/subjects-page` in the browser (linked from the dashboard header as "Subjects").**
+
+Fill in the create form at the top:
+
+- **Code** (required) — unique identifier, e.g. `R001`. This is the primary label used everywhere.
+- **Sex** — M or F, optional.
+- **DOB** — date of birth, optional.
+- **Weight** — body weight in grams, optional.
+- **Water restricted** — Yes/No.
+- **Starting substage** — pick the substage the animal should begin on. This sets `subjects.current_substage_id` immediately. If left empty, the animal has no substage assigned and cannot be run until one is assigned.
+- **Notes** — free text, optional.
+
+Click **+ Add Subject**. The animal appears in the table below with its current stage and substage. The table is the ground truth for every animal's current position in the curriculum at any point in time.
+
+**Manual substage override** — if an animal needs to be moved manually at any time (e.g. the researcher decides the animal is not ready), click **Move substage** on the animal's row. A modal opens with a full substage dropdown. Select the target and click **Move**. This updates `subjects.current_substage_id` directly.
+
+---
+
+### Step C — Daily session workflow (every training day)
+
+This is the workflow the researcher repeats every day for every active animal.
+
+#### C1. Open a session on the dashboard
+
+**Navigate to `/` (the dashboard).**
+
+Each active cage has a card. At the top of each card, use the subject dropdown to select the animal being run in that cage today. The dropdown shows all registered subjects. Selecting an animal automatically displays the animal's current substage name next to the dropdown — this is what will be run.
+
+Click **Open Session**. This sends `POST /session/open` and does three things:
+1. Creates a new row in `sessions` with `subject_id`, `researcher`, current timestamp as `started_at`.
+2. Reads `subjects.current_substage_id` and copies it into `sessions.substage_id` as a snapshot.
+3. Returns a `session_id` which is stored in the browser (`currentSessionId`).
+
+The cage card now shows a green "Session open" status badge with the animal code and substage name. The trial start button becomes active.
+
+#### C2. Start trials
+
+Click **Trial ▶** on the cage card. The browser sends `POST /cage/N/trial/run` with the substage ID, session ID, and ITI values. Flask loads the `task_config` from the substage, starts a background runner thread, and immediately returns. The runner begins sending trials to the Pi continuously.
+
+From this point, trials run automatically one after another without researcher input. The runner does not have a fixed trial count — it loops indefinitely. The researcher does not need to stay at the computer.
+
+After each trial result arrives from the Pi, the advancement evaluator runs silently in the background. If the animal meets the advancement or fallback criteria, the runner stops automatically and `subjects.current_substage_id` is updated in the database. The researcher will see the runner status change to idle on next page refresh.
+
+#### C3. Stop trials manually
+
+Click **Trial ■** to stop at any time. This sends an immediate `STOP_TRIAL` to the Pi (aborting any in-progress trial) and stops the runner. If the animal is mid-ITI, the ITI is interrupted immediately.
+
+#### C4. Close the session
+
+At the end of the day's work, click **Close Session** on the cage card. This sends `POST /session/N/close`, which stamps `closed_at` on the session row. Optionally the researcher can record end-of-day weight and water given at this point.
+
+Closing a session is important for data hygiene but does not affect the runner or the animal's substage. The runner can be stopped and sessions closed in any order.
+
+#### C5. Multiple animals simultaneously
+
+All of the above works for up to 12 animals in parallel. Each cage card is independent. Each cage has its own runner thread, its own TCP connection to the Pi, and its own session ID. There is no shared state between cages. A researcher can open sessions on all 12 cages, start all 12 runners, and let them all run concurrently.
+
+---
+
+### State of the database after a full day
+
+After a typical training day:
+
+- `sessions` — one new row per animal run today, `closed_at` set.
+- `trial_results` — many new rows, each stamped with `session_id` and `substage_id`.
+- `subjects.current_substage_id` — updated for any animal that met advancement or fallback criteria during the day.
+- `recordings` — new chunks written for any cages that were streaming video.
+
+The subjects page will show updated stage/substage positions for any animals that advanced. The curriculum editor shows no changes (the curriculum itself is unchanged; only where each animal sits within it has shifted).
+
+---
+
+## 3. Trial Data Flow
 
 This describes what happens step by step from the researcher clicking **Trial ▶** through to automatic advancement firing.
 
@@ -300,7 +440,7 @@ At any point the researcher can click **Trial ■**. The browser sends `POST /ca
 
 ---
 
-## 3. UI Backend — Endpoints
+## 4. UI Backend — Endpoints
 
 All endpoints are Flask blueprints registered in `ui/ui_main.py`.
 
@@ -389,7 +529,7 @@ Sequence:
 
 ---
 
-## 4. UI Backend — Core Modules
+## 5. UI Backend — Core Modules
 
 ### `ui/runner.py` — Continuous trial runner
 
