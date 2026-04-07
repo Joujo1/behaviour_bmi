@@ -5,7 +5,7 @@ import config
 
 dev_bp = Blueprint("dev", __name__)
 
-_ALLOWED_TABLES = {"trial_results", "trial_configs", "recordings"}
+_ALLOWED_TABLES = {"trial_results", "recordings"}
 
 
 def _get_db():

@@ -5,7 +5,8 @@ import psycopg2.extras
 from flask import Blueprint, abort, current_app, jsonify, request
 
 import config
-from ui.runner import start_run, stop_run, on_trial_complete
+from ui.runner import start_run, stop_run, on_trial_complete, get_run_context, is_running
+from ui import advancement
 
 trial_bp = Blueprint("trial", __name__)
 _log = logging.getLogger("trial")
@@ -14,8 +15,6 @@ _log = logging.getLogger("trial")
 def _get_db():
     return psycopg2.connect(config.POSTGRES_DSN)
 
-
-# ── Metrics ───────────────────────────────────────────────────────────────────
 
 @trial_bp.get("/metrics")
 def get_metrics():
@@ -65,50 +64,41 @@ def get_metrics():
     return jsonify(result)
 
 
-# ── Trial configs ─────────────────────────────────────────────────────────────
-
-@trial_bp.get("/trial-configs")
-def list_trial_configs():
-    """Return all saved trial configs for the runner dropdown."""
-    conn = _get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, name, description, definition FROM trial_configs ORDER BY id DESC"
-            )
-            rows = cur.fetchall()
-    finally:
-        conn.close()
-    return jsonify([
-        {"id": r[0], "name": r[1], "description": r[2], "definition": r[3]}
-        for r in rows
-    ])
-
-
-# ── N-rep runner ──────────────────────────────────────────────────────────────
 
 @trial_bp.post("/cage/<int:cage_id>/trial/run")
 def run_start(cage_id: int):
-    """Start an N-rep run of a saved trial config on a cage."""
+    """
+    Start a continuous run on a cage using a substage's task_config.
+    Runs indefinitely until stopped manually or advancement criteria are met.
+
+    Body:
+        substage_id   int   — which substage to run (loads task_config from training_substages)
+        session_id    int   — open session this run belongs to
+        base_iti_s    float — seconds between trials after a correct outcome (default 5)
+        fail_iti_s    float — seconds between trials after a wrong/aborted outcome (default 15)
+    """
     if not (1 <= cage_id <= config.N_CAGES):
         abort(404)
 
     body = request.get_json(force=True) or {}
-    trial_config_id = body.get("trial_config_id")
-    n_reps     = max(1, int(body.get("n_reps", 1)))
-    base_iti_s = max(0.0, float(body.get("base_iti_s", 5.0)))
-    fail_iti_s = max(0.0, float(body.get("fail_iti_s", 15.0)))
+    substage_id = body.get("substage_id")
+    session_id  = body.get("session_id")
+    base_iti_s  = max(0.0, float(body.get("base_iti_s", 5.0)))
+    fail_iti_s  = max(0.0, float(body.get("fail_iti_s", 15.0)))
+
+    if not substage_id:
+        return jsonify({"ok": False, "msg": "substage_id is required"}), 400
 
     conn = _get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT definition FROM trial_configs WHERE id = %s", (trial_config_id,))
+            cur.execute("SELECT task_config FROM training_substages WHERE id = %s", (substage_id,))
             row = cur.fetchone()
     finally:
         conn.close()
 
     if not row:
-        return jsonify({"ok": False, "msg": f"trial config {trial_config_id} not found"}), 404
+        return jsonify({"ok": False, "msg": f"substage {substage_id} not found"}), 404
 
     trial_definition = row[0]  # psycopg2 returns JSONB as a dict
 
@@ -116,7 +106,9 @@ def run_start(cage_id: int):
     if not sender:
         abort(404)
 
-    ok, msg = start_run(cage_id, trial_definition, n_reps, sender, base_iti_s, fail_iti_s)
+    ok, msg = start_run(cage_id, trial_definition, sender,
+                        base_iti_s, fail_iti_s,
+                        session_id=session_id, substage_id=substage_id)
     return jsonify({"ok": ok, "msg": msg})
 
 
@@ -132,7 +124,6 @@ def run_stop(cage_id: int):
     return jsonify({"ok": ok, "msg": msg})
 
 
-# ── Trial event handler (called from TCP reader thread) ───────────────────────
 
 def handle_trial_event(cage_id: int, event: dict) -> None:
     """
@@ -155,7 +146,13 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
     # Unblock the runner loop so the next rep can be sent
     on_trial_complete(cage_id, event)
 
+    # Read session/substage from the active runner (may be None for one-shot runs)
+    ctx = get_run_context(cage_id)
+
     # Persist to Postgres
+    session_id  = ctx.get("session_id")
+    substage_id = ctx.get("substage_id")
+
     conn = _get_db()
     try:
         with conn:
@@ -163,11 +160,32 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                 cur.execute(
                     """
                     INSERT INTO trial_results
-                        (cage_id, trial_id, outcome, events, completed_at)
-                    VALUES (%s, %s, %s, %s, NOW())
+                        (cage_id, trial_id, outcome, events, session_id, substage_id, completed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
                     """,
-                    (cage_id, trial_id, outcome, psycopg2.extras.Json(events)),
+                    (cage_id, trial_id, outcome, psycopg2.extras.Json(events),
+                     session_id, substage_id),
                 )
+
+        # Evaluate advancement if this trial belongs to a tracked session + substage
+        if session_id is not None and substage_id is not None:
+            with conn.cursor() as cur:
+                cur.execute("SELECT subject_id FROM sessions WHERE id = %s", (session_id,))
+                row = cur.fetchone()
+            subject_id = row[0] if row else None
+
+            if subject_id is not None:
+                decision = advancement.evaluate(subject_id, substage_id, conn)
+                if decision != "stay":
+                    with conn:
+                        new_substage = advancement.apply(subject_id, substage_id, decision, conn)
+                    # Stop the runner — animal has moved to a new substage,
+                    # researcher should open a fresh session to continue
+                    if is_running(cage_id):
+                        stop_run(cage_id)
+                        _log.info("Cage %d: runner stopped — subject %d %s to substage %d",
+                                  cage_id, subject_id, decision, new_substage)
+
     except Exception as e:
         _log.error("Cage %d: failed to write trial result: %s", cage_id, e)
     finally:

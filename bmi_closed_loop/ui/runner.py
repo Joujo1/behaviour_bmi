@@ -1,9 +1,12 @@
 """
-N-repetition trial runner.
+Continuous trial runner.
 
-Runs a trial config N times on a cage, waiting for the Pi's trial_complete
-or trial_aborted event between each repetition. Completion events are
-delivered by the TCP reader thread via on_trial_complete().
+Sends trials to a cage one after another indefinitely, waiting for the Pi's
+trial_complete or trial_aborted event between each. Stops when:
+  - stop_run() is called by the researcher
+  - stop_run() is called by the advancement evaluator after criteria are met
+
+Completion events are delivered by the TCP reader thread via on_trial_complete().
 """
 import copy
 import json
@@ -14,20 +17,24 @@ from ui.click_generator import generate_clicks
 
 _log = logging.getLogger("runner")
 
-# cage_id → {"thread": Thread, "event": Event, "last_result": dict, "stop": bool}
+# cage_id → {"thread": Thread, "event": Event, "last_result": dict, "stop": bool,
+#             "session_id": int|None, "substage_id": int|None}
 _state: dict = {}
 _state_lock = threading.Lock()
 
 TRIAL_TIMEOUT_S = 330  # Pi watchdog is 300s; add 30s margin
 
 
-def start_run(cage_id: int, trial_definition: dict, n_reps: int, sender,
-              base_iti_s: float = 5.0, fail_iti_s: float = 15.0) -> tuple:
+def start_run(cage_id: int, trial_definition: dict, sender,
+              base_iti_s: float = 5.0, fail_iti_s: float = 15.0,
+              session_id: int = None, substage_id: int = None) -> tuple:
     """
-    Start an N-rep run for a cage. Returns (ok, msg).
+    Start a continuous run for a cage. Returns (ok, msg).
 
-    base_iti_s: seconds to wait between trials after a successful completion.
-    fail_iti_s: seconds to wait between trials after an aborted/failed trial.
+    base_iti_s:  seconds to wait between trials after a correct outcome.
+    fail_iti_s:  seconds to wait between trials after a wrong/aborted outcome.
+    session_id:  DB sessions.id — stamped on every trial_results row.
+    substage_id: DB training_substages.id — stamped on every trial_results row.
     """
     with _state_lock:
         existing = _state.get(cage_id)
@@ -35,11 +42,14 @@ def start_run(cage_id: int, trial_definition: dict, n_reps: int, sender,
             return False, "run already in progress"
 
         ev = threading.Event()
-        _state[cage_id] = {"thread": None, "event": ev, "last_result": None, "stop": False}
+        _state[cage_id] = {
+            "thread": None, "event": ev, "last_result": None, "stop": False,
+            "session_id": session_id, "substage_id": substage_id,
+        }
 
         t = threading.Thread(
             target=_run_loop,
-            args=(cage_id, trial_definition, n_reps, sender, ev, base_iti_s, fail_iti_s),
+            args=(cage_id, trial_definition, sender, ev, base_iti_s, fail_iti_s),
             daemon=True,
             name=f"runner-cage{cage_id}",
         )
@@ -60,7 +70,7 @@ def stop_run(cage_id: int) -> tuple:
 
 
 def on_trial_complete(cage_id: int, event: dict) -> None:
-    """Called from _on_pi_event when a trial_complete or trial_aborted arrives."""
+    """Called from handle_trial_event when a trial_complete or trial_aborted arrives."""
     with _state_lock:
         s = _state.get(cage_id)
     if s:
@@ -74,13 +84,22 @@ def is_running(cage_id: int) -> bool:
     return bool(s and s["thread"].is_alive())
 
 
+def get_run_context(cage_id: int) -> dict:
+    """Return {session_id, substage_id} for the active run, or empty dict if none."""
+    with _state_lock:
+        s = _state.get(cage_id)
+    if not s:
+        return {}
+    return {"session_id": s.get("session_id"), "substage_id": s.get("substage_id")}
+
+
 def _expand_clicks(trial_definition: dict) -> dict:
     """
     Deep-copy the trial definition and replace any play_clicks action that
     carries rate parameters (left_rate, right_rate, click_duration) with
     pre-generated left_clicks / right_clicks arrays.
 
-    Actions that already contain left_clicks / right_clicks are passed through unchanged
+    Actions that already contain left_clicks / right_clicks are passed through unchanged.
     """
     trial = copy.deepcopy(trial_definition)
     for state in trial.get("states", []):
@@ -90,26 +109,29 @@ def _expand_clicks(trial_definition: dict) -> dict:
                     continue
                 if "left_clicks" in action or "right_clicks" in action:
                     continue  # already expanded
-                left_rate  = action.pop("left_rate",       0)
-                right_rate = action.pop("right_rate",      0)
-                duration   = action.pop("click_duration",  1.0)
+                left_rate  = action.pop("left_rate",      0)
+                right_rate = action.pop("right_rate",     0)
+                duration   = action.pop("click_duration", 1.0)
                 clicks = generate_clicks(left_rate, right_rate, duration)
                 action["left_clicks"]  = clicks["left_clicks"]
                 action["right_clicks"] = clicks["right_clicks"]
     return trial
 
 
-def _run_loop(cage_id, trial_definition, n_reps, sender, ev, base_iti_s, fail_iti_s):
-    _log.info("Cage %d: starting %d-rep run (iti=%.1fs fail_iti=%.1fs)",
-              cage_id, n_reps, base_iti_s, fail_iti_s)
+def _run_loop(cage_id, trial_definition, sender, ev, base_iti_s, fail_iti_s):
+    _log.info("Cage %d: starting continuous run (iti=%.1fs fail_iti=%.1fs)",
+              cage_id, base_iti_s, fail_iti_s)
+    trial_count = 0
 
-    for i in range(n_reps):
+    while True:
         with _state_lock:
             if _state[cage_id]["stop"]:
-                _log.info("Cage %d: stop requested before rep %d", cage_id, i + 1)
+                _log.info("Cage %d: stop requested — run ending after %d trial(s)",
+                          cage_id, trial_count)
                 break
 
-        _log.info("Cage %d: rep %d/%d — sending trial", cage_id, i + 1, n_reps)
+        trial_count += 1
+        _log.info("Cage %d: trial %d — sending", cage_id, trial_count)
         ev.clear()
 
         trial_to_send = _expand_clicks(trial_definition)
@@ -120,7 +142,8 @@ def _run_loop(cage_id, trial_definition, n_reps, sender, ev, base_iti_s, fail_it
 
         completed = ev.wait(timeout=TRIAL_TIMEOUT_S)
         if not completed:
-            _log.error("Cage %d: timed out waiting for trial completion on rep %d", cage_id, i + 1)
+            _log.error("Cage %d: timed out waiting for trial completion (trial %d)",
+                       cage_id, trial_count)
             break
 
         with _state_lock:
@@ -128,24 +151,23 @@ def _run_loop(cage_id, trial_definition, n_reps, sender, ev, base_iti_s, fail_it
             stopped = _state[cage_id]["stop"]
 
         if stopped:
-            _log.info("Cage %d: run stopped after rep %d", cage_id, i + 1)
+            _log.info("Cage %d: run stopped after trial %d", cage_id, trial_count)
             break
 
         outcome = result.get("outcome", "correct")
         failed  = outcome != "correct"
         iti     = fail_iti_s if failed else base_iti_s
-        _log.info("Cage %d: rep %d/%d done (aborted=%s) — ITI %.1fs",
-                  cage_id, i + 1, n_reps, failed, iti)
+        _log.info("Cage %d: trial %d done (outcome=%s) — ITI %.1fs",
+                  cage_id, trial_count, outcome, iti)
 
-        # ITI — skip on the last rep
-        if i < n_reps - 1:
-            ev.clear()
-            # Reuse the event as a stop-signal during ITI so stop_run() interrupts the wait
-            interrupted = ev.wait(timeout=iti)
-            if interrupted:
-                with _state_lock:
-                    if _state[cage_id]["stop"]:
-                        _log.info("Cage %d: run stopped during ITI after rep %d", cage_id, i + 1)
-                        break
+        # ITI — interruptible by stop_run()
+        ev.clear()
+        interrupted = ev.wait(timeout=iti)
+        if interrupted:
+            with _state_lock:
+                if _state[cage_id]["stop"]:
+                    _log.info("Cage %d: run stopped during ITI after trial %d",
+                              cage_id, trial_count)
+                    break
 
-    _log.info("Cage %d: run finished", cage_id)
+    _log.info("Cage %d: run finished (%d trial(s) completed)", cage_id, trial_count)

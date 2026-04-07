@@ -6,6 +6,8 @@ from ui.endpoints.builder import builder_bp
 from ui.endpoints.control import control_bp
 from ui.endpoints.dev import dev_bp
 from ui.endpoints.session import session_bp
+from ui.endpoints.subjects import subjects_bp
+from ui.endpoints.curriculum import curriculum_bp
 from ui.endpoints.stream import stream_bp
 from ui.endpoints.trial import trial_bp, handle_trial_event
 
@@ -38,6 +40,8 @@ app.register_blueprint(dev_bp)
 app.register_blueprint(stream_bp)
 app.register_blueprint(trial_bp)
 app.register_blueprint(session_bp)
+app.register_blueprint(subjects_bp)
+app.register_blueprint(curriculum_bp)
 app.register_blueprint(control_bp)
 
 

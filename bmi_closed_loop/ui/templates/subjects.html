@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Subjects — BMI</title>
+  <style>
+    :root {
+      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
+      --bg:       #ffffff;
+      --bg-faint: #f0f0f0;
+      --fg:       #000000;
+      --fg-faint: #888888;
+      --accent:   #ffd000;
+      --alive:    rgb(64, 202, 114);
+      --dead:     rgb(205, 20, 20);
+      --border:   #e0e0e0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--fg); min-height: 100vh; }
+
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 24px; border-bottom: 2px solid var(--fg);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    header a  { margin-left: auto; }
+
+    .btn {
+      padding: 6px 14px; font-family: inherit; font-size: 0.8rem;
+      font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+      cursor: pointer; border: 1.5px solid var(--fg);
+      background: var(--bg); color: var(--fg); text-decoration: none;
+      transition: background 0.1s, color 0.1s;
+    }
+    .btn:hover { background: var(--fg); color: var(--bg); }
+    .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--fg); }
+    .btn.accent:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+    .btn.small { padding: 4px 8px; font-size: 0.72rem; }
+
+    main { padding: 24px; max-width: 1000px; }
+
+    /* ── Create form ── */
+    #create-form {
+      display: flex; gap: 10px; flex-wrap: wrap;
+      align-items: flex-end; margin-bottom: 28px;
+      padding-bottom: 20px; border-bottom: 1px solid var(--border);
+    }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-faint); }
+    .field input, .field select {
+      border: 1px solid var(--border); background: var(--bg-faint);
+      padding: 5px 8px; font-family: inherit; font-size: 0.82rem;
+      outline: none; color: var(--fg);
+    }
+    .field input:focus, .field select:focus { border-color: var(--fg); }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    thead tr { border-bottom: 2px solid var(--fg); }
+    th { text-align: left; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 10px; color: var(--fg-faint); }
+    td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:hover td { background: var(--bg-faint); }
+
+    .badge {
+      display: inline-block; padding: 2px 7px;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; border: 1px solid var(--border);
+    }
+    .badge.water { border-color: #6ab4ff; color: #6ab4ff; }
+
+    /* ── Substage override modal ── */
+    #modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.35); align-items: center; justify-content: center;
+    }
+    #modal-overlay.open { display: flex; }
+    #modal {
+      background: var(--bg); border: 2px solid var(--fg);
+      padding: 24px; min-width: 320px; display: flex; flex-direction: column; gap: 14px;
+    }
+    #modal h2 { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    #modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--fg); color: var(--bg);
+      padding: 10px 18px; font-size: 0.8rem; letter-spacing: 0.04em;
+      opacity: 0; pointer-events: none; transition: opacity 0.2s;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Subjects</h1>
+  <a href="/" class="btn small">← Dashboard</a>
+  <a href="/curriculum" class="btn small">Curriculum ↗</a>
+</header>
+
+<main>
+
+  <!-- Create subject -->
+  <div id="create-form">
+    <div class="field">
+      <label>Code *</label>
+      <input id="inp-code" placeholder="R001" style="width:90px" />
+    </div>
+    <div class="field">
+      <label>Sex</label>
+      <select id="inp-sex" style="width:70px">
+        <option value="">—</option>
+        <option value="M">M</option>
+        <option value="F">F</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>DOB</label>
+      <input id="inp-dob" type="date" style="width:140px" />
+    </div>
+    <div class="field">
+      <label>Weight (g)</label>
+      <input id="inp-weight" type="number" step="0.1" style="width:90px" />
+    </div>
+    <div class="field">
+      <label>Water restricted</label>
+      <select id="inp-water" style="width:80px">
+        <option value="false">No</option>
+        <option value="true">Yes</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Starting substage</label>
+      <select id="inp-substage" style="width:200px">
+        <option value="">— none —</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Notes</label>
+      <input id="inp-notes" placeholder="optional" style="width:160px" />
+    </div>
+    <button class="btn accent" onclick="createSubject()">+ Add Subject</button>
+  </div>
+
+  <!-- Subject table -->
+  <table id="subjects-table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Sex</th>
+        <th>DOB</th>
+        <th>Weight</th>
+        <th>Stage</th>
+        <th>Substage</th>
+        <th>Flags</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="subjects-body">
+      <tr><td colspan="8" style="color:var(--fg-faint);padding:16px 10px">Loading…</td></tr>
+    </tbody>
+  </table>
+
+</main>
+
+<!-- Substage override modal -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h2>Move to substage</h2>
+    <div class="field">
+      <label>Subject</label>
+      <span id="modal-subject-label" style="font-size:0.85rem;font-weight:700"></span>
+    </div>
+    <div class="field">
+      <label>New substage</label>
+      <select id="modal-substage" style="width:100%">
+        <option value="">— select —</option>
+      </select>
+    </div>
+    <div id="modal-actions">
+      <button class="btn small" onclick="closeModal()">Cancel</button>
+      <button class="btn accent small" onclick="applySubstageOverride()">Move</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  let allStages  = [];   // [{id, name, substages:[{id,label},...]}]
+  let subjectIdForModal = null;
+
+  // ── Init ──────────────────────────────────────────────────
+  async function init() {
+    await loadStages();
+    await loadSubjects();
+  }
+
+  // ── Load stages (for dropdowns) ───────────────────────────
+  async function loadStages() {
+    try {
+      const res = await fetch('/training-stages');
+      allStages = await res.json();
+      populateSubstageDropdown('inp-substage');
+      populateSubstageDropdown('modal-substage');
+    } catch (e) {
+      toast(`Failed to load stages: ${e.message}`);
+    }
+  }
+
+  function populateSubstageDropdown(elId) {
+    const sel = document.getElementById(elId);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— none —</option>';
+    for (const stage of allStages) {
+      for (const sub of stage.substages) {
+        if (sub.retired) continue;
+        sel.innerHTML += `<option value="${sub.id}">${stage.name} › ${sub.label}</option>`;
+      }
+    }
+    sel.value = cur;
+  }
+
+  // ── Load subjects ─────────────────────────────────────────
+  async function loadSubjects() {
+    try {
+      const res  = await fetch('/subjects');
+      const data = await res.json();
+      renderTable(data);
+    } catch (e) {
+      toast(`Failed to load subjects: ${e.message}`);
+    }
+  }
+
+  function renderTable(subjects) {
+    const tbody = document.getElementById('subjects-body');
+    if (!subjects.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="color:var(--fg-faint);padding:16px 10px">No subjects yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = subjects.map(s => `
+      <tr>
+        <td><b>${s.code}</b></td>
+        <td>${s.sex || '—'}</td>
+        <td>${s.dob || '—'}</td>
+        <td>${s.weight_g != null ? s.weight_g + ' g' : '—'}</td>
+        <td>${s.stage_name || '—'}</td>
+        <td>${s.substage_label || '—'}</td>
+        <td>${s.water_restricted ? '<span class="badge water">Water restricted</span>' : ''}</td>
+        <td>
+          <button class="btn small" onclick="openModal(${s.id}, '${s.code}')">Move substage</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  // ── Create subject ────────────────────────────────────────
+  async function createSubject() {
+    const code = document.getElementById('inp-code').value.trim();
+    if (!code) { toast('Code is required'); return; }
+
+    const body = {
+      code,
+      sex:                document.getElementById('inp-sex').value    || null,
+      dob:                document.getElementById('inp-dob').value    || null,
+      weight_g:           parseFloat(document.getElementById('inp-weight').value) || null,
+      water_restricted:   document.getElementById('inp-water').value === 'true',
+      current_substage_id: parseInt(document.getElementById('inp-substage').value) || null,
+      notes:              document.getElementById('inp-notes').value.trim() || null,
+    };
+
+    try {
+      const res  = await fetch('/subjects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast(`Subject ${code} created (id ${data.id})`);
+        document.getElementById('inp-code').value = '';
+        loadSubjects();
+      } else {
+        toast(`Failed: ${data.msg}`);
+      }
+    } catch (e) {
+      toast(`Error: ${e.message}`);
+    }
+  }
+
+  // ── Substage override modal ───────────────────────────────
+  function openModal(subjectId, code) {
+    subjectIdForModal = subjectId;
+    document.getElementById('modal-subject-label').textContent = code;
+    document.getElementById('modal-overlay').classList.add('open');
+  }
+
+  function closeModal() {
+    subjectIdForModal = null;
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+
+  async function applySubstageOverride() {
+    const substageId = parseInt(document.getElementById('modal-substage').value);
+    if (!substageId) { toast('Select a substage'); return; }
+
+    try {
+      const res  = await fetch(`/subjects/${subjectIdForModal}/substage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ substage_id: substageId }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast('Substage updated');
+        closeModal();
+        loadSubjects();
+      } else {
+        toast(`Failed: ${data.msg}`);
+      }
+    } catch (e) {
+      toast(`Error: ${e.message}`);
+    }
+  }
+
+  // ── Toast ─────────────────────────────────────────────────
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  }
+
+  init();
+</script>
+</body>
+</html>

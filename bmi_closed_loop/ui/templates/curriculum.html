@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Curriculum — BMI</title>
+  <style>
+    :root {
+      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
+      --bg:       #ffffff;
+      --bg-faint: #f0f0f0;
+      --fg:       #000000;
+      --fg-faint: #888888;
+      --accent:   #ffd000;
+      --dead:     rgb(205, 20, 20);
+      --border:   #e0e0e0;
+      --sidebar:  240px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--fg); min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 24px; border-bottom: 2px solid var(--fg);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+
+    .btn {
+      padding: 6px 14px; font-family: inherit; font-size: 0.8rem;
+      font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+      cursor: pointer; border: 1.5px solid var(--fg);
+      background: var(--bg); color: var(--fg); text-decoration: none;
+      transition: background 0.1s, color 0.1s;
+    }
+    .btn:hover { background: var(--fg); color: var(--bg); }
+    .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--fg); }
+    .btn.accent:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+    .btn.small { padding: 4px 8px; font-size: 0.72rem; }
+    .btn.danger { border-color: var(--dead); color: var(--dead); }
+    .btn.danger:hover { background: var(--dead); color: var(--bg); border-color: var(--dead); }
+
+    /* ── Layout: sidebar + main ── */
+    #layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      height: calc(100vh - 53px); /* full height minus header */
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: var(--sidebar);
+      flex-shrink: 0;
+      border-right: 2px solid var(--fg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #sidebar-header {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #sidebar-header span {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--fg-faint);
+    }
+    #sidebar-add-stage {
+      display: flex; gap: 6px;
+    }
+    #inp-stage-name {
+      flex: 1; border: 1px solid var(--border); background: var(--bg-faint);
+      padding: 4px 7px; font-family: inherit; font-size: 0.78rem; outline: none;
+    }
+    #inp-stage-name:focus { border-color: var(--fg); }
+
+    #stage-tree {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .stage-node {
+      border-bottom: 1px solid var(--border);
+    }
+    .stage-label {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 12px;
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; cursor: default;
+      background: var(--bg-faint);
+    }
+    .stage-label-text { flex: 1; }
+    .stage-add-btn {
+      background: none; border: none; cursor: pointer;
+      font-family: inherit; font-size: 0.72rem; color: var(--fg-faint);
+      padding: 2px 4px;
+    }
+    .stage-add-btn:hover { color: var(--fg); }
+
+    .substage-item {
+      display: flex; align-items: center;
+      padding: 6px 12px 6px 20px;
+      font-size: 0.78rem; cursor: pointer;
+      border-left: 3px solid transparent;
+      gap: 6px;
+    }
+    .substage-item:hover { background: var(--bg-faint); }
+    .substage-item.active {
+      border-left-color: var(--fg);
+      background: var(--bg-faint);
+      font-weight: 700;
+    }
+    .substage-item.retired { color: var(--fg-faint); text-decoration: line-through; }
+    .substage-num {
+      font-size: 0.65rem; color: var(--fg-faint);
+      min-width: 18px;
+    }
+
+    /* ── Main editor panel ── */
+    #editor {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #editor-empty {
+      flex: 1;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--fg-faint); font-size: 0.82rem; letter-spacing: 0.05em;
+    }
+
+    #editor-content {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+    #editor-content.visible { display: flex; }
+
+    /* ── Substage meta bar ── */
+    #meta-bar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #meta-bar-title {
+      font-size: 0.85rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      margin-right: 8px;
+    }
+    .meta-label {
+      font-size: 0.72rem; color: var(--fg-faint);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .meta-input {
+      border: 1px solid var(--border); background: var(--bg-faint);
+      padding: 4px 7px; font-family: inherit; font-size: 0.78rem; outline: none; color: var(--fg);
+    }
+    .meta-input:focus { border-color: var(--fg); }
+
+    /* ── Criteria bar ── */
+    #criteria-bar {
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+      flex-shrink: 0;
+      background: var(--bg-faint);
+    }
+    .criteria-group {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .criteria-group label {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--fg-faint); white-space: nowrap;
+    }
+
+    /* ── Graph — full width, fixed height ── */
+    #bldr-graph {
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-faint);
+      width: 100%;
+      height: 260px;
+      flex-shrink: 0;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 12px 20px;
+    }
+    #bldr-graph svg {
+      height: 230px;
+      width: auto;
+      display: block;
+    }
+    #bldr-graph .no-graph-msg {
+      font-size: 0.72rem; color: var(--fg-faint); letter-spacing: 0.05em;
+    }
+
+    /* ── Builder toolbar ── */
+    #builder-toolbar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #builder-toolbar span {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--fg-faint); margin-right: 4px;
+    }
+    .bldr-label {
+      font-size: 0.78rem; color: var(--fg-faint);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .bldr-input {
+      border: 1px solid var(--border); background: var(--bg-faint);
+      padding: 4px 7px; font-family: inherit; font-size: 0.78rem; outline: none; color: var(--fg);
+    }
+    .bldr-input:focus { border-color: var(--fg); }
+
+    /* ── States scroll area ── */
+    #builder-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+    }
+
+    #bldr-states-container { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+
+    .bldr-state-card { border: 1.5px solid var(--border); padding: 14px; }
+    .bldr-state-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .bldr-state-id {
+      border: none; border-bottom: 1.5px solid var(--fg);
+      background: transparent; font-family: inherit;
+      font-size: 0.9rem; font-weight: 700; outline: none;
+      width: 160px; padding: 2px 0;
+    }
+    .bldr-phase-block { margin-bottom: 10px; }
+    .bldr-phase-label {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--fg-faint); margin-bottom: 6px;
+    }
+    .bldr-action-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+    .bldr-remove {
+      background: none; border: none; cursor: pointer;
+      color: var(--fg-faint); font-size: 0.8rem; padding: 2px 6px; font-family: inherit;
+    }
+    .bldr-remove:hover { color: var(--dead); }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--fg); color: var(--bg);
+      padding: 10px 18px; font-size: 0.8rem; letter-spacing: 0.04em;
+      opacity: 0; pointer-events: none; transition: opacity 0.2s;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Curriculum</h1>
+  <a href="/" class="btn small">← Dashboard</a>
+  <a href="/subjects-page" class="btn small">Subjects ↗</a>
+</header>
+
+<div id="layout">
+
+  <!-- ── Sidebar: stage tree ── -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <span>Stages</span>
+      <div id="sidebar-add-stage">
+        <input id="inp-stage-name" placeholder="new stage name" />
+        <button class="btn small" onclick="createStage()">+</button>
+      </div>
+    </div>
+    <div id="stage-tree">
+      <div style="padding:12px;color:var(--fg-faint);font-size:0.75rem">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── Editor panel ── -->
+  <div id="editor">
+
+    <div id="editor-empty">Select a substage to edit, or create one.</div>
+
+    <div id="editor-content">
+
+      <!-- Substage metadata -->
+      <div id="meta-bar">
+        <span id="meta-bar-title">—</span>
+        <span class="meta-label">Label
+          <input id="meta-label" class="meta-input" style="width:180px"
+                 onchange="metaChanged()" />
+        </span>
+        <span class="meta-label">Substage #
+          <input id="meta-number" class="meta-input" type="number" min="1" style="width:60px"
+                 onchange="metaChanged()" />
+        </span>
+        <span class="meta-label">
+          <input id="meta-retired" type="checkbox" onchange="metaChanged()" />
+          Retired
+        </span>
+        <button class="btn accent small" onclick="saveMeta()" style="margin-left:auto">Save meta</button>
+      </div>
+
+      <!-- Advancement criteria -->
+      <div id="criteria-bar">
+        <div class="criteria-group">
+          <label>Advance: last</label>
+          <input id="adv-window" class="bldr-input" type="number" min="1" style="width:55px" placeholder="20" />
+          <label>trials ≥</label>
+          <input id="adv-threshold" class="bldr-input" type="number" min="0" max="100" style="width:55px" placeholder="80" />
+          <label>% correct → </label>
+          <select id="adv-target" class="bldr-input" style="width:160px">
+            <option value="">— none —</option>
+          </select>
+        </div>
+        <div class="criteria-group" style="margin-left:16px">
+          <label>Fallback: last</label>
+          <input id="fall-window" class="bldr-input" type="number" min="1" style="width:55px" placeholder="10" />
+          <label>trials ≤</label>
+          <input id="fall-threshold" class="bldr-input" type="number" min="0" max="100" style="width:55px" placeholder="40" />
+          <label>% correct → </label>
+          <select id="fall-target" class="bldr-input" style="width:160px">
+            <option value="">— none —</option>
+          </select>
+        </div>
+        <button class="btn small" onclick="saveCriteria()">Save criteria</button>
+      </div>
+
+      <!-- Graphviz state machine — full width -->
+      <div id="bldr-graph"><span class="no-graph-msg">Add states to see graph</span></div>
+
+      <!-- Builder toolbar: trial id, initial state, save -->
+      <div id="builder-toolbar">
+        <span>State machine</span>
+        <span class="bldr-label">Trial ID
+          <input id="bldr-trial-id" class="bldr-input" value="trial_001" style="width:120px"
+                 onchange="updateJSONPreview()" />
+        </span>
+        <span class="bldr-label">Initial State
+          <select id="bldr-initial-state" class="bldr-input" onchange="updateJSONPreview()">
+            <option value="">—</option>
+          </select>
+        </span>
+        <button class="btn small" onclick="addState()">+ State</button>
+        <button class="btn accent small" onclick="saveTaskConfig()" style="margin-left:auto">Save trial definition</button>
+      </div>
+
+      <!-- States scroll area -->
+      <div id="builder-scroll">
+        <div id="bldr-states-container"></div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const ACTION_TYPES    = ['led_on','led_off','valve_open','valve_close','play_audio','play_birthday','play_clicks'];
+  const ALL_TARGETS     = ['left','right','center'];
+  const TRIGGER_TYPES   = ['beam_break','timeout','clicks_done'];
+  const TERMINAL_STATES = ['__correct__','__wrong__'];
+
+  let allStages      = [];
+  let currentSubstageId = null;
+  let bldrStates     = [];
+  let bldrStateCount = 1;
+
+  // ── Init ──────────────────────────────────────────────────
+  async function init() {
+    await loadTree();
+  }
+
+  // ── Stage tree ────────────────────────────────────────────
+  async function loadTree() {
+    try {
+      const res = await fetch('/training-stages');
+      allStages = await res.json();
+      renderTree();
+      populateAllSubstageDropdowns();
+    } catch (e) {
+      toast(`Failed to load stages: ${e.message}`);
+    }
+  }
+
+  function renderTree() {
+    const tree = document.getElementById('stage-tree');
+    if (!allStages.length) {
+      tree.innerHTML = '<div style="padding:12px;color:var(--fg-faint);font-size:0.75rem">No stages yet.</div>';
+      return;
+    }
+    tree.innerHTML = allStages.map(stage => `
+      <div class="stage-node">
+        <div class="stage-label">
+          <span class="stage-label-text">${stage.name}</span>
+          <button class="stage-add-btn" title="Add substage" onclick="promptAddSubstage(${stage.id}, '${stage.name}')">+ sub</button>
+        </div>
+        ${stage.substages.map(sub => `
+          <div class="substage-item ${sub.retired ? 'retired' : ''} ${sub.id === currentSubstageId ? 'active' : ''}"
+               id="sub-item-${sub.id}"
+               onclick="selectSubstage(${sub.id})">
+            <span class="substage-num">${sub.substage_number}</span>
+            <span>${sub.label}</span>
+          </div>`).join('')}
+      </div>`).join('');
+  }
+
+  function populateAllSubstageDropdowns() {
+    for (const selId of ['adv-target', 'fall-target']) {
+      const sel = document.getElementById(selId);
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— none —</option>';
+      for (const stage of allStages) {
+        for (const sub of stage.substages) {
+          sel.innerHTML += `<option value="${sub.id}">${stage.name} › ${sub.label}</option>`;
+        }
+      }
+      sel.value = cur;
+    }
+  }
+
+  // ── Create stage ──────────────────────────────────────────
+  async function createStage() {
+    const name = document.getElementById('inp-stage-name').value.trim();
+    if (!name) { toast('Enter a stage name'); return; }
+    try {
+      const res  = await fetch('/training-stages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('inp-stage-name').value = '';
+        toast(`Stage "${name}" created`);
+        await loadTree();
+      } else {
+        toast(`Failed: ${data.msg}`);
+      }
+    } catch (e) { toast(`Error: ${e.message}`); }
+  }
+
+  // ── Create substage ───────────────────────────────────────
+  async function promptAddSubstage(stageId, stageName) {
+    const label = prompt(`New substage label under "${stageName}":`);
+    if (!label) return;
+    const number = prompt('Substage number (e.g. 1):');
+    try {
+      const res  = await fetch('/training-substages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stage_id: stageId,
+          label: label.trim(),
+          substage_number: parseInt(number) || 1,
+          task_config: {},
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast(`Substage "${label}" created`);
+        await loadTree();
+        selectSubstage(data.id);
+      } else {
+        toast(`Failed: ${data.msg}`);
+      }
+    } catch (e) { toast(`Error: ${e.message}`); }
+  }
+
+  // ── Select substage — load into editor ───────────────────
+  async function selectSubstage(substageId) {
+    try {
+      const res  = await fetch(`/training-substages/${substageId}`);
+      if (!res.ok) { toast('Failed to load substage'); return; }
+      const sub = await res.json();
+      currentSubstageId = substageId;
+      renderTree(); // update active highlight
+      openEditor(sub);
+    } catch (e) { toast(`Error: ${e.message}`); }
+  }
+
+  function openEditor(sub) {
+    document.getElementById('editor-empty').style.display   = 'none';
+    document.getElementById('editor-content').classList.add('visible');
+
+    // Meta
+    document.getElementById('meta-bar-title').textContent    = `${sub.stage_name} › ${sub.label}`;
+    document.getElementById('meta-label').value              = sub.label;
+    document.getElementById('meta-number').value             = sub.substage_number;
+    document.getElementById('meta-retired').checked          = sub.retired;
+
+    // Criteria
+    const ac = sub.advance_criteria  || {};
+    const fc = sub.fallback_criteria || {};
+    document.getElementById('adv-window').value     = ac.window    ?? '';
+    document.getElementById('adv-threshold').value  = ac.threshold != null ? Math.round(ac.threshold * 100) : '';
+    document.getElementById('adv-target').value     = sub.advance_to_substage_id  ?? '';
+    document.getElementById('fall-window').value    = fc.window    ?? '';
+    document.getElementById('fall-threshold').value = fc.threshold != null ? Math.round(fc.threshold * 100) : '';
+    document.getElementById('fall-target').value    = sub.fallback_to_substage_id ?? '';
+
+    // Trial definition
+    const def = sub.task_config || {};
+    loadDefinition(def);
+  }
+
+  // ── Save meta ─────────────────────────────────────────────
+  function metaChanged() { /* just mark dirty visually if needed */ }
+
+  async function saveMeta() {
+    if (!currentSubstageId) return;
+    const body = {
+      label:            document.getElementById('meta-label').value.trim(),
+      substage_number:  parseInt(document.getElementById('meta-number').value) || 1,
+      retired:          document.getElementById('meta-retired').checked,
+    };
+    await patchSubstage(body, 'Meta saved');
+    // Refresh title and tree
+    document.getElementById('meta-bar-title').textContent =
+      document.getElementById('meta-bar-title').textContent.replace(/›.*/, `› ${body.label}`);
+    await loadTree();
+  }
+
+  // ── Save criteria ─────────────────────────────────────────
+  async function saveCriteria() {
+    if (!currentSubstageId) return;
+
+    const advWindow    = parseInt(document.getElementById('adv-window').value);
+    const advThreshold = parseFloat(document.getElementById('adv-threshold').value);
+    const advTarget    = parseInt(document.getElementById('adv-target').value) || null;
+    const fallWindow   = parseInt(document.getElementById('fall-window').value);
+    const fallThreshold = parseFloat(document.getElementById('fall-threshold').value);
+    const fallTarget   = parseInt(document.getElementById('fall-target').value) || null;
+
+    const body = {
+      advance_criteria:       (advWindow && !isNaN(advThreshold))
+        ? { type: 'pct_correct', window: advWindow, threshold: advThreshold / 100 }
+        : null,
+      fallback_criteria:      (fallWindow && !isNaN(fallThreshold))
+        ? { type: 'pct_correct', window: fallWindow, threshold: fallThreshold / 100 }
+        : null,
+      advance_to_substage_id:  advTarget,
+      fallback_to_substage_id: fallTarget,
+    };
+    await patchSubstage(body, 'Criteria saved');
+  }
+
+  // ── Save trial definition (task_config) ───────────────────
+  async function saveTaskConfig() {
+    if (!currentSubstageId) return;
+    if (!bldrStates.length) { toast('Add at least one state first'); return; }
+    try {
+      const res  = await fetch(`/training-substages/${currentSubstageId}/task-config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ definition: buildTrialJSON() }),
+      });
+      const data = await res.json();
+      if (data.ok) toast('Trial definition saved');
+      else         toast(`Save failed: ${data.msg}`);
+    } catch (e) { toast(`Error: ${e.message}`); }
+  }
+
+  async function patchSubstage(body, successMsg) {
+    try {
+      const res  = await fetch(`/training-substages/${currentSubstageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.ok) toast(successMsg);
+      else         toast(`Failed: ${data.msg}`);
+    } catch (e) { toast(`Error: ${e.message}`); }
+  }
+
+  // ── Builder ───────────────────────────────────────────────
+  function addState() {
+    bldrStates.push({ id: `state_${bldrStateCount++}`, entry_actions: [], exit_actions: [], transitions: [] });
+    renderBuilder();
+  }
+  function removeState(idx) { bldrStates.splice(idx, 1); renderBuilder(); }
+  function updateStateField(idx, field, value) {
+    bldrStates[idx][field] = value;
+    if (field === 'id') updateInitialStateOptions();
+    updateJSONPreview();
+  }
+  function addAction(si, phase) { bldrStates[si][phase].push({ type: 'led_on', target: 'center' }); renderBuilder(); }
+  function removeAction(si, phase, ai) { bldrStates[si][phase].splice(ai, 1); renderBuilder(); }
+  function updateAction(si, phase, ai, field, value) { bldrStates[si][phase][ai][field] = value; updateJSONPreview(); }
+  function addTransition(si) {
+    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: '__end__', hold_ms: null });
+    renderBuilder();
+  }
+  function removeTransition(si, ti) { bldrStates[si].transitions.splice(ti, 1); renderBuilder(); }
+  function updateTransition(si, ti, field, value) {
+    if (field === 'duration' || field === 'hold_ms')
+      bldrStates[si].transitions[ti][field] = (value === '' || isNaN(parseFloat(value))) ? null : parseFloat(value);
+    else
+      bldrStates[si].transitions[ti][field] = value;
+    if (field === 'trigger') renderBuilder(); else updateJSONPreview();
+  }
+
+  function opts(list, selected) {
+    return list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+  }
+  function nextStateOpts(selected) {
+    const all = [...bldrStates.map(s => s.id), ...TERMINAL_STATES];
+    return all.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+  }
+
+  function renderStateCard(s, idx) {
+    const renderActions = phase => s[phase].map((a, ai) => {
+      const typeSelect = `<select class="bldr-input" onchange="bldrStates[${idx}]['${phase}'][${ai}]['type']=this.value; renderBuilder();">${opts(ACTION_TYPES,a.type)}</select>`;
+      const extraFields = a.type === 'play_clicks'
+        ? `<input class="bldr-input" type="number" min="0" step="1" placeholder="left rate" title="Left click rate (clicks/s)"
+               style="width:80px;" value="${a.left_rate??''}"
+               onchange="updateAction(${idx},'${phase}',${ai},'left_rate',parseFloat(this.value)||0)" />
+           <input class="bldr-input" type="number" min="0" step="1" placeholder="right rate" title="Right click rate (clicks/s)"
+               style="width:80px;" value="${a.right_rate??''}"
+               onchange="updateAction(${idx},'${phase}',${ai},'right_rate',parseFloat(this.value)||0)" />
+           <input class="bldr-input" type="number" min="0" step="0.1" placeholder="dur s" title="Click train duration (s)"
+               style="width:64px;" value="${a.click_duration??''}"
+               onchange="updateAction(${idx},'${phase}',${ai},'click_duration',parseFloat(this.value)||1)" />`
+        : `<select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target??'center')}</select>`;
+      return `<div class="bldr-action-row">${typeSelect}${extraFields}
+        <button class="bldr-remove" onclick="removeAction(${idx},'${phase}',${ai})">✕</button></div>`;
+    }).join('');
+
+    const renderTransitions = () => s.transitions.map((t, ti) => {
+      let extra = '';
+      if (t.trigger === 'beam_break') {
+        extra = `<select class="bldr-input" onchange="updateTransition(${idx},${ti},'target',this.value)">${opts(ALL_TARGETS,t.target)}</select>
+                 <input class="bldr-input" type="number" min="0" step="50" placeholder="hold ms"
+                   style="width:80px;" value="${t.hold_ms??''}"
+                   title="Hold duration in ms (leave empty for immediate)"
+                   onchange="updateTransition(${idx},${ti},'hold_ms',this.value)" />`;
+      } else if (t.trigger === 'timeout') {
+        extra = `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
+                   style="width:90px;" value="${t.duration??''}"
+                   onchange="updateTransition(${idx},${ti},'duration',this.value)" />`;
+      }
+      return `<div class="bldr-action-row">
+        <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
+        ${extra}
+        <span style="color:var(--fg-faint);padding:0 4px;">→</span>
+        <select class="bldr-input" onchange="updateTransition(${idx},${ti},'next_state',this.value)">${nextStateOpts(t.next_state)}</select>
+        <button class="bldr-remove" onclick="removeTransition(${idx},${ti})">✕</button>
+      </div>`;
+    }).join('');
+
+    return `<div class="bldr-state-card">
+      <div class="bldr-state-header">
+        <input class="bldr-state-id" value="${s.id}" onchange="updateStateField(${idx},'id',this.value)" />
+        <button class="bldr-remove" onclick="removeState(${idx})">✕ remove</button>
+      </div>
+      <div class="bldr-phase-block">
+        <div class="bldr-phase-label">Entry Actions</div>
+        ${renderActions('entry_actions')}
+        <button class="btn small" onclick="addAction(${idx},'entry_actions')">+ entry action</button>
+      </div>
+      <div class="bldr-phase-block">
+        <div class="bldr-phase-label">Exit Actions</div>
+        ${renderActions('exit_actions')}
+        <button class="btn small" onclick="addAction(${idx},'exit_actions')">+ exit action</button>
+      </div>
+      <div class="bldr-phase-block">
+        <div class="bldr-phase-label">Transitions</div>
+        ${renderTransitions()}
+        <button class="btn small" onclick="addTransition(${idx})">+ transition</button>
+      </div>
+    </div>`;
+  }
+
+  function renderBuilder() {
+    document.getElementById('bldr-states-container').innerHTML =
+      bldrStates.map((s,i) => renderStateCard(s,i)).join('');
+    updateInitialStateOptions();
+    updateJSONPreview();
+  }
+
+  function updateInitialStateOptions() {
+    const sel = document.getElementById('bldr-initial-state');
+    const cur = sel.value;
+    sel.innerHTML = bldrStates.length
+      ? bldrStates.map(s => `<option value="${s.id}"${s.id===cur?' selected':''}>${s.id}</option>`).join('')
+      : '<option value="">—</option>';
+  }
+
+  function buildTrialJSON() {
+    return {
+      trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
+      initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
+      states: bldrStates.map(s => {
+        const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
+        const mapActions = actions => actions.map(a => {
+          if (a.type === 'play_clicks') {
+            const ac = { type: 'play_clicks' };
+            if (a.left_rate      != null) ac.left_rate       = a.left_rate;
+            if (a.right_rate     != null) ac.right_rate      = a.right_rate;
+            if (a.click_duration != null) ac.click_duration  = a.click_duration;
+            return ac;
+          }
+          return {...a};
+        });
+        const state = {
+          id:            s.id,
+          entry_actions: mapActions(s.entry_actions),
+          exit_actions:  mapActions(s.exit_actions),
+          transitions:   s.transitions.map(t => {
+            const tr = { trigger: t.trigger, next_state: t.next_state };
+            if (t.trigger === 'beam_break') {
+              tr.target = t.target;
+              if (t.hold_ms) tr.hold_ms = t.hold_ms;
+            }
+            return tr;
+          }),
+        };
+        if (timeoutT?.duration !== null && timeoutT?.duration !== undefined)
+          state.duration = timeoutT.duration;
+        return state;
+      }),
+    };
+  }
+
+  function updateJSONPreview() {
+    updateGraph();
+  }
+
+  let graphDebounce;
+  async function updateGraph() {
+    clearTimeout(graphDebounce);
+    graphDebounce = setTimeout(async () => {
+      const graphEl = document.getElementById('bldr-graph');
+      if (!bldrStates.length) {
+        graphEl.innerHTML = '<span class="no-graph-msg">Add states to see graph</span>';
+        return;
+      }
+      try {
+        const res = await fetch('/trial/graph', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildTrialJSON()),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        graphEl.innerHTML = await res.text();
+        // Make SVG fill the container width
+        const svg = graphEl.querySelector('svg');
+        if (svg) {
+          svg.style.height = '230px';
+          svg.style.width  = 'auto';
+          svg.style.maxWidth = '100%';
+        }
+      } catch (e) {
+        graphEl.innerHTML = `<span class="no-graph-msg" style="color:var(--dead)">Graph error: ${e.message}</span>`;
+      }
+    }, 300);
+  }
+
+  function loadDefinition(def) {
+    document.getElementById('bldr-trial-id').value = def.trial_id || 'trial';
+    bldrStateCount = 1;
+    bldrStates = (def.states || []).map(s => {
+      const timeoutT = (s.transitions || []).find(t => t.trigger === 'timeout');
+      return {
+        id: s.id,
+        entry_actions: (s.entry_actions || []).map(a => ({...a})),
+        exit_actions:  (s.exit_actions  || []).map(a => ({...a})),
+        transitions: (s.transitions || []).map(t => ({
+          trigger:    t.trigger,
+          target:     t.target    || 'center',
+          next_state: t.next_state,
+          hold_ms:    t.hold_ms   ?? null,
+          duration:   timeoutT && t.trigger === 'timeout' ? (s.duration ?? null) : null,
+        })),
+      };
+    });
+    renderBuilder();
+    const sel = document.getElementById('bldr-initial-state');
+    sel.value = def.initial_state || '';
+    updateJSONPreview();
+  }
+
+  // ── Toast ─────────────────────────────────────────────────
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -1,9 +1,12 @@
+import logging
+
 import psycopg2
 from flask import Blueprint, jsonify, request
 
 import config
 
 session_bp = Blueprint("session", __name__)
+_log = logging.getLogger("session")
 
 
 def _get_db():
@@ -12,36 +15,122 @@ def _get_db():
 
 @session_bp.post("/session/open")
 def open_session():
-    """Researcher opens a new session."""
+    """
+    Open a new session.
+
+    Body (all optional except researcher):
+        researcher    str   — who is running the session
+        subject_id    int   — animal ID; if provided, substage_id is snapshotted automatically
+        weight_g      float — animal weight at session start
+        water_ml      float — water given
+        notes         str
+    """
     body = request.get_json(force=True) or {}
+
+    subject_id  = body.get("subject_id")
+    substage_id = None
+
+    if subject_id is not None:
+        conn = _get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT current_substage_id FROM subjects WHERE id = %s",
+                    (subject_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            return jsonify({"ok": False, "msg": f"subject {subject_id} not found"}), 404
+        substage_id = row[0]
 
     conn = _get_db()
     try:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO sessions (researcher, notes) VALUES (%s, %s) RETURNING id",
-                    (body.get("researcher"), body.get("notes")),
+                    """
+                    INSERT INTO sessions
+                        (researcher, notes, subject_id, substage_id, weight_g, water_ml)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        body.get("researcher"),
+                        body.get("notes"),
+                        subject_id,
+                        substage_id,
+                        body.get("weight_g"),
+                        body.get("water_ml"),
+                    ),
                 )
                 session_id = cur.fetchone()[0]
     finally:
         conn.close()
 
-    return jsonify({"status": "ok", "session_id": session_id})
+    _log.info("Session %d opened (subject=%s substage=%s)", session_id, subject_id, substage_id)
+    return jsonify({"ok": True, "session_id": session_id, "substage_id": substage_id})
 
 
 @session_bp.post("/session/<int:session_id>/close")
 def close_session(session_id: int):
-    """Researcher closes an open session."""
+    """Close an open session. Optionally update weight and water given."""
+    body = request.get_json(force=True) or {}
+
+    fields = ["closed_at = NOW()"]
+    values = []
+
+    if "weight_g" in body:
+        fields.append("weight_g = %s"); values.append(body["weight_g"])
+    if "water_ml" in body:
+        fields.append("water_ml = %s"); values.append(body["water_ml"])
+
+    values.append(session_id)
     conn = _get_db()
     try:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE sessions SET closed_at = NOW() WHERE id = %s",
-                    (session_id,),
+                    f"UPDATE sessions SET {', '.join(fields)} WHERE id = %s",
+                    values,
                 )
     finally:
         conn.close()
 
-    return jsonify({"status": "ok"})
+    _log.info("Session %d closed", session_id)
+    return jsonify({"ok": True})
+
+
+@session_bp.get("/sessions")
+def list_sessions():
+    """List recent sessions with subject and substage info."""
+    conn = _get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    se.id,
+                    se.researcher,
+                    se.started_at,
+                    se.closed_at,
+                    se.weight_g,
+                    se.water_ml,
+                    se.notes,
+                    su.code         AS subject_code,
+                    ts.label        AS substage_label,
+                    tst.name        AS stage_name
+                FROM sessions se
+                LEFT JOIN subjects           su  ON su.id  = se.subject_id
+                LEFT JOIN training_substages ts  ON ts.id  = se.substage_id
+                LEFT JOIN training_stages    tst ON tst.id = ts.stage_id
+                ORDER BY se.started_at DESC
+                LIMIT 100
+            """)
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+    finally:
+        conn.close()
+
+    return jsonify([dict(zip(cols, r)) for r in rows])

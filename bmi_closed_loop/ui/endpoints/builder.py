@@ -1,6 +1,6 @@
 import psycopg2
 import psycopg2.extras
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request
 
 import config
 
@@ -16,12 +16,10 @@ def builder_page():
     return render_template("builder.html")
 
 
-@builder_bp.post("/trial-configs")
-def save_trial_config():
+@builder_bp.patch("/training-substages/<int:substage_id>/task-config")
+def save_task_config(substage_id: int):
+    """Save the trial definition (task_config) for an existing substage."""
     body = request.get_json(force=True) or {}
-    name = body.get("name", "").strip()
-    if not name:
-        return jsonify({"ok": False, "msg": "name is required"}), 400
     definition = body.get("definition")
     if not definition:
         return jsonify({"ok": False, "msg": "definition is required"}), 400
@@ -31,14 +29,12 @@ def save_trial_config():
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    INSERT INTO trial_configs (name, description, definition)
-                    VALUES (%s, %s, %s) RETURNING id
-                    """,
-                    (name, body.get("description", ""), psycopg2.extras.Json(definition)),
+                    "UPDATE training_substages SET task_config = %s WHERE id = %s RETURNING id",
+                    (psycopg2.extras.Json(definition), substage_id),
                 )
-                config_id = cur.fetchone()[0]
+                if cur.fetchone() is None:
+                    abort(404)
     finally:
         conn.close()
 
-    return jsonify({"ok": True, "id": config_id})
+    return jsonify({"ok": True})

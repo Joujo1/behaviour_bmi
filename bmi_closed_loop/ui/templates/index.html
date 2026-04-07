@@ -74,10 +74,18 @@
     .btn.small { padding: 4px 8px; font-size: 0.72rem; }
 
     #session-status {
-      margin-left: auto;
       font-size: 0.8rem;
       color: var(--fg-faint);
     }
+    #session-substage {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--fg);
+      padding: 3px 8px;
+      border: 1.5px solid var(--fg);
+      display: none;
+    }
+    #session-substage.visible { display: inline-block; }
 
     /* ── Grid ────────────────────────────────────────────── */
     .grid {
@@ -309,17 +317,21 @@
 
 <header>
   <h1>BMI Closed Loop</h1>
-  <input type="text" id="inp-session" placeholder="session name" />
+  <select id="inp-subject" class="runner-input" style="width:160px" onchange="onSubjectSelected()">
+    <option value="">— subject —</option>
+  </select>
   <input type="text" id="inp-researcher" placeholder="researcher" />
   <button class="btn accent" onclick="openSession()">Open Session</button>
   <button class="btn" onclick="closeSession()">Close Session</button>
+  <span id="session-substage"></span>
   <span id="session-status">no session</span>
+  <a href="/curriculum" class="btn small" style="text-decoration:none;margin-left:auto">Curriculum ↗</a>
+  <a href="/subjects-page" class="btn small" style="text-decoration:none">Subjects ↗</a>
 </header>
 
 <div id="dev-strip">
   <span id="dev-label">DEV</span>
   <button class="btn small" onclick="truncate('trial_results')">Truncate trial_results</button>
-  <button class="btn small" onclick="truncate('trial_configs')">Truncate trial_configs</button>
   <button class="btn small" onclick="truncate('recordings')">Truncate recordings</button>
 </div>
 
@@ -329,31 +341,31 @@
 
 <section id="trial-runner">
   <h2>Trial Runner</h2>
-  <span class="runner-label">Config
-    <select id="runner-config" class="runner-input" style="width:220px">
-      <option value="">— select trial —</option>
+  <span class="runner-label">Substage
+    <select id="runner-config" class="runner-input" style="width:240px">
+      <option value="">— select substage —</option>
     </select>
   </span>
-  <button class="btn small" onclick="loadTrialConfigs()">↻</button>
-  <span class="runner-label">Reps
-    <input id="runner-reps" class="runner-input" type="number" min="1" value="10" style="width:60px" />
-  </span>
+  <button class="btn small" onclick="loadSubstages()">↻</button>
   <span class="runner-label">ITI (s)
     <input id="runner-iti" class="runner-input" type="number" min="0" step="0.5" value="5" style="width:60px" />
   </span>
   <span class="runner-label">Fail ITI (s)
     <input id="runner-fail-iti" class="runner-input" type="number" min="0" step="0.5" value="15" style="width:60px" />
   </span>
-  <a href="/builder" class="btn small" style="text-decoration:none;margin-left:auto">Trial Builder ↗</a>
 </section>
 
 <div id="toast"></div>
 
 <script>
   const N_CAGES = {{ n_cages }};
-  let currentSessionId = null;
-  let cageStatus = {};   // cage_id → {status, fps, drops}
-  let streamActive = {}; // cage_id → bool
+  let currentSessionId  = null;
+  let currentSubjectId  = null;
+  let currentSubstageId = null;   // auto-set from subject's current_substage_id
+  let allSubjects       = [];     // [{id, code, current_substage_id, substage_label, stage_name}]
+  let allStages         = [];     // [{id, name, substages:[{id,label,...}]}]
+  let cageStatus        = {};
+  let streamActive      = {};
 
   // ── Build grid ──────────────────────────────────────────
   const grid = document.getElementById('cage-grid');
@@ -385,17 +397,65 @@
       </div>`;
   }
 
-  // ── Session ─────────────────────────────────────────────
+  // ── Load subjects + substages on init ───────────────────
+  async function initSelectors() {
+    await Promise.all([loadSubjects(), loadSubstages()]);
+  }
+
+  async function loadSubjects() {
+    try {
+      const res = await fetch('/subjects');
+      allSubjects = await res.json();
+      const sel = document.getElementById('inp-subject');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— subject —</option>' +
+        allSubjects.map(s => `<option value="${s.id}">${s.code}</option>`).join('');
+      sel.value = cur;
+    } catch (e) { toast(`Failed to load subjects: ${e.message}`); }
+  }
+
+  function onSubjectSelected() {
+    const subjectId = parseInt(document.getElementById('inp-subject').value);
+    if (!subjectId) {
+      currentSubjectId  = null;
+      currentSubstageId = null;
+      document.getElementById('session-substage').classList.remove('visible');
+      return;
+    }
+    const subject = allSubjects.find(s => s.id === subjectId);
+    if (!subject) return;
+    currentSubjectId  = subjectId;
+    currentSubstageId = subject.current_substage_id;
+
+    // Show the animal's current substage in the header
+    const label = subject.current_substage_id
+      ? `${subject.stage_name || ''} › ${subject.substage_label || subject.current_substage_id}`
+      : 'no substage';
+    const badge = document.getElementById('session-substage');
+    badge.textContent = label;
+    badge.classList.add('visible');
+
+    // Pre-select in runner dropdown
+    if (currentSubstageId) {
+      document.getElementById('runner-config').value = currentSubstageId;
+    }
+  }
+
+  // ── Session ──────────────────────────────────────────────
   async function openSession() {
-    const name       = document.getElementById('inp-session').value.trim();
+    const subjectId  = parseInt(document.getElementById('inp-subject').value);
     const researcher = document.getElementById('inp-researcher').value.trim();
-    if (!name) { toast('Enter a session name'); return; }
-    const res = await post('/session/open', { session_name: name, researcher, notes: '' });
-    if (res.ok) {
-      currentSessionId = res.data.session_id;
+    if (!subjectId) { toast('Select a subject first'); return; }
+    const res = await post('/session/open', { subject_id: subjectId, researcher });
+    if (res.ok && res.data.ok) {
+      currentSessionId  = res.data.session_id;
+      const subject     = allSubjects.find(s => s.id === subjectId);
+      const subjectCode = subject?.code || subjectId;
       document.getElementById('session-status').textContent =
-        `session ${currentSessionId} — ${researcher || 'unknown'}`;
+        `session ${currentSessionId} · ${subjectCode} · ${researcher || 'unknown'}`;
       toast(`Session ${currentSessionId} opened`);
+    } else {
+      toast(res.data?.msg || 'Failed to open session');
     }
   }
 
@@ -429,30 +489,38 @@
   }
 
   // ── Trial runner ─────────────────────────────────────────
-  async function loadTrialConfigs() {
+  async function loadSubstages() {
     try {
-      const res  = await fetch('/trial-configs');
-      const data = await res.json();
-      const sel  = document.getElementById('runner-config');
-      sel.innerHTML = '<option value="">— select trial —</option>' +
-        data.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-      toast(`Loaded ${data.length} trial config(s)`);
+      const res = await fetch('/training-stages');
+      allStages = await res.json();
+      const sel = document.getElementById('runner-config');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— select substage —</option>';
+      for (const stage of allStages) {
+        for (const sub of stage.substages) {
+          if (sub.retired) continue;
+          sel.innerHTML += `<option value="${sub.id}">${stage.name} › ${sub.label}</option>`;
+        }
+      }
+      // Re-apply subject's substage if one is selected
+      if (currentSubstageId) sel.value = currentSubstageId;
+      else if (cur)          sel.value = cur;
     } catch (e) {
-      toast(`Failed to load configs: ${e.message}`);
+      toast(`Failed to load substages: ${e.message}`);
     }
   }
 
   async function startTrial(id) {
-    const configId  = parseInt(document.getElementById('runner-config').value);
-    const nReps     = parseInt(document.getElementById('runner-reps').value)    || 1;
-    const baseIti   = parseFloat(document.getElementById('runner-iti').value)   || 5;
-    const failIti   = parseFloat(document.getElementById('runner-fail-iti').value) || 15;
-    if (!configId) { toast('Select a trial config first'); return; }
+    const substageId = parseInt(document.getElementById('runner-config').value);
+    const baseIti    = parseFloat(document.getElementById('runner-iti').value)      || 5;
+    const failIti    = parseFloat(document.getElementById('runner-fail-iti').value) || 15;
+    if (!substageId) { toast('Select a substage first'); return; }
+    if (!currentSessionId) { toast('Open a session first'); return; }
     const res = await post(`/cage/${id}/trial/run`, {
-      trial_config_id: configId,
-      n_reps:          nReps,
-      base_iti_s:      baseIti,
-      fail_iti_s:      failIti,
+      substage_id: substageId,
+      session_id:  currentSessionId,
+      base_iti_s:  baseIti,
+      fail_iti_s:  failIti,
     });
     toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'run started' : 'failed')}`);
   }
@@ -462,8 +530,8 @@
     toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'stop requested' : 'failed')}`);
   }
 
-  // Load configs on page load
-  loadTrialConfigs();
+  // Init
+  initSelectors();
 
   // ── Dev helpers ───────────────────────────────────────────
   async function truncate(table) {
