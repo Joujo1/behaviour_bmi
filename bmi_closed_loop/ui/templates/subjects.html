@@ -117,7 +117,7 @@
     </div>
     <div class="field">
       <label>DOB</label>
-      <input id="inp-dob" type="date" style="width:140px" />
+      <input id="inp-dob" type="text" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}" style="width:140px" />
     </div>
     <div class="field">
       <label>Weight (g)</label>
@@ -262,7 +262,7 @@
     const body = {
       code,
       sex:                document.getElementById('inp-sex').value    || null,
-      dob:                document.getElementById('inp-dob').value    || null,
+      dob:                (d => { const [dd,mm,yyyy] = (d||'').split('/'); return (dd&&mm&&yyyy) ? `${yyyy}-${mm}-${dd}` : null; })(document.getElementById('inp-dob').value),
       weight_g:           parseFloat(document.getElementById('inp-weight').value) || null,
       water_restricted:   document.getElementById('inp-water').value === 'true',
       current_substage_id: parseInt(document.getElementById('inp-substage').value) || null,

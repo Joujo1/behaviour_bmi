@@ -46,8 +46,16 @@ class Watchdog:
                 drop_count         = stats["drop_count"]
                 network_drop_count = stats["network_drop_count"]
 
+                streaming = self._valkey.get(f"cage:{cage_id}:streaming")
+                intentionally_stopped = streaming == b"0"
+
                 elapsed = now - last_seen if last_seen > 0 else float("inf")
-                status = "alive" if elapsed < config.WATCHDOG_DEAD_THRESHOLD_SECONDS else "dead"
+                if elapsed < config.WATCHDOG_DEAD_THRESHOLD_SECONDS:
+                    status = "alive"
+                elif intentionally_stopped:
+                    status = "stopped"
+                else:
+                    status = "dead"
 
                 fps = frames_written - self._prev_frames_written[cage_id]
                 self._prev_frames_written[cage_id] = frames_written
@@ -58,10 +66,7 @@ class Watchdog:
                     f"{status}|last_seen={last_seen:.3f}|fps={fps}|drops={drop_count}|net_drops={network_drop_count}",
                 )
 
-                streaming = self._valkey.get(f"cage:{cage_id}:streaming")
-                intentionally_stopped = streaming == b"0"
-
-                if status == "dead" and last_seen > 0 and not intentionally_stopped:
+                if status == "dead" and last_seen > 0:
                     self._log.warning(
                         f"Cage {cage_id} silent for {elapsed:.1f}s (threshold: {config.WATCHDOG_DEAD_THRESHOLD_SECONDS}s)"
                     )

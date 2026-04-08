@@ -182,6 +182,29 @@
       text-transform: uppercase; color: var(--fg-faint); white-space: nowrap;
     }
 
+    /* ── Curriculum overview graph ── */
+    #curriculum-graph {
+      border-bottom: 2px solid var(--fg);
+      background: var(--bg);
+      width: 100%;
+      height: 280px;
+      flex-shrink: 0;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 14px 24px;
+    }
+    #curriculum-graph svg {
+      height: 250px;
+      width: auto;
+      min-width: 100%;
+      display: block;
+    }
+    #curriculum-graph .no-graph-msg {
+      font-size: 0.72rem; color: var(--fg-faint); letter-spacing: 0.05em;
+    }
+
     /* ── Graph — full width, fixed height ── */
     #bldr-graph {
       border-bottom: 1px solid var(--border);
@@ -291,6 +314,9 @@
   <!-- ── Editor panel ── -->
   <div id="editor">
 
+    <!-- Curriculum overview graph — always visible -->
+    <div id="curriculum-graph"><span class="no-graph-msg">Loading…</span></div>
+
     <div id="editor-empty">Select a substage to edit, or create one.</div>
 
     <div id="editor-content">
@@ -385,6 +411,20 @@
     await loadTree();
   }
 
+  // ── Curriculum overview graph ─────────────────────────────
+  async function loadCurriculumGraph() {
+    const el = document.getElementById('curriculum-graph');
+    try {
+      const res = await fetch('/curriculum/graph');
+      if (!res.ok) throw new Error(await res.text());
+      el.innerHTML = await res.text();
+      const svg = el.querySelector('svg');
+      if (svg) { svg.style.height = '250px'; svg.style.width = 'auto'; }
+    } catch (e) {
+      el.innerHTML = `<span class="no-graph-msg" style="color:var(--dead)">Graph error: ${e.message}</span>`;
+    }
+  }
+
   // ── Stage tree ────────────────────────────────────────────
   async function loadTree() {
     try {
@@ -392,6 +432,7 @@
       allStages = await res.json();
       renderTree();
       populateAllSubstageDropdowns();
+      loadCurriculumGraph();
     } catch (e) {
       toast(`Failed to load stages: ${e.message}`);
     }
@@ -557,6 +598,7 @@
       fallback_to_substage_id: fallTarget,
     };
     await patchSubstage(body, 'Criteria saved');
+    loadCurriculumGraph();
   }
 
   // ── Save trial definition (task_config) ───────────────────

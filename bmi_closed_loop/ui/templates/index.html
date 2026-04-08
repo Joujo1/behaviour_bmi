@@ -90,7 +90,30 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
+      position: relative;
     }
+
+    .adv-popup {
+      display: none;
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 7px 10px;
+      font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.07em; text-transform: uppercase;
+      color: #000;
+      align-items: center; justify-content: space-between;
+      gap: 8px;
+      z-index: 10;
+    }
+    .adv-popup.visible { display: flex; }
+    .adv-popup.advance  { background: var(--alive); }
+    .adv-popup.fallback { background: var(--dead); color: #fff; }
+    .adv-popup-close {
+      background: none; border: none; cursor: pointer;
+      font-size: 0.9rem; line-height: 1; padding: 0 2px;
+      color: inherit; opacity: 0.7; flex-shrink: 0;
+    }
+    .adv-popup-close:hover { opacity: 1; }
 
     .cage-header {
       display: flex;
@@ -112,7 +135,8 @@
       background: var(--dead);
       flex-shrink: 0;
     }
-    .status-dot.alive { background: var(--alive); }
+    .status-dot.alive    { background: var(--alive); }
+    .status-dot.stopped  { background: var(--fg-faint); }
 
     .cage-img-wrap {
       width: 100%;
@@ -380,6 +404,7 @@
 
   let allSubjects  = [];
   let streamActive = {};
+  const lastAdvTs  = {}; // cage_id → last seen advancement ts
 
   // ── Build grid ──────────────────────────────────────────
   const grid = document.getElementById('cage-grid');
@@ -415,6 +440,10 @@
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
           <button class="btn small" id="btn-trial-${i}"  onclick="startTrial(${i})">Trial ▶</button>
           <button class="btn small"                       onclick="stopTrial(${i})">Trial ■</button>
+        </div>
+        <div class="adv-popup" id="adv-popup-${i}">
+          <span id="adv-popup-msg-${i}"></span>
+          <button class="adv-popup-close" onclick="dismissAdv(${i})">✕</button>
         </div>
       </div>`;
   }
@@ -590,6 +619,33 @@
     if (noFeed) noFeed.style.display = '';
   }
 
+  // ── Advancement notifications ────────────────────────────
+  function dismissAdv(id) {
+    const el = document.getElementById(`adv-popup-${id}`);
+    if (el) { el.classList.remove('visible', 'advance', 'fallback'); }
+  }
+
+  async function pollAdvancement() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      try {
+        const res  = await fetch(`/cage/${i}/advancement`);
+        const data = await res.json();
+        if (!data) continue;
+        if ((lastAdvTs[i] ?? 0) >= data.ts) continue; // already shown
+        lastAdvTs[i] = data.ts;
+
+        const popup = document.getElementById(`adv-popup-${i}`);
+        const msg   = document.getElementById(`adv-popup-msg-${i}`);
+        if (!popup || !msg) continue;
+
+        const arrow = data.decision === 'advance' ? '↑' : '↓';
+        msg.textContent = `${arrow} ${data.decision} → ${data.new_label}`;
+        popup.classList.remove('advance', 'fallback');
+        popup.classList.add('visible', data.decision);
+      } catch (_) {}
+    }
+  }
+
   // ── Status polling ───────────────────────────────────────
   async function pollStatus() {
     try {
@@ -600,13 +656,14 @@
         const id = parseInt(key.replace('cage_', ''));
         const parts = val.split('|');
         const alive    = parts[0] === 'alive';
+        const stopped  = parts[0] === 'stopped';
         const fps      = parts.find(p => p.startsWith('fps='))?.split('=')[1] ?? '—';
         const drops    = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
         const netDrops = parts.find(p => p.startsWith('net_drops='))?.split('=')[1] ?? '0';
         const lastSeen = parseFloat(parts.find(p => p.startsWith('last_seen='))?.split('=')[1] ?? '0');
 
         const dot = document.getElementById(`dot-${id}`);
-        if (dot) dot.className = 'status-dot' + (alive ? ' alive' : '');
+        if (dot) dot.className = 'status-dot' + (alive ? ' alive' : stopped ? ' stopped' : '');
         const fpsEl = document.getElementById(`fps-${id}`);
         if (fpsEl) fpsEl.textContent = fps;
         const dropEl = document.getElementById(`drops-${id}`);
@@ -620,7 +677,7 @@
         const lostEl = document.getElementById(`lost-${id}`);
         if (lostEl) {
           const wasSeen = lastSeen > 0;
-          const show    = !alive && wasSeen;
+          const show    = !alive && !stopped && wasSeen;
           lostEl.classList.toggle('visible', show);
           if (show) {
             const elapsed = Math.round(Date.now() / 1000 - lastSeen);
@@ -632,7 +689,9 @@
   }
 
   setInterval(pollStatus, 1000);
+  setInterval(pollAdvancement, 2000);
   pollStatus();
+  pollAdvancement();
 
   // ── Metrics polling ──────────────────────────────────────
   async function pollMetrics() {

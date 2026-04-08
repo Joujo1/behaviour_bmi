@@ -1,8 +1,9 @@
 import logging
 
+import graphviz
 import psycopg2
 import psycopg2.extras
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, Response, abort, jsonify, render_template, request
 
 import config
 
@@ -80,6 +81,93 @@ def create_stage():
 @curriculum_bp.get("/curriculum")
 def curriculum_page():
     return render_template("curriculum.html")
+
+
+@curriculum_bp.get("/curriculum/graph")
+def curriculum_graph():
+    """Render the full curriculum as a Graphviz substage-flow SVG."""
+    conn = _get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    ts.id, ts.label, ts.substage_number, ts.retired,
+                    ts.stage_id, tst.name AS stage_name, tst.sort_order,
+                    ts.advance_to_substage_id, ts.fallback_to_substage_id,
+                    ts.advance_criteria, ts.fallback_criteria
+                FROM training_substages ts
+                JOIN training_stages tst ON tst.id = ts.stage_id
+                ORDER BY tst.sort_order, tst.id, ts.substage_number
+            """)
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+    finally:
+        conn.close()
+
+    if not rows:
+        svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="40">'
+               '<text x="12" y="24" font-family="Helvetica" font-size="12" fill="#888">'
+               'No substages yet</text></svg>')
+        return Response(svg, mimetype="image/svg+xml")
+
+    substages = [dict(zip(cols, r)) for r in rows]
+
+    # Group by stage for cluster subgraphs
+    stages: dict = {}
+    for s in substages:
+        sid = s["stage_id"]
+        if sid not in stages:
+            stages[sid] = {"name": s["stage_name"], "sort_order": s["sort_order"], "substages": []}
+        stages[sid]["substages"].append(s)
+
+    dot = graphviz.Digraph(
+        graph_attr={"rankdir": "LR", "bgcolor": "transparent", "pad": "0.5",
+                    "nodesep": "0.6", "ranksep": "1.2"},
+        node_attr={"fontname": "Helvetica", "fontsize": "14"},
+        edge_attr={"fontname": "Helvetica", "fontsize": "11"},
+    )
+
+    sub_ids = {s["id"] for s in substages}
+
+    for stage_id, stage in sorted(stages.items(), key=lambda x: x[1]["sort_order"]):
+        with dot.subgraph(name=f"cluster_{stage_id}") as c:
+            c.attr(label=stage["name"], style="rounded", color="#cccccc",
+                   fontname="Helvetica", fontsize="13", fontcolor="#888888")
+            for sub in stage["substages"]:
+                node_id = f"s{sub['id']}"
+                label = f"{sub['substage_number']}. {sub['label']}"
+                if sub["retired"]:
+                    c.node(node_id, label, shape="rectangle", style="rounded,filled",
+                           fillcolor="#f0f0f0", color="#aaaaaa", fontcolor="#aaaaaa")
+                else:
+                    c.node(node_id, label, shape="rectangle", style="rounded,filled",
+                           fillcolor="white", color="black")
+
+    for sub in substages:
+        src = f"s{sub['id']}"
+
+        adv_id = sub["advance_to_substage_id"]
+        if adv_id and adv_id in sub_ids:
+            ac = sub["advance_criteria"] or {}
+            if ac.get("window") and ac.get("threshold") is not None:
+                edge_label = f"≥{round(ac['threshold'] * 100)}% / {ac['window']} trials"
+            else:
+                edge_label = "advance"
+            dot.edge(src, f"s{adv_id}", label=edge_label,
+                     color="#40ca72", fontcolor="#40ca72")
+
+        fall_id = sub["fallback_to_substage_id"]
+        if fall_id and fall_id in sub_ids:
+            fc = sub["fallback_criteria"] or {}
+            if fc.get("window") and fc.get("threshold") is not None:
+                edge_label = f"≤{round(fc['threshold'] * 100)}% / {fc['window']} trials"
+            else:
+                edge_label = "fallback"
+            dot.edge(src, f"s{fall_id}", label=edge_label,
+                     color="#cd1414", fontcolor="#cd1414", style="dashed")
+
+    svg = dot.pipe(format="svg").decode("utf-8")
+    return Response(svg, mimetype="image/svg+xml")
 
 
 @curriculum_bp.get("/training-substages/<int:substage_id>")

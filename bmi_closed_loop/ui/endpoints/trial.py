@@ -1,12 +1,17 @@
+import json
 import logging
+import time
 
 import psycopg2
 import psycopg2.extras
+import valkey as valkey_client
 from flask import Blueprint, abort, current_app, jsonify, request
 
 import config
 from ui.runner import start_run, stop_run, on_trial_complete, get_run_context, is_running
 from ui import advancement
+
+_valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 
 trial_bp = Blueprint("trial", __name__)
 _log = logging.getLogger("trial")
@@ -171,7 +176,39 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                         _log.info("Cage %d: runner stopped — subject %d %s to substage %d",
                                   cage_id, subject_id, decision, new_substage)
 
+                    # Write UI notification to Valkey (expires after 2 minutes)
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT label FROM training_substages WHERE id = %s",
+                                        (new_substage,))
+                            lrow = cur.fetchone()
+                        new_label = lrow[0] if lrow else f"substage {new_substage}"
+                        _valkey.set(
+                            f"cage:{cage_id}:advancement",
+                            json.dumps({
+                                "decision":  decision,
+                                "new_id":    new_substage,
+                                "new_label": new_label,
+                                "ts":        time.time(),
+                            }),
+                            ex=120,
+                        )
+                    except Exception as ve:
+                        _log.warning("Cage %d: could not write advancement notification: %s",
+                                     cage_id, ve)
+
     except Exception as e:
         _log.error("Cage %d: failed to write trial result: %s", cage_id, e)
     finally:
         conn.close()
+
+
+@trial_bp.get("/cage/<int:cage_id>/advancement")
+def get_advancement(cage_id: int):
+    """Return the pending advancement notification for a cage, if any."""
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    raw = _valkey.get(f"cage:{cage_id}:advancement")
+    if raw is None:
+        return jsonify(None)
+    return jsonify(json.loads(raw))
