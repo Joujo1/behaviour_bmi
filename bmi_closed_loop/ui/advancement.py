@@ -1,17 +1,8 @@
 """
 Substage advancement evaluator.
 
-After each trial completes, call evaluate(subject_id, substage_id, conn).
+After each trial completes call evaluate(subject_id, substage_id, conn).
 Returns "advance", "fallback", or "stay".
-
-Criteria are stored as JSONB on training_substages:
-    {"type": "pct_correct", "window": 20, "threshold": 0.80}
-
-    type      — only "pct_correct" supported for now
-    window    — how many recent trials to look at
-    threshold — fraction correct required (0.0–1.0)
-
-NULL criteria means no automatic transition — always returns "stay".
 """
 import logging
 
@@ -21,14 +12,8 @@ _log = logging.getLogger("advancement")
 def evaluate(subject_id: int, substage_id: int, conn) -> str:
     """
     Check advancement and fallback criteria for a subject on a substage.
-
-    Returns:
-        "advance"  — advance criteria met, move to advance_to_substage_id
-        "fallback" — fallback criteria met, move to fallback_to_substage_id
-        "stay"     — neither criteria met, or no criteria defined
     """
     with conn.cursor() as cur:
-        # Load criteria and advancement targets for this substage
         cur.execute("""
             SELECT advance_criteria, fallback_criteria,
                    advance_to_substage_id, fallback_to_substage_id
@@ -43,7 +28,6 @@ def evaluate(subject_id: int, substage_id: int, conn) -> str:
 
     advance_criteria, fallback_criteria, advance_target, fallback_target = row
 
-    # Check advance first, then fallback
     if advance_criteria and advance_target:
         if _meets(advance_criteria, subject_id, substage_id, conn):
             _log.info("Subject %d met advance criteria on substage %d → substage %d",
@@ -62,7 +46,6 @@ def evaluate(subject_id: int, substage_id: int, conn) -> str:
 def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
     """
     Apply an advance/fallback decision by updating subjects.current_substage_id.
-
     Returns the new substage_id, or None if decision is "stay".
     """
     if decision == "stay":
@@ -94,10 +77,6 @@ def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
     return new_substage_id
 
 
-# ---------------------------------------------------------------------------
-# Criteria implementations
-# ---------------------------------------------------------------------------
-
 def _meets(criteria: dict, subject_id: int, substage_id: int, conn) -> bool:
     """Dispatch to the correct criteria check based on criteria['type']."""
     ctype = criteria.get("type")
@@ -111,9 +90,6 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn) -> boo
     """
     Returns True if the last `window` trials for this subject on this substage
     have a correct rate >= threshold.
-
-    Aborted trials are excluded — they don't count for or against the animal.
-    Only 'correct' and 'wrong' outcomes are considered.
     """
     window    = int(criteria.get("window",    20))
     threshold = float(criteria.get("threshold", 0.80))
@@ -133,7 +109,6 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn) -> boo
         rows = cur.fetchall()
 
     if len(rows) < window:
-        # Not enough trials yet to evaluate
         return False
 
     correct = sum(1 for r in rows if r[0] == "correct")

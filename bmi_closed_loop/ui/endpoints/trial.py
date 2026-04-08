@@ -20,7 +20,6 @@ def _get_db():
 def get_metrics():
     """
     Per-cage trial metrics aggregated from trial_results.
-    Trial duration is taken from the timestamp of the last event in the events list.
     """
     conn = _get_db()
     try:
@@ -70,12 +69,6 @@ def run_start(cage_id: int):
     """
     Start a continuous run on a cage using a substage's task_config.
     Runs indefinitely until stopped manually or advancement criteria are met.
-
-    Body:
-        substage_id   int   — which substage to run (loads task_config from training_substages)
-        session_id    int   — open session this run belongs to
-        base_iti_s    float — seconds between trials after a correct outcome (default 5)
-        fail_iti_s    float — seconds between trials after a wrong/aborted outcome (default 15)
     """
     if not (1 <= cage_id <= config.N_CAGES):
         abort(404)
@@ -100,7 +93,7 @@ def run_start(cage_id: int):
     if not row:
         return jsonify({"ok": False, "msg": f"substage {substage_id} not found"}), 404
 
-    trial_definition = row[0]  # psycopg2 returns JSONB as a dict
+    trial_definition = row[0]
 
     sender = current_app.config["COMMAND_SENDERS"].get(cage_id)
     if not sender:
@@ -129,9 +122,6 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
     """
     Called by the TCP reader thread when the Pi pushes a trial_complete or
     trial_aborted event. Writes the result to Postgres and unblocks the runner.
-
-    Expected event shape:
-        {"event": "trial_complete"|"trial_aborted", "trial_id": str, "events": list}
     """
     event_type = event.get("event")
     if event_type not in ("trial_complete", "trial_aborted"):
@@ -143,13 +133,11 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
 
     _log.info("Cage %d: %s  outcome=%s  trial_id=%s  n_events=%d", cage_id, event_type, outcome, trial_id, len(events))
 
-    # Unblock the runner loop so the next rep can be sent
     on_trial_complete(cage_id, event)
 
-    # Read session/substage from the active runner (may be None for one-shot runs)
+    # Read session/substage from the active runner
     ctx = get_run_context(cage_id)
 
-    # Persist to Postgres
     session_id  = ctx.get("session_id")
     substage_id = ctx.get("substage_id")
 
@@ -167,7 +155,6 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                      session_id, substage_id),
                 )
 
-        # Evaluate advancement if this trial belongs to a tracked session + substage
         if session_id is not None and substage_id is not None:
             with conn.cursor() as cur:
                 cur.execute("SELECT subject_id FROM sessions WHERE id = %s", (session_id,))
@@ -179,8 +166,6 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                 if decision != "stay":
                     with conn:
                         new_substage = advancement.apply(subject_id, substage_id, decision, conn)
-                    # Stop the runner — animal has moved to a new substage,
-                    # researcher should open a fresh session to continue
                     if is_running(cage_id):
                         stop_run(cage_id)
                         _log.info("Cage %d: runner stopped — subject %d %s to substage %d",

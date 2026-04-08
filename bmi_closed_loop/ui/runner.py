@@ -22,15 +22,13 @@ _log = logging.getLogger("runner")
 _state: dict = {}
 _state_lock = threading.Lock()
 
-TRIAL_TIMEOUT_S = 330  # Pi watchdog is 300s; add 30s margin
+TRIAL_TIMEOUT_S = 330
 
 
 def start_run(cage_id: int, trial_definition: dict, sender,
               base_iti_s: float = 5.0, fail_iti_s: float = 15.0,
               session_id: int = None, substage_id: int = None) -> tuple:
     """
-    Start a continuous run for a cage. Returns (ok, msg).
-
     base_iti_s:  seconds to wait between trials after a correct outcome.
     fail_iti_s:  seconds to wait between trials after a wrong/aborted outcome.
     session_id:  DB sessions.id — stamped on every trial_results row.
@@ -98,8 +96,6 @@ def _expand_clicks(trial_definition: dict) -> dict:
     Deep-copy the trial definition and replace any play_clicks action that
     carries rate parameters (left_rate, right_rate, click_duration) with
     pre-generated left_clicks / right_clicks arrays.
-
-    Actions that already contain left_clicks / right_clicks are passed through unchanged.
     """
     trial = copy.deepcopy(trial_definition)
     for state in trial.get("states", []):

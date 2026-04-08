@@ -15,22 +15,12 @@ app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
-_log = logging.getLogger("ui_main")
-
-
-def _on_pi_event(cage_id: int, event: dict) -> None:
-    try:
-        handle_trial_event(cage_id, event)
-    except Exception as e:
-        _log.error("Unhandled error in Pi event handler (cage %d): %s", cage_id, e)
-
-
 app.config["COMMAND_SENDERS"] = {
     cage_id: TCPCommandSender(
         cage_id=cage_id,
         host=config.PI_IPS[cage_id],
         port=config.TCP_COMMAND_PORT,
-        on_event=_on_pi_event,
+        on_event=handle_trial_event,
     )
     for cage_id in range(1, config.N_CAGES + 1)
 }

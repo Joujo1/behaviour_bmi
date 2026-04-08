@@ -46,6 +46,8 @@ def open_session():
             return jsonify({"ok": False, "msg": f"subject {subject_id} not found"}), 404
         substage_id = row[0]
 
+    cage_id = body.get("cage_id")
+
     conn = _get_db()
     try:
         with conn:
@@ -53,11 +55,12 @@ def open_session():
                 cur.execute(
                     """
                     INSERT INTO sessions
-                        (researcher, notes, subject_id, substage_id, weight_g, water_ml)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                        (cage_id, researcher, notes, subject_id, substage_id, weight_g, water_ml)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
+                        cage_id,
                         body.get("researcher"),
                         body.get("notes"),
                         subject_id,
@@ -70,7 +73,7 @@ def open_session():
     finally:
         conn.close()
 
-    _log.info("Session %d opened (subject=%s substage=%s)", session_id, subject_id, substage_id)
+    _log.info("Session %d opened (cage=%s subject=%s substage=%s)", session_id, cage_id, subject_id, substage_id)
     return jsonify({"ok": True, "session_id": session_id, "substage_id": substage_id})
 
 
@@ -112,6 +115,7 @@ def list_sessions():
             cur.execute("""
                 SELECT
                     se.id,
+                    se.cage_id,
                     se.researcher,
                     se.started_at,
                     se.closed_at,

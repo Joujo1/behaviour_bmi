@@ -5,7 +5,10 @@ import config
 
 dev_bp = Blueprint("dev", __name__)
 
-_ALLOWED_TABLES = {"trial_results", "recordings"}
+_ALLOWED_TABLES = {
+    "trial_results", "recordings", "sessions",
+    "subjects", "training_substages", "training_stages",
+}
 
 
 def _get_db():
@@ -20,7 +23,7 @@ def truncate_table(table: str):
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute(f"TRUNCATE {table} RESTART IDENTITY")
+                cur.execute(f"TRUNCATE {table} RESTART IDENTITY CASCADE")
     finally:
         conn.close()
     return jsonify({"ok": True, "msg": f"{table} truncated"})

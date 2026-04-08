@@ -69,23 +69,10 @@
       transition: background 0.1s, color 0.1s;
     }
     .btn:hover { background: var(--fg); color: var(--bg); }
+    .btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
     .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--fg); }
     .btn.accent:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
     .btn.small { padding: 4px 8px; font-size: 0.72rem; }
-
-    #session-status {
-      font-size: 0.8rem;
-      color: var(--fg-faint);
-    }
-    #session-substage {
-      font-size: 0.78rem;
-      font-weight: 700;
-      color: var(--fg);
-      padding: 3px 8px;
-      border: 1.5px solid var(--fg);
-      display: none;
-    }
-    #session-substage.visible { display: inline-block; }
 
     /* ── Grid ────────────────────────────────────────────── */
     .grid {
@@ -102,7 +89,7 @@
       padding: 12px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
     .cage-header {
@@ -171,16 +158,48 @@
 
     .cage-stats {
       display: flex;
-      gap: 12px;
-      font-size: 0.72rem;
+      gap: 8px;
+      font-size: 0.68rem;
       color: var(--fg-faint);
     }
-
     .cage-stats span { font-weight: 600; color: var(--fg); }
+
+    /* ── Per-cage session controls ───────────────────────── */
+    .cage-session {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .cage-subject-sel {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--border);
+      background: var(--bg-faint);
+      padding: 4px 6px;
+      font-family: inherit;
+      font-size: 0.75rem;
+      outline: none;
+      color: var(--fg);
+    }
+    .cage-subject-sel:focus { border-color: var(--fg); }
+
+    .session-status {
+      font-size: 0.65rem;
+      color: var(--fg-faint);
+      min-height: 1em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-status.active {
+      color: var(--alive);
+      font-weight: 700;
+    }
 
     .cage-actions {
       display: flex;
-      gap: 6px;
+      gap: 4px;
       flex-wrap: wrap;
     }
 
@@ -192,6 +211,7 @@
       padding: 6px 24px;
       background: var(--bg-faint);
       border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
     }
 
     #dev-label {
@@ -259,9 +279,9 @@
       line-height: 1;
     }
 
-    /* ── Trial Runner ────────────────────────────────────── */
-    #trial-runner {
-      padding: 18px 24px;
+    /* ── ITI controls ────────────────────────────────────── */
+    #iti-bar {
+      padding: 12px 24px;
       border-top: 2px solid var(--fg);
       display: flex;
       align-items: center;
@@ -269,7 +289,7 @@
       flex-wrap: wrap;
     }
 
-    #trial-runner h2 {
+    #iti-bar h2 {
       font-size: 1rem;
       font-weight: 700;
       letter-spacing: 0.08em;
@@ -317,14 +337,8 @@
 
 <header>
   <h1>BMI Closed Loop</h1>
-  <select id="inp-subject" class="runner-input" style="width:160px" onchange="onSubjectSelected()">
-    <option value="">— subject —</option>
-  </select>
   <input type="text" id="inp-researcher" placeholder="researcher" />
-  <button class="btn accent" onclick="openSession()">Open Session</button>
-  <button class="btn" onclick="closeSession()">Close Session</button>
-  <span id="session-substage"></span>
-  <span id="session-status">no session</span>
+  <button class="btn small" onclick="loadSubjects()">↻ Subjects</button>
   <a href="/curriculum" class="btn small" style="text-decoration:none;margin-left:auto">Curriculum ↗</a>
   <a href="/subjects-page" class="btn small" style="text-decoration:none">Subjects ↗</a>
 </header>
@@ -333,39 +347,39 @@
   <span id="dev-label">DEV</span>
   <button class="btn small" onclick="truncate('trial_results')">Truncate trial_results</button>
   <button class="btn small" onclick="truncate('recordings')">Truncate recordings</button>
+  <button class="btn small" onclick="truncate('sessions')">Truncate sessions</button>
+  <button class="btn small" onclick="truncate('subjects')">Truncate subjects</button>
+  <button class="btn small" onclick="truncate('training_substages')">Truncate training_substages</button>
+  <button class="btn small" onclick="truncate('training_stages')">Truncate training_stages</button>
 </div>
 
 <div class="grid" id="cage-grid"></div>
 
 <div id="metrics-grid"></div>
 
-<section id="trial-runner">
-  <h2>Trial Runner</h2>
-  <span class="runner-label">Substage
-    <select id="runner-config" class="runner-input" style="width:240px">
-      <option value="">— select substage —</option>
-    </select>
-  </span>
-  <button class="btn small" onclick="loadSubstages()">↻</button>
-  <span class="runner-label">ITI (s)
+<div id="iti-bar">
+  <h2>ITI</h2>
+  <span class="runner-label">Base (s)
     <input id="runner-iti" class="runner-input" type="number" min="0" step="0.5" value="5" style="width:60px" />
   </span>
-  <span class="runner-label">Fail ITI (s)
+  <span class="runner-label">Fail (s)
     <input id="runner-fail-iti" class="runner-input" type="number" min="0" step="0.5" value="15" style="width:60px" />
   </span>
-</section>
+</div>
 
 <div id="toast"></div>
 
 <script>
   const N_CAGES = {{ n_cages }};
-  let currentSessionId  = null;
-  let currentSubjectId  = null;
-  let currentSubstageId = null;   // auto-set from subject's current_substage_id
-  let allSubjects       = [];     // [{id, code, current_substage_id, substage_label, stage_name}]
-  let allStages         = [];     // [{id, name, substages:[{id,label,...}]}]
-  let cageStatus        = {};
-  let streamActive      = {};
+
+  // Per-cage state
+  const cageState = {};
+  for (let i = 1; i <= N_CAGES; i++) {
+    cageState[i] = { sessionId: null, subjectId: null, substageId: null };
+  }
+
+  let allSubjects  = [];
+  let streamActive = {};
 
   // ── Build grid ──────────────────────────────────────────
   const grid = document.getElementById('cage-grid');
@@ -389,6 +403,14 @@
             <span id="lost-elapsed-${i}" style="font-size:0.65rem;font-weight:400;letter-spacing:0.05em"></span>
           </div>
         </div>
+        <div class="cage-session">
+          <select id="subject-${i}" class="cage-subject-sel" onchange="onCageSubjectSelected(${i})">
+            <option value="">— subject —</option>
+          </select>
+          <button class="btn small" id="btn-open-${i}" onclick="openCageSession(${i})" disabled>Open</button>
+          <button class="btn small" id="btn-close-${i}" onclick="closeCageSession(${i})" disabled>Close</button>
+        </div>
+        <div id="session-status-${i}" class="session-status"></div>
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
           <button class="btn small" id="btn-trial-${i}"  onclick="startTrial(${i})">Trial ▶</button>
@@ -397,74 +419,95 @@
       </div>`;
   }
 
-  // ── Load subjects + substages on init ───────────────────
-  async function initSelectors() {
-    await Promise.all([loadSubjects(), loadSubstages()]);
-  }
-
+  // ── Subjects ─────────────────────────────────────────────
   async function loadSubjects() {
     try {
       const res = await fetch('/subjects');
       allSubjects = await res.json();
-      const sel = document.getElementById('inp-subject');
-      const cur = sel.value;
-      sel.innerHTML = '<option value="">— subject —</option>' +
-        allSubjects.map(s => `<option value="${s.id}">${s.code}</option>`).join('');
-      sel.value = cur;
+      for (let i = 1; i <= N_CAGES; i++) {
+        const sel = document.getElementById(`subject-${i}`);
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">— subject —</option>' +
+          allSubjects.map(s => `<option value="${s.id}">${s.code}</option>`).join('');
+        sel.value = cur;
+        // Refresh substage if subject still selected and no open session
+        if (cur && !cageState[i].sessionId) {
+          const subject = allSubjects.find(s => s.id === parseInt(cur));
+          if (subject) cageState[i].substageId = subject.current_substage_id;
+          updateCageSessionUI(i);
+        }
+      }
     } catch (e) { toast(`Failed to load subjects: ${e.message}`); }
   }
 
-  function onSubjectSelected() {
-    const subjectId = parseInt(document.getElementById('inp-subject').value);
+  function onCageSubjectSelected(id) {
+    const sel = document.getElementById(`subject-${id}`);
+    const subjectId = parseInt(sel.value);
     if (!subjectId) {
-      currentSubjectId  = null;
-      currentSubstageId = null;
-      document.getElementById('session-substage').classList.remove('visible');
-      return;
-    }
-    const subject = allSubjects.find(s => s.id === subjectId);
-    if (!subject) return;
-    currentSubjectId  = subjectId;
-    currentSubstageId = subject.current_substage_id;
-
-    // Show the animal's current substage in the header
-    const label = subject.current_substage_id
-      ? `${subject.stage_name || ''} › ${subject.substage_label || subject.current_substage_id}`
-      : 'no substage';
-    const badge = document.getElementById('session-substage');
-    badge.textContent = label;
-    badge.classList.add('visible');
-
-    // Pre-select in runner dropdown
-    if (currentSubstageId) {
-      document.getElementById('runner-config').value = currentSubstageId;
-    }
-  }
-
-  // ── Session ──────────────────────────────────────────────
-  async function openSession() {
-    const subjectId  = parseInt(document.getElementById('inp-subject').value);
-    const researcher = document.getElementById('inp-researcher').value.trim();
-    if (!subjectId) { toast('Select a subject first'); return; }
-    const res = await post('/session/open', { subject_id: subjectId, researcher });
-    if (res.ok && res.data.ok) {
-      currentSessionId  = res.data.session_id;
-      const subject     = allSubjects.find(s => s.id === subjectId);
-      const subjectCode = subject?.code || subjectId;
-      document.getElementById('session-status').textContent =
-        `session ${currentSessionId} · ${subjectCode} · ${researcher || 'unknown'}`;
-      toast(`Session ${currentSessionId} opened`);
+      cageState[id].subjectId  = null;
+      cageState[id].substageId = null;
     } else {
-      toast(res.data?.msg || 'Failed to open session');
+      const subject = allSubjects.find(s => s.id === subjectId);
+      cageState[id].subjectId  = subjectId;
+      cageState[id].substageId = subject?.current_substage_id || null;
+    }
+    updateCageSessionUI(id);
+  }
+
+  function updateCageSessionUI(id) {
+    const state   = cageState[id];
+    const statusEl = document.getElementById(`session-status-${id}`);
+    const openBtn  = document.getElementById(`btn-open-${id}`);
+    const closeBtn = document.getElementById(`btn-close-${id}`);
+
+    if (state.sessionId) {
+      statusEl.textContent = `session ${state.sessionId}`;
+      statusEl.className   = 'session-status active';
+      openBtn.disabled     = true;
+      closeBtn.disabled    = false;
+    } else {
+      const subject = allSubjects.find(s => s.id === state.subjectId);
+      if (subject) {
+        const label = subject.stage_name
+          ? `${subject.stage_name} › ${subject.substage_label || '?'}`
+          : (subject.substage_label || 'no substage');
+        statusEl.textContent = label;
+      } else {
+        statusEl.textContent = '';
+      }
+      statusEl.className = 'session-status';
+      openBtn.disabled   = !state.subjectId;
+      closeBtn.disabled  = true;
     }
   }
 
-  async function closeSession() {
-    if (!currentSessionId) { toast('No session open'); return; }
-    await post(`/session/${currentSessionId}/close`);
-    toast(`Session ${currentSessionId} closed`);
-    document.getElementById('session-status').textContent = 'no session';
-    currentSessionId = null;
+  // ── Session open / close ─────────────────────────────────
+  async function openCageSession(id) {
+    const state = cageState[id];
+    if (!state.subjectId) { toast(`Cage ${id}: select a subject first`); return; }
+    const researcher = document.getElementById('inp-researcher').value.trim();
+    const res = await post('/session/open', {
+      cage_id:    id,
+      subject_id: state.subjectId,
+      researcher,
+    });
+    if (res.ok && res.data.ok) {
+      cageState[id].sessionId  = res.data.session_id;
+      cageState[id].substageId = res.data.substage_id;
+      updateCageSessionUI(id);
+      toast(`Cage ${id}: session ${res.data.session_id} opened`);
+    } else {
+      toast(`Cage ${id}: ${res.data?.msg || 'failed to open session'}`);
+    }
+  }
+
+  async function closeCageSession(id) {
+    const state = cageState[id];
+    if (!state.sessionId) return;
+    await post(`/session/${state.sessionId}/close`);
+    toast(`Cage ${id}: session ${state.sessionId} closed`);
+    cageState[id].sessionId = null;
+    updateCageSessionUI(id);
   }
 
   // ── Stream ───────────────────────────────────────────────
@@ -489,36 +532,17 @@
   }
 
   // ── Trial runner ─────────────────────────────────────────
-  async function loadSubstages() {
-    try {
-      const res = await fetch('/training-stages');
-      allStages = await res.json();
-      const sel = document.getElementById('runner-config');
-      const cur = sel.value;
-      sel.innerHTML = '<option value="">— select substage —</option>';
-      for (const stage of allStages) {
-        for (const sub of stage.substages) {
-          if (sub.retired) continue;
-          sel.innerHTML += `<option value="${sub.id}">${stage.name} › ${sub.label}</option>`;
-        }
-      }
-      // Re-apply subject's substage if one is selected
-      if (currentSubstageId) sel.value = currentSubstageId;
-      else if (cur)          sel.value = cur;
-    } catch (e) {
-      toast(`Failed to load substages: ${e.message}`);
-    }
-  }
-
   async function startTrial(id) {
-    const substageId = parseInt(document.getElementById('runner-config').value);
+    const state      = cageState[id];
+    const substageId = state.substageId;
+    const sessionId  = state.sessionId;
     const baseIti    = parseFloat(document.getElementById('runner-iti').value)      || 5;
     const failIti    = parseFloat(document.getElementById('runner-fail-iti').value) || 15;
-    if (!substageId) { toast('Select a substage first'); return; }
-    if (!currentSessionId) { toast('Open a session first'); return; }
+    if (!substageId) { toast(`Cage ${id}: no substage — select a subject`); return; }
+    if (!sessionId)  { toast(`Cage ${id}: open a session first`); return; }
     const res = await post(`/cage/${id}/trial/run`, {
       substage_id: substageId,
-      session_id:  currentSessionId,
+      session_id:  sessionId,
       base_iti_s:  baseIti,
       fail_iti_s:  failIti,
     });
@@ -528,17 +552,6 @@
   async function stopTrial(id) {
     const res = await post(`/cage/${id}/trial/run/stop`);
     toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'stop requested' : 'failed')}`);
-  }
-
-  // Init
-  initSelectors();
-
-  // ── Dev helpers ───────────────────────────────────────────
-  async function truncate(table) {
-    if (!confirm(`Truncate ${table}? This cannot be undone.`)) return;
-    const res = await post(`/dev/truncate/${table}`);
-    toast(res.data?.msg || (res.ok ? 'done' : 'failed'));
-    if (res.ok) pollMetrics();
   }
 
   // ── Live image refresh ───────────────────────────────────
@@ -586,11 +599,10 @@
       for (const [key, val] of Object.entries(data)) {
         const id = parseInt(key.replace('cage_', ''));
         const parts = val.split('|');
-        const alive = parts[0] === 'alive';
+        const alive    = parts[0] === 'alive';
         const fps      = parts.find(p => p.startsWith('fps='))?.split('=')[1] ?? '—';
         const drops    = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
         const netDrops = parts.find(p => p.startsWith('net_drops='))?.split('=')[1] ?? '0';
-
         const lastSeen = parseFloat(parts.find(p => p.startsWith('last_seen='))?.split('=')[1] ?? '0');
 
         const dot = document.getElementById(`dot-${id}`);
@@ -608,7 +620,7 @@
         const lostEl = document.getElementById(`lost-${id}`);
         if (lostEl) {
           const wasSeen = lastSeen > 0;
-          const show = !alive && wasSeen;
+          const show    = !alive && wasSeen;
           lostEl.classList.toggle('visible', show);
           if (show) {
             const elapsed = Math.round(Date.now() / 1000 - lastSeen);
@@ -629,7 +641,6 @@
       if (!res.ok) return;
       const data = await res.json();
 
-      // Index by cage_id for quick lookup
       const byId = {};
       data.forEach(m => { byId[m.cage_id] = m; });
 
@@ -678,6 +689,17 @@
   setInterval(pollMetrics, 5000);
   pollMetrics();
 
+  // Refresh subject list every 10s to pick up advancement changes
+  setInterval(loadSubjects, 10000);
+
+  // ── Dev helpers ───────────────────────────────────────────
+  async function truncate(table) {
+    if (!confirm(`Truncate ${table}? This cannot be undone.`)) return;
+    const res = await post(`/dev/truncate/${table}`);
+    toast(res.data?.msg || (res.ok ? 'done' : 'failed'));
+    if (res.ok) pollMetrics();
+  }
+
   // ── Helpers ──────────────────────────────────────────────
   async function post(url, body = null) {
     try {
@@ -703,6 +725,9 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
   }
+
+  // ── Init ─────────────────────────────────────────────────
+  loadSubjects();
 </script>
 </body>
 </html>

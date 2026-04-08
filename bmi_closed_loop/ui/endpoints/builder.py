@@ -1,6 +1,6 @@
 import psycopg2
 import psycopg2.extras
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, request
 
 import config
 
@@ -9,11 +9,6 @@ builder_bp = Blueprint("builder", __name__)
 
 def _get_db():
     return psycopg2.connect(config.POSTGRES_DSN)
-
-
-@builder_bp.get("/builder")
-def builder_page():
-    return render_template("builder.html")
 
 
 @builder_bp.patch("/training-substages/<int:substage_id>/task-config")

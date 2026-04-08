@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS subjects (
 
 CREATE TABLE IF NOT EXISTS sessions (
     id          SERIAL       PRIMARY KEY,
+    cage_id     INT,
     researcher  TEXT,
     notes       TEXT,
     subject_id  INT          REFERENCES subjects(id),
@@ -92,6 +93,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     started_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     closed_at   TIMESTAMPTZ
 );
+
+-- Idempotent migration for existing databases
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS cage_id INT;
 
 
 -- ---------------------------------------------------------------------------
