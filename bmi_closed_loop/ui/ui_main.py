@@ -1,5 +1,6 @@
 import logging
 import config
+import valkey as valkey_client
 from command.tcp_command_sender import TCPCommandSender
 from flask import Flask, render_template
 from ui.endpoints.builder import builder_bp
@@ -14,6 +15,11 @@ from ui.endpoints.trial import trial_bp, handle_trial_event
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+
+# Clear stale streaming state from previous sessions
+_valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
+for _cage_id in range(1, config.N_CAGES + 1):
+    _valkey.set(f"cage:{_cage_id}:streaming", "0")
 
 app.config["COMMAND_SENDERS"] = {
     cage_id: TCPCommandSender(

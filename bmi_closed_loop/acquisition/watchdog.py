@@ -60,10 +60,11 @@ class Watchdog:
                 fps = frames_written - self._prev_frames_written[cage_id]
                 self._prev_frames_written[cage_id] = frames_written
 
+                streaming_flag = "1" if streaming == b"1" else "0"
                 self._valkey.hset(
                     "camera_status",
                     f"cage_{cage_id}",
-                    f"{status}|last_seen={last_seen:.3f}|fps={fps}|drops={drop_count}|net_drops={network_drop_count}",
+                    f"{status}|last_seen={last_seen:.3f}|fps={fps}|drops={drop_count}|net_drops={network_drop_count}|streaming={streaming_flag}",
                 )
 
                 if status == "dead" and last_seen > 0:

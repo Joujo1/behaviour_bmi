@@ -655,12 +655,26 @@
       for (const [key, val] of Object.entries(data)) {
         const id = parseInt(key.replace('cage_', ''));
         const parts = val.split('|');
-        const alive    = parts[0] === 'alive';
-        const stopped  = parts[0] === 'stopped';
-        const fps      = parts.find(p => p.startsWith('fps='))?.split('=')[1] ?? '—';
-        const drops    = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
-        const netDrops = parts.find(p => p.startsWith('net_drops='))?.split('=')[1] ?? '0';
-        const lastSeen = parseFloat(parts.find(p => p.startsWith('last_seen='))?.split('=')[1] ?? '0');
+        const alive      = parts[0] === 'alive';
+        const stopped    = parts[0] === 'stopped';
+        const fps        = parts.find(p => p.startsWith('fps='))?.split('=')[1] ?? '—';
+        const drops      = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
+        const netDrops   = parts.find(p => p.startsWith('net_drops='))?.split('=')[1] ?? '0';
+        const lastSeen   = parseFloat(parts.find(p => p.startsWith('last_seen='))?.split('=')[1] ?? '0');
+        const isStreaming = parts.find(p => p.startsWith('streaming='))?.split('=')[1] === '1';
+
+        // Restore stream UI if backend is streaming but JS state was reset (e.g. page navigation)
+        if (isStreaming && !streamActive[id]) {
+          streamActive[id] = true;
+          startImageRefresh(id);
+          const btn = document.getElementById(`btn-stream-${id}`);
+          if (btn) btn.textContent = 'Stream ■';
+        } else if (!isStreaming && streamActive[id]) {
+          streamActive[id] = false;
+          stopImageRefresh(id);
+          const btn = document.getElementById(`btn-stream-${id}`);
+          if (btn) btn.textContent = 'Stream ▶';
+        }
 
         const dot = document.getElementById(`dot-${id}`);
         if (dot) dot.className = 'status-dot' + (alive ? ' alive' : stopped ? ' stopped' : '');
