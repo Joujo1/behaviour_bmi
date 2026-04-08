@@ -1,8 +1,8 @@
 # All values are BCM numbers (gpio_handler uses GPIO.BCM mode).
 
 LED_PINS = {
-    "center": 13,   # physical 33
-    "left":   19,   # physical 35
+    "left": 13,   # physical 33
+    "center":   19,   # physical 35
     "right":  26,   # physical 37
 }
 
@@ -14,8 +14,8 @@ VALVE_PINS = {
 
 BEAM_PINS = {
     "left":   2,    # physical 3
-    "right":  3,    # physical 5
-    "center": 4,    # physical 7
+    "center":  3,    # physical 5
+    "right": 4,    # physical 7
 }
 
 # A brief HIGH pulse (CLICK_PULSE_US microseconds) produces an audible click.
@@ -26,8 +26,8 @@ AUDIO_PINS = {
 
 BEAM_ACTIVE_LOW = {
     "left":   True,
-    "right":  True,
-    "center": True,
+    "center":  True,
+    "right": True,
 }
 
 CLICK_PULSE_US = 100

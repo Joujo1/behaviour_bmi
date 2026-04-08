@@ -102,9 +102,9 @@ def trial_graph():
                 label = trigger
 
             TERMINALS = {
-                "__end__":     ("black",                  "black"),
-                "__correct__": ("rgb(64,202,114)",        "rgb(64,202,114)"),
-                "__wrong__":   ("rgb(205,20,20)",         "rgb(205,20,20)"),
+                "__end__":     ("black",     "black"),
+                "__correct__": ("#40ca72",   "#40ca72"),
+                "__wrong__":   ("#cd1414",   "#cd1414"),
             }
             if next_s in TERMINALS:
                 if next_s not in end_added:
