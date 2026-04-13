@@ -2,27 +2,26 @@
 """
 Standalone .bin file viewer for BMI closed-loop recordings.
 
-Parses a cage_N.bin file produced by FrameWriter, indexes all frames into
-memory (headers + events), and serves a local web viewer for post-hoc
-inspection. JPEG bytes are read from disk on demand to keep memory usage low.
+Opens a browser-based file browser rooted at NAS_BASE_PATH.
+Select any .bin file to view a Verilog-style waveform of all GPIO signals,
+with state/substage annotations and a small JPEG preview.
 
 Usage:
-    python bin_viewer.py <path/to/cage_1.bin> [--port 7000]
+    python bin_viewer.py [--port 7000] [--root /path/to/NAS]
 
 Then open http://localhost:7000 in a browser.
-Navigate with ← → arrow keys, the slider, or clicking the buttons.
-Jump between state changes with [ ] keys or the State ‹ › buttons.
 """
 
 import argparse
 import io
 import json
+import os
 import struct
 import sys
 
-from flask import Flask, jsonify, render_template_string, send_file
+from flask import Flask, abort, jsonify, render_template_string, request, send_file
 
-# ── Packet format (must match udp_sender_pi.py and packet_parser.py) ──────────
+# ── Packet format (must match udp_sender_pi.py and packet_parser.py) ─────────
 
 HEADER_FORMAT = "<IQIIBBBBBBBBB"
 HEADER_SIZE   = struct.calcsize(HEADER_FORMAT)
@@ -34,22 +33,28 @@ HEADER_FIELDS = [
     "trial_state",
 ]
 
+GPIO_SIGNALS = [
+    ("led_center",  "LED C",    False),
+    ("led_left",    "LED L",    False),
+    ("led_right",   "LED R",    False),
+    ("valve_left",  "Valve L",  False),
+    ("valve_right", "Valve R",  False),
+    ("beam_left",   "Beam L",   True),
+    ("beam_right",  "Beam R",   True),
+    ("beam_center", "Beam C",   True),
+]
+
 # ── Bin file indexing ─────────────────────────────────────────────────────────
 
 def index_bin(path: str) -> tuple:
     """
     Parse headers and events for every frame.
-    Returns (frames, state_change_indices, timeline).
-
-    - frames: list of dicts with header, events, jpeg_offset, jpeg_size, current_state
-    - state_change_indices: sorted list of frame indices where a state transition occurred
-    - timeline: list of {frame, state, t, from} for every state transition (including
-                synthetic initial-state entries derived from each transition's 'from' field)
+    Returns (frames, state_changes, timeline).
     """
     index         = []
     current_state = None
     state_changes = []
-    raw_timeline  = []   # one entry per observed transition event
+    raw_timeline  = []
 
     with open(path, "rb") as f:
         while True:
@@ -61,7 +66,7 @@ def index_bin(path: str) -> tuple:
             packet       = f.read(packet_len)
 
             if len(packet) < packet_len:
-                break  # truncated frame (e.g. recording interrupted)
+                break
 
             header_vals = struct.unpack(HEADER_FORMAT, packet[:HEADER_SIZE])
             header      = dict(zip(HEADER_FIELDS, header_vals))
@@ -71,9 +76,7 @@ def index_bin(path: str) -> tuple:
             events = []
             if events_size > 0:
                 try:
-                    events = json.loads(
-                        packet[HEADER_SIZE : HEADER_SIZE + events_size]
-                    )
+                    events = json.loads(packet[HEADER_SIZE : HEADER_SIZE + events_size])
                 except Exception:
                     pass
 
@@ -99,7 +102,6 @@ def index_bin(path: str) -> tuple:
 
     TERMINALS = {"__correct__", "__wrong__", "aborted"}
 
-    # ── Retroactive fill ───────────────────────────────────────────────────────
     for i, (change_frame, tl) in enumerate(zip(state_changes, raw_timeline)):
         from_state  = tl["from"]
         block_start = state_changes[i - 1] if i > 0 else 0
@@ -108,8 +110,8 @@ def index_bin(path: str) -> tuple:
                index[k]["current_state"] in TERMINALS:
                 index[k]["current_state"] = from_state
 
-    # ── Group raw transitions into per-trial lists ─────────────────────────────
-    trials_raw = []
+    # Group transitions into trials
+    trials_raw    = []
     current_trial = []
     for tl in raw_timeline:
         current_trial.append(tl)
@@ -119,15 +121,14 @@ def index_bin(path: str) -> tuple:
     if current_trial:
         trials_raw.append(current_trial)
 
-    # ── Build rich timeline ────────────────────────────────────────────────────
-    timeline    = []   # list of dicts with type∈{trial_header,state,transition,iti}
-    nav_frames  = []   # all interesting frame indices for [ ] navigation
+    # Build rich timeline
+    timeline   = []
+    nav_frames = []
 
     for trial_idx, transitions in enumerate(trials_raw):
         first_transition_frame = transitions[0]["frame"]
         initial_state = transitions[0]["from"]
 
-        # Find first frame of this trial's initial state (retroactively filled)
         trial_start_frame = first_transition_frame
         for k in range(first_transition_frame - 1, -1, -1):
             if index[k]["current_state"] == initial_state:
@@ -143,20 +144,14 @@ def index_bin(path: str) -> tuple:
         prev_frame = trial_start_frame
 
         for tl in transitions:
-            state_name = tl["from"]
-            duration   = round(tl["t"] - prev_t, 3)
-
-            # State block
             timeline.append({
                 "type":     "state",
-                "state":    state_name,
+                "state":    tl["from"],
                 "frame":    prev_frame,
                 "start_t":  prev_t,
-                "duration": duration,
+                "duration": round(tl["t"] - prev_t, 3),
             })
             nav_frames.append(prev_frame)
-
-            # Transition arrow
             timeline.append({
                 "type":       "transition",
                 "from_state": tl["from"],
@@ -165,11 +160,9 @@ def index_bin(path: str) -> tuple:
                 "frame":      tl["frame"],
             })
             nav_frames.append(tl["frame"])
-
             prev_t     = tl["t"]
             prev_frame = tl["frame"]
 
-        # Terminal state (duration unknown — trial ended here)
         last = transitions[-1]
         timeline.append({
             "type":     "state",
@@ -180,22 +173,55 @@ def index_bin(path: str) -> tuple:
         })
         nav_frames.append(last["frame"])
 
-        # ITI gap between this trial and the next
         if trial_idx < len(trials_raw) - 1:
             next_first_frame = trials_raw[trial_idx + 1][0]["frame"]
             ts_end  = index[last["frame"]]["header"]["timestamp"]
             ts_next = index[next_first_frame]["header"]["timestamp"]
             gap_s   = round((ts_next - ts_end) / 1_000_000, 1)
-            timeline.append({"type": "iti", "duration_s": gap_s,
-                              "frame": last["frame"]})
+            timeline.append({"type": "iti", "duration_s": gap_s, "frame": last["frame"]})
 
     nav_frames = sorted(set(nav_frames))
     return index, nav_frames, timeline
 
 
-# ── Flask viewer ──────────────────────────────────────────────────────────────
+# ── Waveform data builder ─────────────────────────────────────────────────────
 
-HTML = """<!DOCTYPE html>
+def build_waveform(frames: list) -> dict:
+    """
+    Build compact waveform data for client-side Canvas rendering.
+    Returns dict with:
+      - t_us: list of timestamps (µs)
+      - signals: {signal_name: [0/1 per frame]}
+      - state_labels: [{t_us, state, frame}]
+      - trial_markers: [{t_us, trial_num, frame}]
+    """
+    t_us = [f["header"]["timestamp"] for f in frames]
+
+    signals = {}
+    for key, _label, _is_beam in GPIO_SIGNALS:
+        signals[key] = [f["header"][key] for f in frames]
+
+    state_labels  = []
+    trial_markers = []
+    prev_state = None
+    prev_trial = None
+
+    for i, f in enumerate(frames):
+        cs = f["current_state"]
+        if cs != prev_state:
+            state_labels.append({"t_us": t_us[i], "state": cs or "—", "frame": i})
+            prev_state = cs
+
+    return {
+        "t_us":          t_us,
+        "signals":       signals,
+        "state_labels":  state_labels,
+    }
+
+
+# ── HTML template ─────────────────────────────────────────────────────────────
+
+HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -203,471 +229,896 @@ HTML = """<!DOCTYPE html>
   <style>
     :root {
       font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
-      --bg: #fff; --fg: #000; --faint: #888; --border: #e0e0e0;
-      --alive: rgb(64,202,114); --dead: rgb(205,20,20); --accent: #ffd000;
-      --correct: rgb(64,202,114); --wrong: rgb(205,20,20);
+      --bg: #fff; --fg: #000; --faint: #aaa; --border: #e0e0e0;
+      --accent: #ffd000;
+      --correct: #40ca72; --wrong: #cd1414;
+      --signal-led: #3b82f6;
+      --signal-valve: #f59e0b;
+      --signal-beam: #ef4444;
+      --row-h: 32px;
+      --label-w: 80px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--fg); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
+    /* ── Top bar ── */
     header {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      padding: 8px 16px; border-bottom: 2px solid var(--fg); flex-shrink: 0;
+      display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+      border-bottom: 2px solid var(--fg); flex-shrink: 0; flex-wrap: wrap;
     }
-    header h1 { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 4px; }
-    header span.file { font-size: 0.75rem; color: var(--faint); margin-right: 8px; }
-
-    #nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    #slider { width: 200px; accent-color: var(--fg); }
-    #frame-label { font-size: 0.78rem; font-variant-numeric: tabular-nums; min-width: 100px; }
-
+    header h1 { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+    .file-path { font-size: 0.72rem; color: var(--faint); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .btn {
-      padding: 4px 10px; font-family: inherit; font-size: 0.72rem; font-weight: 600;
-      letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer;
-      border: 1.5px solid var(--fg); background: var(--bg); color: var(--fg);
-      white-space: nowrap;
+      padding: 4px 10px; font-family: inherit; font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
+      border: 1.5px solid var(--fg); background: var(--bg); color: var(--fg); white-space: nowrap;
     }
     .btn:hover { background: var(--fg); color: var(--bg); }
-    .btn.accent { background: var(--accent); border-color: var(--accent); }
-    .btn.accent:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+    .btn.open { background: var(--accent); border-color: var(--accent); color: #000; }
+    .btn.open:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
 
-    #main { display: flex; flex: 1; overflow: hidden; }
+    /* ── Layout ── */
+    #app { display: flex; flex: 1; overflow: hidden; }
 
-    #image-pane {
-      flex: 1; display: flex; align-items: center; justify-content: center;
-      background: #111; overflow: hidden; position: relative;
+    /* ── File browser overlay ── */
+    #browser-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
     }
-    #image-pane img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-
-    /* State overlay on image */
-    #state-overlay {
-      position: absolute; top: 10px; left: 10px;
-      background: rgba(0,0,0,0.55); color: #fff;
-      padding: 4px 10px; font-size: 0.8rem; font-weight: 700;
-      letter-spacing: 0.06em; text-transform: uppercase;
-      border-radius: 2px; pointer-events: none;
+    #browser-overlay.hidden { display: none; }
+    #browser-panel {
+      background: var(--bg); border: 2px solid var(--fg);
+      width: 560px; max-height: 70vh; display: flex; flex-direction: column;
     }
-    #state-overlay.correct { background: rgba(64,202,114,0.8); color: #000; }
-    #state-overlay.wrong   { background: rgba(205,20,20,0.8);  color: #fff; }
-
-    #sidebar {
-      width: 420px; flex-shrink: 0; border-left: 2px solid var(--fg);
-      overflow-y: auto; display: flex; flex-direction: column;
-    }
-
-    .side-section { padding: 10px 14px; border-bottom: 1px solid var(--border); }
-    .side-title {
-      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--faint); margin-bottom: 8px;
-    }
-
-    /* State display */
-    #state-name {
-      font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em;
-      margin-bottom: 2px;
-    }
-    #state-name.correct { color: var(--correct); }
-    #state-name.wrong   { color: var(--wrong); }
-    #state-since { font-size: 0.72rem; color: var(--faint); }
-
-    /* Timestamp */
-    #ts-val { font-size: 0.82rem; font-variant-numeric: tabular-nums; }
-
-    /* GPIO indicators */
-    #gpio-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
-    .gpio-item {
-      display: flex; flex-direction: column; align-items: center; gap: 3px;
-      font-size: 0.6rem; color: var(--faint); text-align: center;
-      text-transform: uppercase; letter-spacing: 0.06em;
-    }
-    .gpio-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--border); }
-    .gpio-dot.on      { background: var(--alive); }
-    .gpio-dot.beam-on { background: var(--dead); }
-
-    /* Events */
-    #events-list { display: flex; flex-direction: column; gap: 3px; }
-    .event-row {
-      font-size: 0.7rem; padding: 4px 7px;
-      border: 1px solid var(--border);
-      display: flex; justify-content: space-between; align-items: center; gap: 6px;
-    }
-    .event-row .et { font-variant-numeric: tabular-nums; color: var(--faint); flex-shrink: 0; }
-    .event-badge {
-      font-size: 0.58rem; font-weight: 700; padding: 1px 5px;
-      letter-spacing: 0.06em; text-transform: uppercase; flex-shrink: 0;
-    }
-    .badge-beam-break { background: var(--dead);    color: #fff; }
-    .badge-beam-clear { background: var(--border);  color: var(--faint); }
-    .badge-transition { background: var(--accent);  color: var(--fg); }
-    .badge-correct    { background: var(--correct); color: #000; }
-    .badge-wrong      { background: var(--wrong);   color: #fff; }
-
-    /* Timeline */
-    #timeline-list { display: flex; flex-direction: column; gap: 0; }
-
-    .tl-trial-header {
-      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--fg);
-      padding: 10px 14px 4px; margin-top: 6px;
-      border-top: 2px solid var(--fg);
-    }
-    .tl-trial-header:first-child { border-top: none; margin-top: 0; }
-
-    .tl-state-row {
-      padding: 6px 14px; cursor: pointer;
-      display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-      border-left: 3px solid var(--border);
-      margin-left: 14px;
-    }
-    .tl-state-row:hover { background: var(--border); }
-    .tl-state-row.active { border-left-color: var(--fg); background: #f8f8f8; }
-    .tl-state-row.correct { border-left-color: var(--correct); }
-    .tl-state-row.wrong   { border-left-color: var(--wrong); }
-    .tl-state-name { font-size: 0.8rem; font-weight: 700; }
-    .tl-state-dur  { font-size: 0.7rem; color: var(--faint); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-
-    .tl-transition-row {
-      padding: 3px 14px 3px 20px; cursor: pointer;
+    #browser-header {
+      padding: 10px 14px; border-bottom: 1.5px solid var(--fg);
       display: flex; align-items: center; gap: 8px;
-      font-size: 0.68rem; color: var(--faint);
     }
-    .tl-transition-row:hover { background: var(--border); }
-    .tl-transition-row.active { color: var(--fg); font-weight: 600; }
-    .tl-arrow { font-size: 0.7rem; color: var(--border); flex-shrink: 0; }
-    .tl-trans-label { flex: 1; }
-    .tl-trans-t { font-variant-numeric: tabular-nums; flex-shrink: 0; }
-
-    .tl-iti-row {
-      padding: 4px 14px 4px 20px;
-      font-size: 0.65rem; color: var(--faint);
-      font-style: italic; letter-spacing: 0.03em;
-      display: flex; align-items: center; gap: 6px;
+    #browser-header h2 { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; flex: 1; }
+    #browser-path { font-size: 0.68rem; color: var(--faint); padding: 6px 14px; border-bottom: 1px solid var(--border); }
+    #browser-list { flex: 1; overflow-y: auto; }
+    .browser-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px; border-bottom: 1px solid var(--border);
+      cursor: pointer; font-size: 0.78rem;
     }
-    .tl-iti-line { flex: 1; height: 1px; background: var(--border); }
+    .browser-item:hover { background: #f5f5f5; }
+    .browser-item .icon { font-size: 1rem; flex-shrink: 0; }
+    .browser-item .name { flex: 1; }
+    .browser-item .meta { font-size: 0.65rem; color: var(--faint); }
+    .browser-item.up { color: var(--faint); font-style: italic; }
+    .browser-item.bin-file .name { font-weight: 600; }
 
-    .tl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
-    .tl-dot.correct { background: var(--correct); }
-    .tl-dot.wrong   { background: var(--wrong); }
+    /* ── Main waveform area ── */
+    #waveform-wrap {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;
+    }
+    #waveform-empty {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px; color: var(--faint);
+    }
+    #waveform-empty h2 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.04em; }
+    #waveform-empty p  { font-size: 0.8rem; }
+
+    /* Signal rows */
+    #signal-container {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    }
+    #state-lane {
+      height: 28px; flex-shrink: 0; display: flex; overflow: hidden;
+      border-bottom: 1px solid var(--border); position: relative;
+    }
+    #state-lane-label {
+      width: var(--label-w); flex-shrink: 0; font-size: 0.58rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
+      display: flex; align-items: center; padding-left: 6px;
+      border-right: 1px solid var(--border);
+    }
+    #state-canvas-wrap { flex: 1; overflow: hidden; position: relative; }
+    #state-canvas { display: block; height: 28px; }
+
+    #signal-rows { flex: 1; overflow: hidden; position: relative; }
+    .signal-row {
+      height: var(--row-h); display: flex; border-bottom: 1px solid var(--border);
+    }
+    .signal-label {
+      width: var(--label-w); flex-shrink: 0;
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+      color: var(--faint); display: flex; align-items: center; padding-left: 6px;
+      border-right: 1px solid var(--border);
+    }
+    .signal-canvas-wrap { flex: 1; overflow: hidden; position: relative; }
+    canvas.signal-canvas { display: block; }
+
+    /* Timescale ruler */
+    #timescale-wrap {
+      height: 24px; flex-shrink: 0; display: flex; border-top: 1.5px solid var(--fg);
+    }
+    #timescale-spacer { width: var(--label-w); flex-shrink: 0; border-right: 1px solid var(--border); }
+    #timescale-canvas { flex: 1; display: block; height: 24px; }
+
+    /* Scrollbar / zoom controls */
+    #scroll-controls {
+      height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+      padding: 0 8px; border-top: 1px solid var(--border);
+    }
+    #scroll-controls label { font-size: 0.62rem; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; }
+    #hscroll { flex: 1; accent-color: var(--fg); }
+    #zoom-in, #zoom-out { font-size: 0.9rem; cursor: pointer; padding: 0 4px; background: none; border: none; }
+
+    /* Cursor line */
+    #cursor-line {
+      position: absolute; top: 0; bottom: 0; width: 1px;
+      background: rgba(0,0,0,0.35); pointer-events: none; display: none;
+    }
+
+    /* ── Right sidebar: JPEG + info ── */
+    #sidebar {
+      width: 260px; flex-shrink: 0; border-left: 2px solid var(--fg);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #frame-preview {
+      flex-shrink: 0; background: #111; aspect-ratio: 4/3; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #frame-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    #frame-info { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+    .info-section { display: flex; flex-direction: column; gap: 3px; }
+    .info-title {
+      font-size: 0.57rem; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--faint);
+    }
+    .info-val { font-size: 0.78rem; font-weight: 600; }
+    .info-val.correct { color: var(--correct); }
+    .info-val.wrong   { color: var(--wrong); }
+    .info-sub { font-size: 0.65rem; color: var(--faint); }
+
+    #gpio-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; margin-top: 2px; }
+    .gpio-item { display: flex; flex-direction: column; align-items: center; gap: 2px;
+                 font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); }
+    .gpio-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+    .gpio-dot.on      { background: var(--signal-led); }
+    .gpio-dot.valve   { background: var(--signal-valve); }
+    .gpio-dot.beam-on { background: var(--signal-beam); }
+
+    /* Trial timeline in sidebar */
+    #tl-list { display: flex; flex-direction: column; }
+    .tl-trial { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+                padding: 6px 4px 2px; border-top: 1.5px solid var(--fg); margin-top: 4px; cursor: pointer; }
+    .tl-trial:first-child { border-top: none; margin-top: 0; }
+    .tl-state { font-size: 0.72rem; padding: 3px 4px 3px 10px; cursor: pointer;
+                border-left: 2.5px solid var(--border); margin-left: 6px;
+                display: flex; justify-content: space-between; }
+    .tl-state:hover { background: #f5f5f5; }
+    .tl-state.active { border-left-color: var(--fg); font-weight: 700; }
+    .tl-state.correct { border-left-color: var(--correct); }
+    .tl-state.wrong   { border-left-color: var(--wrong); }
+    .tl-dur { font-size: 0.62rem; color: var(--faint); flex-shrink: 0; }
+    .tl-iti { font-size: 0.62rem; color: var(--faint); padding: 2px 4px 2px 10px; font-style: italic; }
   </style>
 </head>
 <body>
 
 <header>
   <h1>Bin Viewer</h1>
-  <span class="file">{{ filename }}</span>
-  <div id="nav">
-    <button class="btn" onclick="seekState(-1)" title="[ key">‹ State</button>
-    <button class="btn" onclick="seek(-10)">«10</button>
-    <button class="btn" onclick="seek(-1)">‹</button>
-    <input id="slider" type="range" min="0" max="{{ max_frame }}" value="0"
-           oninput="goTo(parseInt(this.value))" />
-    <button class="btn" onclick="seek(1)">›</button>
-    <button class="btn" onclick="seek(10)">10»</button>
-    <button class="btn" onclick="seekState(1)" title="] key">State ›</button>
-    <span id="frame-label">0 / {{ max_frame }}</span>
-  </div>
+  <span class="file-path" id="hdr-path">No file loaded</span>
+  <button class="btn open" onclick="openBrowser()">Open File</button>
 </header>
 
-<div id="main">
-  <div id="image-pane">
-    <img id="frame-img" src="/frame/0/image" alt="frame" />
-    <div id="state-overlay">—</div>
+<div id="app">
+
+  <!-- File browser overlay -->
+  <div id="browser-overlay">
+    <div id="browser-panel">
+      <div id="browser-header">
+        <h2>Select Recording</h2>
+        <button class="btn" onclick="closeBrowser()" id="browser-close-btn" style="display:none">Close</button>
+      </div>
+      <div id="browser-path">/</div>
+      <div id="browser-list">Loading…</div>
+    </div>
   </div>
 
-  <div id="sidebar">
-
-    <div class="side-section">
-      <div class="side-title">Current State</div>
-      <div id="state-name">—</div>
-      <div id="state-since"></div>
+  <!-- Waveform area -->
+  <div id="waveform-wrap">
+    <div id="waveform-empty">
+      <h2>No file loaded</h2>
+      <p>Click <strong>Open File</strong> to browse recordings.</p>
     </div>
-
-    <div class="side-section">
-      <div class="side-title">Timestamp</div>
-      <div id="ts-val">—</div>
-    </div>
-
-    <div class="side-section">
-      <div class="side-title">GPIO</div>
-      <div id="gpio-grid">
-        <div class="gpio-item"><div class="gpio-dot" id="g-led-center"></div>LED C</div>
-        <div class="gpio-item"><div class="gpio-dot" id="g-led-left"></div>LED L</div>
-        <div class="gpio-item"><div class="gpio-dot" id="g-led-right"></div>LED R</div>
-        <div class="gpio-item"><div class="gpio-dot" id="g-valve-left"></div>Valve L</div>
-        <div class="gpio-item"><div class="gpio-dot" id="g-valve-right"></div>Valve R</div>
-        <div class="gpio-item"></div>
-        <div class="gpio-item"><div class="gpio-dot" id="g-beam-left"></div>Beam L</div>
-        <div class="gpio-item"><div class="gpio-dot" id="g-beam-right"></div>Beam R</div>
-        <div class="gpio-item"><div class="gpio-dot" id="g-beam-center"></div>Beam C</div>
+    <div id="signal-container" style="display:none">
+      <!-- State annotation lane -->
+      <div id="state-lane">
+        <div id="state-lane-label">State</div>
+        <div id="state-canvas-wrap">
+          <canvas id="state-canvas"></canvas>
+        </div>
+      </div>
+      <!-- GPIO signal rows (injected by JS) -->
+      <div id="signal-rows"></div>
+      <!-- Timescale ruler -->
+      <div id="timescale-wrap">
+        <div id="timescale-spacer"></div>
+        <canvas id="timescale-canvas"></canvas>
+      </div>
+      <!-- Zoom/scroll controls -->
+      <div id="scroll-controls">
+        <label>Scroll</label>
+        <input type="range" id="hscroll" min="0" max="1000" value="0" oninput="onScroll()"/>
+        <button id="zoom-out" onclick="zoom(0.5)" title="Zoom out">−</button>
+        <label id="zoom-label">1×</label>
+        <button id="zoom-in"  onclick="zoom(2)"   title="Zoom in">+</button>
       </div>
     </div>
-
-    <div class="side-section" style="flex:0 0 auto">
-      <div class="side-title">Events This Frame</div>
-      <div id="events-list"><span style="font-size:0.72rem;color:var(--faint)">none</span></div>
-    </div>
-
-    <div class="side-section" style="flex:1">
-      <div class="side-title">Trial Timeline</div>
-      <div id="timeline-list">{{ timeline_html | safe }}</div>
-    </div>
-
   </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="frame-preview">
+      <img id="prev-img" src="" alt="" style="display:none"/>
+    </div>
+    <div id="frame-info">
+      <div class="info-section">
+        <div class="info-title">State</div>
+        <div class="info-val" id="si-state">—</div>
+        <div class="info-sub" id="si-ts">—</div>
+      </div>
+      <div class="info-section">
+        <div class="info-title">GPIO</div>
+        <div id="gpio-grid">
+          <div class="gpio-item"><div class="gpio-dot" id="g-led-center"></div>LED C</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-led-left"></div>LED L</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-led-right"></div>LED R</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-valve-left"></div>Valve L</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-valve-right"></div>Valve R</div>
+          <div class="gpio-item"></div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-beam-left"></div>Beam L</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-beam-right"></div>Beam R</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-beam-center"></div>Beam C</div>
+        </div>
+      </div>
+      <div class="info-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <div class="info-title">Trial Timeline</div>
+        <div id="tl-list" style="overflow-y:auto;flex:1"></div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
-  const MAX_FRAME     = {{ max_frame }};
-  const STATE_CHANGES = {{ state_changes }};  // sorted frame indices of transitions
-  let current = 0;
+// ── Constants injected server-side ───────────────────────────────────────────
+const SIGNAL_DEFS = [
+  {key:"led_center",  label:"LED C",   beam:false},
+  {key:"led_left",    label:"LED L",   beam:false},
+  {key:"led_right",   label:"LED R",   beam:false},
+  {key:"valve_left",  label:"Valve L", beam:false},
+  {key:"valve_right", label:"Valve R", beam:false},
+  {key:"beam_left",   label:"Beam L",  beam:true},
+  {key:"beam_right",  label:"Beam R",  beam:true},
+  {key:"beam_center", label:"Beam C",  beam:true},
+];
+const COLOR_LED   = "#3b82f6";
+const COLOR_VALVE = "#f59e0b";
+const COLOR_BEAM  = "#ef4444";
+const COLOR_STATE_BG  = "#fffbea";
+const COLOR_STATE_TXT = "#000";
 
-  // ── State helpers ────────────────────────────────────────────────────────────
-  function stateClass(s) {
-    if (!s || s === 'null') return '';
-    if (s === '__correct__') return 'correct';
-    if (s === '__wrong__')   return 'wrong';
-    return '';
+// ── State ────────────────────────────────────────────────────────────────────
+let waveform   = null;   // {t_us, signals, state_labels}
+let timeline   = [];     // rich timeline array from /api/timeline
+let frameCount = 0;
+let currentBin = null;
+
+// View: we display frames [viewStart, viewStart+viewLen)
+let viewStart = 0;
+let viewLen   = 0;       // in frames; 0 = not loaded
+let zoomLevel = 1;       // multiplier relative to "fit all"
+let baseLen   = 0;       // frames that fit at zoom=1 (= frameCount)
+
+let canvases  = {};      // key -> canvas element
+let cursorFrame = 0;
+
+// ── File browser ─────────────────────────────────────────────────────────────
+function openBrowser() {
+  document.getElementById('browser-overlay').classList.remove('hidden');
+  browseTo('');
+}
+function closeBrowser() {
+  document.getElementById('browser-overlay').classList.add('hidden');
+}
+
+async function browseTo(rel) {
+  const res  = await fetch('/api/browse?path=' + encodeURIComponent(rel));
+  const data = await res.json();
+  document.getElementById('browser-path').textContent = data.abs_path || '/';
+
+  const list = document.getElementById('browser-list');
+  let html = '';
+
+  if (data.parent !== null) {
+    html += `<div class="browser-item up" onclick="browseTo(${JSON.stringify(data.parent)})">
+               <span class="icon">↩</span><span class="name">.. (up)</span>
+             </div>`;
   }
 
-  // ── Navigation ───────────────────────────────────────────────────────────────
-  async function goTo(n) {
-    n = Math.max(0, Math.min(MAX_FRAME, n));
-    current = n;
-    document.getElementById('slider').value = n;
-    document.getElementById('frame-label').textContent = `${n} / ${MAX_FRAME}`;
-    document.getElementById('frame-img').src = `/frame/${n}/image?t=${Date.now()}`;
-
-    const res  = await fetch(`/frame/${n}/data`);
-    const data = await res.json();
-
-    // ── State ──────────────────────────────────────────────────────────────────
-    const state = data.current_state;
-    const cls   = stateClass(state);
-    const label = state || '—';
-
-    const nameEl = document.getElementById('state-name');
-    nameEl.textContent  = label;
-    nameEl.className    = cls;
-
-    const overlay = document.getElementById('state-overlay');
-    overlay.textContent = label;
-    overlay.className   = cls;
-
-    document.getElementById('state-since').textContent =
-      data.state_since_frame !== null
-        ? `entered at frame ${data.state_since_frame}`
-        : '';
-
-    // ── Timestamp ──────────────────────────────────────────────────────────────
-    const ts_us = data.header.timestamp;
-    document.getElementById('ts-val').textContent =
-      `${(ts_us / 1_000_000).toFixed(3)} s (Pi clock)  ·  frame seq ${data.header.pi_seq}`;
-
-    // ── GPIO ───────────────────────────────────────────────────────────────────
-    [
-      ['led-center',  data.header.led_center,   false],
-      ['led-left',    data.header.led_left,      false],
-      ['led-right',   data.header.led_right,     false],
-      ['valve-left',  data.header.valve_left,    false],
-      ['valve-right', data.header.valve_right,   false],
-      ['beam-left',   data.header.beam_left,     true],
-      ['beam-right',  data.header.beam_right,    true],
-      ['beam-center', data.header.beam_center,   true],
-    ].forEach(([id, val, isBeam]) => {
-      const dot = document.getElementById(`g-${id}`);
-      dot.className = 'gpio-dot' + (val ? (isBeam ? ' beam-on' : ' on') : '');
-    });
-
-    // ── Events ─────────────────────────────────────────────────────────────────
-    const list = document.getElementById('events-list');
-    if (!data.events.length) {
-      list.innerHTML = '<span style="font-size:0.72rem;color:var(--faint)">none</span>';
+  for (const item of data.items) {
+    if (item.type === 'dir') {
+      html += `<div class="browser-item" onclick="browseTo(${JSON.stringify(item.rel)})">
+                 <span class="icon">📁</span>
+                 <span class="name">${item.name}</span>
+               </div>`;
     } else {
-      list.innerHTML = data.events.map(e => {
-        const t = e.t !== undefined ? `${e.t.toFixed(3)}s` : '';
-        let label, badge;
-        if (e.sensor !== undefined) {
-          label = `${e.sensor} ${e.active ? 'BREAK' : 'clear'}`;
-          badge = e.active
-            ? `<span class="event-badge badge-beam-break">break</span>`
-            : `<span class="event-badge badge-beam-clear">clear</span>`;
-        } else if (e.from !== undefined) {
-          label = `${e.from} → ${e.to}`;
-          const bc = e.to === '__correct__' ? 'badge-correct'
-                   : e.to === '__wrong__'   ? 'badge-wrong'
-                   : 'badge-transition';
-          badge = `<span class="event-badge ${bc}">transition</span>`;
-        } else {
-          label = JSON.stringify(e);
-          badge = '';
-        }
-        return `<div class="event-row">${badge}<span style="flex:1">${label}</span><span class="et">${t}</span></div>`;
-      }).join('');
-    }
-
-    // ── Timeline highlight ─────────────────────────────────────────────────────
-    document.querySelectorAll('.tl-state-row, .tl-transition-row').forEach(el => {
-      el.classList.toggle('active', parseInt(el.dataset.frame) === n);
-    });
-  }
-
-  function seek(delta) { goTo(current + delta); }
-
-  function seekState(dir) {
-    if (!STATE_CHANGES.length) return;
-    if (dir > 0) {
-      const next = STATE_CHANGES.find(f => f > current);
-      if (next !== undefined) goTo(next);
-    } else {
-      const prev = [...STATE_CHANGES].reverse().find(f => f < current);
-      if (prev !== undefined) goTo(prev);
+      const mb = (item.size / 1048576).toFixed(1);
+      html += `<div class="browser-item bin-file" onclick="loadBin(${JSON.stringify(item.rel)})">
+                 <span class="icon">📄</span>
+                 <span class="name">${item.name}</span>
+                 <span class="meta">${mb} MB</span>
+               </div>`;
     }
   }
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'ArrowRight') seek(1);
-    if (e.key === 'ArrowLeft')  seek(-1);
-    if (e.key === 'ArrowUp')    seek(10);
-    if (e.key === 'ArrowDown')  seek(-10);
-    if (e.key === ']') seekState(1);
-    if (e.key === '[') seekState(-1);
-  });
+  if (!html) html = '<div style="padding:14px;font-size:0.78rem;color:#aaa">No recordings found here.</div>';
+  list.innerHTML = html;
+}
 
-  goTo(0);
+// ── Load bin file ─────────────────────────────────────────────────────────────
+async function loadBin(rel) {
+  closeBrowser();
+  document.getElementById('hdr-path').textContent = 'Loading…';
+  document.getElementById('waveform-empty').style.display = 'flex';
+  document.getElementById('signal-container').style.display = 'none';
+
+  try {
+    const [wfRes, tlRes] = await Promise.all([
+      fetch('/api/waveform?path=' + encodeURIComponent(rel)),
+      fetch('/api/timeline?path='  + encodeURIComponent(rel)),
+    ]);
+
+    if (!wfRes.ok) { alert('Failed to load: ' + await wfRes.text()); return; }
+
+    waveform   = await wfRes.json();
+    timeline   = await tlRes.json();
+    currentBin = rel;
+    frameCount = waveform.t_us.length;
+
+    document.getElementById('hdr-path').textContent = rel;
+    document.getElementById('browser-close-btn').style.display = '';
+    document.getElementById('waveform-empty').style.display = 'none';
+    document.getElementById('signal-container').style.display = 'flex';
+    document.getElementById('signal-container').style.flexDirection = 'column';
+
+    initCanvases();
+    buildTimelineHtml();
+
+    baseLen   = frameCount;
+    zoomLevel = 1;
+    viewStart = 0;
+    viewLen   = baseLen;
+    updateZoomLabel();
+    updateScroll();
+    renderAll();
+    goToFrame(0);
+
+  } catch(e) {
+    alert('Error: ' + e);
+  }
+}
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+function initCanvases() {
+  const rows = document.getElementById('signal-rows');
+  rows.innerHTML = '';
+  canvases = {};
+
+  for (const sig of SIGNAL_DEFS) {
+    const row = document.createElement('div');
+    row.className = 'signal-row';
+    const lbl = document.createElement('div');
+    lbl.className = 'signal-label';
+    lbl.textContent = sig.label;
+    const wrap = document.createElement('div');
+    wrap.className = 'signal-canvas-wrap';
+    wrap.id = 'wrap-' + sig.key;
+    const cv = document.createElement('canvas');
+    cv.className = 'signal-canvas';
+    cv.id = 'cv-' + sig.key;
+    wrap.appendChild(cv);
+    row.appendChild(lbl);
+    row.appendChild(wrap);
+    rows.appendChild(row);
+    canvases[sig.key] = cv;
+  }
+}
+
+function getCanvasWidth(key) {
+  const wrap = document.getElementById('wrap-' + key);
+  return wrap ? wrap.clientWidth : 0;
+}
+
+function getStateCanvasWidth() {
+  return document.getElementById('state-canvas-wrap').clientWidth;
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+function renderAll() {
+  if (!waveform) return;
+  for (const sig of SIGNAL_DEFS) renderSignal(sig);
+  renderStateLane();
+  renderTimescale();
+}
+
+function renderSignal(sig) {
+  const cv = canvases[sig.key];
+  if (!cv) return;
+  const wrap = document.getElementById('wrap-' + sig.key);
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight || 32;
+  cv.width  = W;
+  cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const data = waveform.signals[sig.key];
+  const color = sig.beam ? COLOR_BEAM : (sig.key.startsWith('valve') ? COLOR_VALVE : COLOR_LED);
+
+  const end = Math.min(viewStart + viewLen, frameCount);
+  const n   = end - viewStart;
+  if (n <= 0) return;
+
+  const yHi = H * 0.15;
+  const yLo = H * 0.85;
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+
+  let firstMove = true;
+  for (let i = 0; i < n; i++) {
+    const fi  = viewStart + i;
+    const val = data[fi];
+    const x   = (i / n) * W;
+    const y   = val ? yHi : yLo;
+
+    if (firstMove) { ctx.moveTo(x, y); firstMove = false; }
+    else {
+      const prevVal = data[fi - 1];
+      if (val !== prevVal) {
+        const prevX = ((i-1) / n) * W;
+        const prevY = prevVal ? yHi : yLo;
+        ctx.lineTo(prevX, prevY);
+        ctx.lineTo(x,     prevY);
+        ctx.lineTo(x,     y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+  }
+  ctx.stroke();
+}
+
+function renderStateLane() {
+  const wrap = document.getElementById('state-canvas-wrap');
+  const W = wrap.clientWidth;
+  const H = 28;
+  const cv = document.getElementById('state-canvas');
+  cv.width  = W;
+  cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const end = Math.min(viewStart + viewLen, frameCount);
+  const n   = end - viewStart;
+  if (n <= 0) return;
+
+  // State blocks
+  const labels = waveform.state_labels;
+
+  for (let li = 0; li < labels.length; li++) {
+    const startF = labels[li].frame;
+    const endF   = li + 1 < labels.length ? labels[li+1].frame : frameCount;
+    const state  = labels[li].state;
+
+    // Clip to view
+    const csF = Math.max(startF, viewStart);
+    const ceF = Math.min(endF, end);
+    if (csF >= ceF) continue;
+
+    const x1 = ((csF - viewStart) / n) * W;
+    const x2 = ((ceF - viewStart) / n) * W;
+
+    let bg = '#f0f0f0';
+    if (state === '__correct__') bg = 'rgba(64,202,114,0.25)';
+    else if (state === '__wrong__') bg = 'rgba(205,20,20,0.2)';
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(x1, 0, x2 - x1, H - 1);
+
+    // Separator line
+    ctx.strokeStyle = '#ccc';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.moveTo(x1, 0); ctx.lineTo(x1, H);
+    ctx.stroke();
+
+    // Label if wide enough
+    const bw = x2 - x1;
+    if (bw > 20) {
+      ctx.fillStyle = state === '__wrong__' ? '#c00' : state === '__correct__' ? '#1a7' : '#555';
+      ctx.font      = 'bold 9px system-ui';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const txt = state || '—';
+      ctx.fillText(txt, x1 + 3, H / 2);
+    }
+  }
+
+  // Trial markers
+  for (const entry of timeline) {
+    if (entry.type !== 'trial_header') continue;
+    const fi = entry.frame;
+    if (fi < viewStart || fi >= end) continue;
+    const x = ((fi - viewStart) / n) * W;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, 0); ctx.lineTo(x, H);
+    ctx.stroke();
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 8px system-ui';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('T' + entry.trial_num, x + 2, 2);
+  }
+
+  // Cursor
+  drawCursor(ctx, W, H);
+}
+
+function renderTimescale() {
+  const W = document.getElementById('timescale-canvas').clientWidth;
+  const H = 24;
+  const cv = document.getElementById('timescale-canvas');
+  cv.width  = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  if (!waveform || viewLen <= 0) return;
+  const end   = Math.min(viewStart + viewLen, frameCount);
+  const n     = end - viewStart;
+  const t0_us = waveform.t_us[viewStart];
+  const t1_us = waveform.t_us[end - 1];
+  const dur_s = (t1_us - t0_us) / 1e6;
+
+  // Pick a nice tick interval
+  const targetTicks = Math.max(4, Math.floor(W / 80));
+  let tickInterval  = niceTick(dur_s / targetTicks);
+
+  ctx.fillStyle   = '#888';
+  ctx.font        = '9px system-ui';
+  ctx.textBaseline = 'top';
+
+  const t0_s = t0_us / 1e6;
+  let t = Math.ceil(t0_s / tickInterval) * tickInterval;
+  while (t <= t0_s + dur_s + tickInterval) {
+    const frac = (t - t0_s) / dur_s;
+    const x    = frac * W;
+    ctx.strokeStyle = '#ccc';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, 0); ctx.lineTo(x, 6);
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillText(t.toFixed(2) + 's', x, 8);
+    t = Math.round((t + tickInterval) * 1e6) / 1e6;
+  }
+}
+
+function niceTick(approx) {
+  const e = Math.pow(10, Math.floor(Math.log10(approx)));
+  const f = approx / e;
+  if (f < 2) return e;
+  if (f < 5) return 2 * e;
+  return 5 * e;
+}
+
+function drawCursor(ctx, W, H) {
+  if (cursorFrame < viewStart || cursorFrame >= viewStart + viewLen) return;
+  const n = Math.min(viewStart + viewLen, frameCount) - viewStart;
+  const x = ((cursorFrame - viewStart) / n) * W;
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth   = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(x, 0); ctx.lineTo(x, H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// ── Frame navigation ──────────────────────────────────────────────────────────
+async function goToFrame(n) {
+  n = Math.max(0, Math.min(frameCount - 1, n));
+  cursorFrame = n;
+
+  // Scroll view to keep cursor visible
+  if (n < viewStart) {
+    viewStart = Math.max(0, n - Math.floor(viewLen * 0.1));
+  } else if (n >= viewStart + viewLen) {
+    viewStart = Math.min(frameCount - viewLen, n - Math.floor(viewLen * 0.9));
+  }
+  updateScroll();
+  renderAll();
+
+  // Sidebar update
+  const h = waveform.signals;
+  const t_us = waveform.t_us[n];
+
+  const state = waveform.state_labels.reduce((acc, sl) => sl.frame <= n ? sl.state : acc, '—');
+  const si = document.getElementById('si-state');
+  si.textContent = state;
+  si.className = 'info-val' + (state === '__correct__' ? ' correct' : state === '__wrong__' ? ' wrong' : '');
+  document.getElementById('si-ts').textContent =
+    `t = ${(t_us/1e6).toFixed(3)} s  ·  frame ${n}`;
+
+  // GPIO dots
+  const gpioMap = [
+    ['led-center',  'led_center',  false],
+    ['led-left',    'led_left',    false],
+    ['led-right',   'led_right',   false],
+    ['valve-left',  'valve_left',  false],
+    ['valve-right', 'valve_right', false],
+    ['beam-left',   'beam_left',   true],
+    ['beam-right',  'beam_right',  true],
+    ['beam-center', 'beam_center', true],
+  ];
+  for (const [id, key, isBeam] of gpioMap) {
+    const dot = document.getElementById('g-' + id);
+    const val = h[key][n];
+    if (isBeam)                dot.className = 'gpio-dot' + (val ? ' beam-on' : '');
+    else if (key.startsWith('valve')) dot.className = 'gpio-dot' + (val ? ' valve' : '');
+    else                       dot.className = 'gpio-dot' + (val ? ' on' : '');
+  }
+
+  // JPEG preview
+  if (currentBin) {
+    document.getElementById('prev-img').src =
+      `/api/frame/image?path=${encodeURIComponent(currentBin)}&frame=${n}&t=${Date.now()}`;
+    document.getElementById('prev-img').style.display = '';
+  }
+
+  // Timeline highlight
+  highlightTimeline(n);
+}
+
+// ── Timeline HTML ─────────────────────────────────────────────────────────────
+function buildTimelineHtml() {
+  const tl = document.getElementById('tl-list');
+  let html = '';
+  for (const e of timeline) {
+    if (e.type === 'trial_header') {
+      html += `<div class="tl-trial" onclick="goToFrame(${e.frame})">Trial ${e.trial_num}</div>`;
+    } else if (e.type === 'state') {
+      const cls = e.state === '__correct__' ? ' correct' : e.state === '__wrong__' ? ' wrong' : '';
+      const dur = e.duration !== null ? `${e.duration}s` : '—';
+      html += `<div class="tl-state${cls}" data-frame="${e.frame}" onclick="goToFrame(${e.frame})">
+        <span>${e.state}</span><span class="tl-dur">${dur}</span></div>`;
+    } else if (e.type === 'iti') {
+      html += `<div class="tl-iti">— ITI ${e.duration_s}s —</div>`;
+    }
+  }
+  tl.innerHTML = html || '<span style="font-size:0.72rem;color:#aaa">No transitions</span>';
+}
+
+function highlightTimeline(frame) {
+  // Find the most recent state entry at or before this frame
+  let best = null;
+  for (const el of document.querySelectorAll('.tl-state')) {
+    const f = parseInt(el.dataset.frame);
+    if (f <= frame) best = el;
+  }
+  document.querySelectorAll('.tl-state').forEach(el => el.classList.remove('active'));
+  if (best) {
+    best.classList.add('active');
+    best.scrollIntoView({block: 'nearest'});
+  }
+}
+
+// ── Zoom / scroll ─────────────────────────────────────────────────────────────
+function zoom(factor) {
+  if (!waveform) return;
+  const center = viewStart + viewLen / 2;
+  zoomLevel = Math.max(1, Math.min(frameCount / 4, zoomLevel * factor));
+  viewLen   = Math.max(4, Math.round(baseLen / zoomLevel));
+  viewStart = Math.max(0, Math.min(frameCount - viewLen, Math.round(center - viewLen / 2)));
+  updateZoomLabel();
+  updateScroll();
+  renderAll();
+}
+
+function onScroll() {
+  if (!waveform) return;
+  const v = parseInt(document.getElementById('hscroll').value);
+  viewStart = Math.round((v / 1000) * Math.max(0, frameCount - viewLen));
+  renderAll();
+}
+
+function updateScroll() {
+  const el = document.getElementById('hscroll');
+  const maxStart = Math.max(1, frameCount - viewLen);
+  el.value = Math.round((viewStart / maxStart) * 1000);
+}
+
+function updateZoomLabel() {
+  document.getElementById('zoom-label').textContent = zoomLevel.toFixed(1) + '×';
+}
+
+// ── Canvas click → frame ──────────────────────────────────────────────────────
+function canvasClickToFrame(e, wrapId) {
+  const wrap = document.getElementById(wrapId);
+  const rect = wrap.getBoundingClientRect();
+  const frac = (e.clientX - rect.left) / rect.width;
+  const end  = Math.min(viewStart + viewLen, frameCount);
+  return Math.round(viewStart + frac * (end - viewStart));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Wire up canvas clicks for all signal wrappers
+  for (const sig of SIGNAL_DEFS) {
+    const wrap = document.getElementById('wrap-' + sig.key);
+    if (wrap) wrap.addEventListener('click', e => goToFrame(canvasClickToFrame(e, 'wrap-' + sig.key)));
+  }
+  const stateWrap = document.getElementById('state-canvas-wrap');
+  if (stateWrap) stateWrap.addEventListener('click', e => goToFrame(canvasClickToFrame(e, 'state-canvas-wrap')));
+});
+
+// ── Keyboard ──────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (!waveform) return;
+  if (e.key === 'ArrowRight') goToFrame(cursorFrame + 1);
+  if (e.key === 'ArrowLeft')  goToFrame(cursorFrame - 1);
+  if (e.key === 'ArrowUp')    goToFrame(cursorFrame + 10);
+  if (e.key === 'ArrowDown')  goToFrame(cursorFrame - 10);
+  if (e.key === ']') {
+    // Jump to next state transition
+    const next = waveform.state_labels.find(sl => sl.frame > cursorFrame);
+    if (next) goToFrame(next.frame);
+  }
+  if (e.key === '[') {
+    const prev = [...waveform.state_labels].reverse().find(sl => sl.frame < cursorFrame);
+    if (prev) goToFrame(prev.frame);
+  }
+  if (e.key === '+' || e.key === '=') zoom(2);
+  if (e.key === '-')                   zoom(0.5);
+});
+
+// ── Resize handler ────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => { if (waveform) renderAll(); });
+
+// ── Mouse wheel zoom ──────────────────────────────────────────────────────────
+document.getElementById('app').addEventListener('wheel', e => {
+  if (!waveform) return;
+  e.preventDefault();
+  zoom(e.deltaY < 0 ? 1.5 : 1/1.5);
+}, {passive: false});
 </script>
 </body>
 </html>
 """
 
+# ── Flask app ─────────────────────────────────────────────────────────────────
 
-def _state_class(s):
-    if s == "__correct__": return "correct"
-    if s == "__wrong__":   return "wrong"
-    return ""
+_cache = {}   # rel_path -> (frames, timeline, waveform)
+
+def _load(rel: str, root: str):
+    if rel in _cache:
+        return _cache[rel]
+    abs_path = os.path.realpath(os.path.join(root, rel))
+    if not abs_path.startswith(os.path.realpath(root)):
+        raise ValueError("path outside root")
+    frames, nav_frames, tl = index_bin(abs_path)
+    wf = build_waveform(frames)
+    _cache[rel] = (abs_path, frames, tl, wf)
+    return _cache[rel]
 
 
-def create_app(bin_path: str) -> Flask:
-    print(f"Indexing {bin_path} …", end=" ", flush=True)
-    frames, state_changes, timeline = index_bin(bin_path)
-    print(f"{len(frames)} frames, {len(state_changes)} state transitions.")
-
-    if not frames:
-        print("No frames found — is this the right file?")
-        sys.exit(1)
-
-    # Build frame → state_since_frame lookup
-    state_since = {}
-    for sc_frame in state_changes:
-        state_since[frames[sc_frame]["current_state"]] = sc_frame
-    # Walk forward to assign state_since_frame per frame
-    frame_state_since = []
-    current_since = None
-    for i, f in enumerate(frames):
-        if i in set(state_changes):
-            current_since = i
-        frame_state_since.append(current_since)
-
-    # Build timeline HTML (server-side for speed)
-    tl_rows = []
-    for entry in timeline:
-        t = entry["type"]
-
-        if t == "trial_header":
-            tl_rows.append(
-                f'<div class="tl-trial-header" data-frame="{entry["frame"]}" '
-                f'onclick="goTo({entry["frame"]})" style="cursor:pointer">'
-                f'Trial {entry["trial_num"]}'
-                f'</div>'
-            )
-
-        elif t == "state":
-            cls = _state_class(entry["state"])
-            if entry["duration"] is not None:
-                dur = f'{entry["duration"]} s'
-            else:
-                dur = "—"
-            tl_rows.append(
-                f'<div class="tl-state-row {cls}" data-frame="{entry["frame"]}" '
-                f'onclick="goTo({entry["frame"]})">'
-                f'<span class="tl-state-name">{entry["state"]}</span>'
-                f'<span class="tl-state-dur">duration {dur}</span>'
-                f'</div>'
-            )
-
-        elif t == "transition":
-            cls = _state_class(entry["to_state"])
-            dot_cls = cls
-            tl_rows.append(
-                f'<div class="tl-transition-row" data-frame="{entry["frame"]}" '
-                f'onclick="goTo({entry["frame"]})">'
-                f'<div class="tl-dot {dot_cls}"></div>'
-                f'<span class="tl-arrow">↓</span>'
-                f'<span class="tl-trans-label">→ {entry["to_state"]}</span>'
-                f'<span class="tl-trans-t">at t = {entry["t"]} s  · frame {entry["frame"]}</span>'
-                f'</div>'
-            )
-
-        elif t == "iti":
-            tl_rows.append(
-                f'<div class="tl-iti-row">'
-                f'<div class="tl-iti-line"></div>'
-                f'<span>inter-trial gap  {entry["duration_s"]} s</span>'
-                f'<div class="tl-iti-line"></div>'
-                f'</div>'
-            )
-
-    timeline_html = "\n".join(tl_rows) if tl_rows else \
-        '<span style="font-size:0.72rem;color:var(--faint)">no transitions recorded</span>'
-
-    import os
-    filename = os.path.basename(bin_path)
-    app = Flask(__name__)
+def create_app(root: str) -> Flask:
+    root = os.path.realpath(root)
+    app  = Flask(__name__)
 
     @app.get("/")
     def index():
-        return render_template_string(
-            HTML,
-            filename=filename,
-            max_frame=len(frames) - 1,
-            state_changes=json.dumps(sorted({e["frame"] for e in timeline})),
-            timeline_html=timeline_html,
-        )
+        return render_template_string(HTML)
 
-    @app.get("/frame/<int:n>/image")
-    def frame_image(n: int):
-        if not (0 <= n < len(frames)):
-            return "out of range", 404
-        f = frames[n]
-        with open(bin_path, "rb") as fh:
+    @app.get("/api/browse")
+    def api_browse():
+        rel     = request.args.get("path", "")
+        abs_dir = os.path.realpath(os.path.join(root, rel))
+        if not abs_dir.startswith(root):
+            abort(403)
+        if not os.path.isdir(abs_dir):
+            abort(404)
+
+        items = []
+        try:
+            for name in sorted(os.listdir(abs_dir)):
+                full = os.path.join(abs_dir, name)
+                rel2 = os.path.relpath(full, root)
+                if os.path.isdir(full):
+                    items.append({"type": "dir", "name": name, "rel": rel2})
+                elif name.endswith(".bin"):
+                    items.append({"type": "file", "name": name,
+                                   "rel": rel2, "size": os.path.getsize(full)})
+        except PermissionError:
+            pass
+
+        parent = None
+        if abs_dir != root:
+            p = os.path.relpath(os.path.dirname(abs_dir), root)
+            parent = "" if p == "." else p
+
+        return jsonify({"abs_path": abs_dir, "items": items, "parent": parent})
+
+    @app.get("/api/waveform")
+    def api_waveform():
+        rel = request.args.get("path", "")
+        try:
+            _, _, _, wf = _load(rel, root)
+        except Exception as e:
+            return str(e), 400
+        return jsonify(wf)
+
+    @app.get("/api/timeline")
+    def api_timeline():
+        rel = request.args.get("path", "")
+        try:
+            _, _, tl, _ = _load(rel, root)
+        except Exception as e:
+            return str(e), 400
+        return jsonify(tl)
+
+    @app.get("/api/frame/image")
+    def api_frame_image():
+        rel   = request.args.get("path", "")
+        frame = request.args.get("frame", 0, type=int)
+        try:
+            abs_path, frames, _, _ = _load(rel, root)
+        except Exception as e:
+            return str(e), 400
+        if not (0 <= frame < len(frames)):
+            abort(404)
+        f = frames[frame]
+        with open(abs_path, "rb") as fh:
             fh.seek(f["jpeg_offset"])
             jpeg_bytes = fh.read(f["jpeg_size"])
         return send_file(io.BytesIO(jpeg_bytes), mimetype="image/jpeg")
-
-    @app.get("/frame/<int:n>/data")
-    def frame_data(n: int):
-        if not (0 <= n < len(frames)):
-            return "out of range", 404
-        f = frames[n]
-        return jsonify({
-            "header":            f["header"],
-            "events":            f["events"],
-            "current_state":     f["current_state"],
-            "state_since_frame": frame_state_since[n],
-        })
 
     return app
 
 
 def main():
-    parser = argparse.ArgumentParser(description="BMI bin file viewer")
-    parser.add_argument("bin_file", help="Path to cage_N.bin recording file")
-    parser.add_argument("--port", type=int, default=7000, help="Local port (default 7000)")
-    args = parser.parse_args()
-
-    app = create_app(args.bin_file)
     import logging
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
-    print(f"Viewer running at http://localhost:{args.port}  —  press Ctrl+C to quit")
-    app.run(host="127.0.0.1", port=args.port)
+
+    try:
+        from config import NAS_BASE_PATH
+        default_root = NAS_BASE_PATH
+    except ImportError:
+        default_root = os.path.expanduser("~")
+
+    parser = argparse.ArgumentParser(description="BMI bin file viewer")
+    parser.add_argument("--port", type=int, default=7000, help="Local port (default 7000)")
+    parser.add_argument("--root", default=default_root,
+                        help=f"Root directory to browse (default: {default_root})")
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.root):
+        print(f"Root directory does not exist: {args.root}", file=sys.stderr)
+        sys.exit(1)
+
+    app = create_app(args.root)
+    print(f"Bin Viewer  →  http://localhost:{args.port}")
+    print(f"Browsing    →  {args.root}")
+    app.run(host="127.0.0.1", port=args.port, threaded=True)
 
 
 if __name__ == "__main__":
