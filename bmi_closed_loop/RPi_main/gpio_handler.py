@@ -88,12 +88,10 @@ def set_audio(target: str, state: bool) -> None:
 
 
 def set_fan(state: bool) -> None:
-    """Energise or de-energise the fan relay."""
     _drive(FAN_PIN, state)
 
 
 def set_strip(state: bool) -> None:
-    """Energise or de-energise the LED strip relay."""
     _drive(STRIP_PIN, state)
 
 
