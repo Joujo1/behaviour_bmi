@@ -41,6 +41,32 @@ def stream_stop(cage_id: int):
     return jsonify({"ok": ok, "msg": msg})
 
 
+@control_bp.post("/cage/<int:cage_id>/fan")
+def fan_toggle(cage_id: int):
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    body = request.get_json(force=True) or {}
+    state = bool(body.get("state", False))
+    ok, msg = _sender(cage_id).send("FAN_ON" if state else "FAN_OFF")
+    if ok:
+        _valkey.set(f"cage:{cage_id}:fan", "1" if state else "0")
+        _log.info(f"Cage {cage_id}: fan {'ON' if state else 'OFF'}")
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@control_bp.post("/cage/<int:cage_id>/strip")
+def strip_toggle(cage_id: int):
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    body = request.get_json(force=True) or {}
+    state = bool(body.get("state", False))
+    ok, msg = _sender(cage_id).send("STRIP_ON" if state else "STRIP_OFF")
+    if ok:
+        _valkey.set(f"cage:{cage_id}:strip", "1" if state else "0")
+        _log.info(f"Cage {cage_id}: strip {'ON' if state else 'OFF'}")
+    return jsonify({"ok": ok, "msg": msg})
+
+
 @control_bp.post("/trial/graph")
 def trial_graph():
     """Render a trial JSON definition as a Graphviz state machine SVG."""

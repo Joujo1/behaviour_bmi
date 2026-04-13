@@ -8,7 +8,7 @@ import valkey as valkey_client
 from flask import Blueprint, abort, current_app, jsonify, request
 
 import config
-from ui.runner import start_run, stop_run, on_trial_complete, get_run_context, is_running
+from ui.runner import start_run, stop_run, switch_substage, on_trial_complete, get_run_context, is_running
 from ui import advancement
 
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
@@ -81,8 +81,6 @@ def run_start(cage_id: int):
     body = request.get_json(force=True) or {}
     substage_id = body.get("substage_id")
     session_id  = body.get("session_id")
-    base_iti_s  = max(0.0, float(body.get("base_iti_s", 5.0)))
-    fail_iti_s  = max(0.0, float(body.get("fail_iti_s", 15.0)))
 
     if not substage_id:
         return jsonify({"ok": False, "msg": "substage_id is required"}), 400
@@ -99,6 +97,13 @@ def run_start(cage_id: int):
         return jsonify({"ok": False, "msg": f"substage {substage_id} not found"}), 404
 
     trial_definition = row[0]
+
+    base_iti_s = trial_definition.get("base_iti_s")
+    fail_iti_s = trial_definition.get("fail_iti_s")
+    if base_iti_s is None or fail_iti_s is None:
+        return jsonify({"ok": False, "msg": "substage has no ITI defined — set Base ITI and Fail ITI in the curriculum builder"}), 400
+    base_iti_s = max(0.0, float(base_iti_s))
+    fail_iti_s = max(0.0, float(fail_iti_s))
 
     sender = current_app.config["COMMAND_SENDERS"].get(cage_id)
     if not sender:
@@ -171,10 +176,24 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                 if decision != "stay":
                     with conn:
                         new_substage = advancement.apply(subject_id, substage_id, decision, conn)
-                    if is_running(cage_id):
-                        stop_run(cage_id)
-                        _log.info("Cage %d: runner stopped — subject %d %s to substage %d",
-                                  cage_id, subject_id, decision, new_substage)
+                    if new_substage and is_running(cage_id):
+                        # Fetch new task_config and swap the runner
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT task_config FROM training_substages WHERE id = %s",
+                                        (new_substage,))
+                            tc_row = cur.fetchone()
+                        if tc_row and tc_row[0].get("base_iti_s") is not None:
+                            switched = switch_substage(cage_id, tc_row[0], new_substage)
+                            if switched:
+                                _log.info("Cage %d: auto-switched substage — subject %d %s to substage %d",
+                                          cage_id, subject_id, decision, new_substage)
+                            else:
+                                _log.warning("Cage %d: switch_substage failed, stopping instead", cage_id)
+                                stop_run(cage_id)
+                        else:
+                            _log.warning("Cage %d: new substage %d has no ITI — stopping runner",
+                                         cage_id, new_substage)
+                            stop_run(cage_id)
 
                     # Write UI notification to Valkey (expires after 2 minutes)
                     try:
@@ -191,7 +210,7 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                                 "new_label": new_label,
                                 "ts":        time.time(),
                             }),
-                            ex=120,
+                            ex=20,
                         )
                     except Exception as ve:
                         _log.warning("Cage %d: could not write advancement notification: %s",

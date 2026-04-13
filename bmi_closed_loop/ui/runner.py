@@ -43,6 +43,7 @@ def start_run(cage_id: int, trial_definition: dict, sender,
         _state[cage_id] = {
             "thread": None, "event": ev, "last_result": None, "stop": False,
             "session_id": session_id, "substage_id": substage_id,
+            "pending_switch": None,
         }
 
         t = threading.Thread(
@@ -80,6 +81,25 @@ def is_running(cage_id: int) -> bool:
     with _state_lock:
         s = _state.get(cage_id)
     return bool(s and s["thread"].is_alive())
+
+
+def switch_substage(cage_id: int, trial_definition: dict, substage_id: int) -> bool:
+    """
+    Swap the trial definition mid-session after an advancement/fallback.
+    The runner picks up the new config at the start of the next trial.
+    """
+    with _state_lock:
+        s = _state.get(cage_id)
+        if not s or not s["thread"].is_alive():
+            return False
+        s["pending_switch"] = {
+            "trial_definition": trial_definition,
+            "substage_id":      substage_id,
+            "base_iti_s":       max(0.0, float(trial_definition.get("base_iti_s", 5.0))),
+            "fail_iti_s":       max(0.0, float(trial_definition.get("fail_iti_s", 15.0))),
+        }
+        s["substage_id"] = substage_id  # update context immediately
+    return True
 
 
 def get_run_context(cage_id: int) -> dict:
@@ -125,6 +145,14 @@ def _run_loop(cage_id, trial_definition, sender, ev, base_iti_s, fail_iti_s):
                 _log.info("Cage %d: stop requested — run ending after %d trial(s)",
                           cage_id, trial_count)
                 break
+            switch = _state[cage_id].pop("pending_switch", None)
+
+        if switch:
+            trial_definition = switch["trial_definition"]
+            base_iti_s       = switch["base_iti_s"]
+            fail_iti_s       = switch["fail_iti_s"]
+            _log.info("Cage %d: switched to substage %d (iti=%.1fs fail_iti=%.1fs)",
+                      cage_id, switch["substage_id"], base_iti_s, fail_iti_s)
 
         trial_count += 1
         _log.info("Cage %d: trial %d — sending", cage_id, trial_count)

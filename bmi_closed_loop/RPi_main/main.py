@@ -121,6 +121,19 @@ def main():
             current_engine = None
             return True, "trial stopped"
 
+        if command == "FAN_ON":
+            gpio_handler.set_fan(True)
+            return True, "fan on"
+        if command == "FAN_OFF":
+            gpio_handler.set_fan(False)
+            return True, "fan off"
+        if command == "STRIP_ON":
+            gpio_handler.set_strip(True)
+            return True, "strip on"
+        if command == "STRIP_OFF":
+            gpio_handler.set_strip(False)
+            return True, "strip off"
+
         try:
             trial_data = json.loads(command)
         except json.JSONDecodeError as e:

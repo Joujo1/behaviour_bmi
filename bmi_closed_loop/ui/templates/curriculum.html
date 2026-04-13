@@ -379,6 +379,12 @@
             <option value="">—</option>
           </select>
         </span>
+        <span class="bldr-label">Base ITI (s)
+          <input id="bldr-base-iti" class="bldr-input" type="number" min="0" step="0.5" style="width:60px" placeholder="5" />
+        </span>
+        <span class="bldr-label">Fail ITI (s)
+          <input id="bldr-fail-iti" class="bldr-input" type="number" min="0" step="0.5" style="width:60px" placeholder="15" />
+        </span>
         <button class="btn small" onclick="addState()">+ State</button>
         <button class="btn accent small" onclick="saveTaskConfig()" style="margin-left:auto">Save trial definition</button>
       </div>
@@ -605,11 +611,15 @@
   async function saveTaskConfig() {
     if (!currentSubstageId) return;
     if (!bldrStates.length) { toast('Add at least one state first'); return; }
+    const baseIti = parseFloat(document.getElementById('bldr-base-iti').value);
+    const failIti = parseFloat(document.getElementById('bldr-fail-iti').value);
+    if (isNaN(baseIti) || isNaN(failIti)) { toast('Set Base ITI and Fail ITI before saving'); return; }
+    const definition = { ...buildTrialJSON(), base_iti_s: baseIti, fail_iti_s: failIti };
     try {
       const res  = await fetch(`/training-substages/${currentSubstageId}/task-config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ definition: buildTrialJSON() }),
+        body: JSON.stringify({ definition }),
       });
       const data = await res.json();
       if (data.ok) toast('Trial definition saved');
@@ -814,7 +824,9 @@
   }
 
   function loadDefinition(def) {
-    document.getElementById('bldr-trial-id').value = def.trial_id || 'trial';
+    document.getElementById('bldr-trial-id').value  = def.trial_id  || 'trial';
+    document.getElementById('bldr-base-iti').value  = def.base_iti_s ?? '';
+    document.getElementById('bldr-fail-iti').value  = def.fail_iti_s ?? '';
     bldrStateCount = 1;
     bldrStates = (def.states || []).map(s => {
       const timeoutT = (s.transitions || []).find(t => t.trigger === 'timeout');

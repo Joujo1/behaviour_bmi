@@ -23,6 +23,7 @@ import RPi.GPIO as _GPIO
 from config import (
     LED_PINS, VALVE_PINS, BEAM_PINS, AUDIO_PINS,
     BEAM_ACTIVE_LOW, BEAM_DEBOUNCE_MS,
+    FAN_PIN, STRIP_PIN,
 )
 
 # Internal output-state tracking
@@ -48,12 +49,15 @@ def setup() -> None:
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
     for pin in AUDIO_PINS.values():
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
+    _GPIO.setup(FAN_PIN,   _GPIO.OUT, initial=_GPIO.LOW)
+    _GPIO.setup(STRIP_PIN, _GPIO.OUT, initial=_GPIO.LOW)
 
     for target, pin in BEAM_PINS.items():
         pull = _GPIO.PUD_UP if BEAM_ACTIVE_LOW[target] else _GPIO.PUD_DOWN
         _GPIO.setup(pin, _GPIO.IN, pull_up_down=pull)
 
-    all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) + list(AUDIO_PINS.values()))
+    all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
+                       list(AUDIO_PINS.values()) + [FAN_PIN, STRIP_PIN])
     with _output_lock:
         for pin in all_output_pins:
             _output_state[pin] = False
@@ -83,6 +87,16 @@ def set_audio(target: str, state: bool) -> None:
     _drive(AUDIO_PINS[target], state)
 
 
+def set_fan(state: bool) -> None:
+    """Energise or de-energise the fan relay."""
+    _drive(FAN_PIN, state)
+
+
+def set_strip(state: bool) -> None:
+    """Energise or de-energise the LED strip relay."""
+    _drive(STRIP_PIN, state)
+
+
 def safety_sweep() -> None:
     """Force all outputs off; called on trial abort, watchdog, or shutdown."""
     for target in LED_PINS:
@@ -91,6 +105,8 @@ def safety_sweep() -> None:
         set_valve(target, False)
     for target in AUDIO_PINS:
         set_audio(target, False)
+    set_fan(False)
+    set_strip(False)
     logger.info("Safety sweep complete")
 
 

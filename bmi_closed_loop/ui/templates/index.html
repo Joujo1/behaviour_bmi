@@ -96,22 +96,24 @@
     .adv-popup {
       display: none;
       position: absolute;
-      bottom: 0; left: 0; right: 0;
-      padding: 7px 10px;
-      font-size: 0.7rem; font-weight: 700;
-      letter-spacing: 0.07em; text-transform: uppercase;
+      inset: 0;
+      font-size: 0.85rem; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
       color: #000;
-      align-items: center; justify-content: space-between;
+      align-items: center; justify-content: center;
+      text-align: center;
+      flex-direction: column;
       gap: 8px;
       z-index: 10;
     }
-    .adv-popup.visible { display: flex; }
-    .adv-popup.advance  { background: var(--alive); }
-    .adv-popup.fallback { background: var(--dead); color: #fff; }
+    .adv-popup.visible  { display: flex; }
+    .adv-popup.advance  { background: rgba(64, 202, 114, 0.88); }
+    .adv-popup.fallback { background: rgba(205, 20, 20, 0.88); color: #fff; }
     .adv-popup-close {
-      background: none; border: none; cursor: pointer;
-      font-size: 0.9rem; line-height: 1; padding: 0 2px;
-      color: inherit; opacity: 0.7; flex-shrink: 0;
+      background: none; border: 1.5px solid currentColor; cursor: pointer;
+      font-family: inherit; font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 3px 10px; color: inherit; opacity: 0.8;
     }
     .adv-popup-close:hover { opacity: 1; }
 
@@ -225,7 +227,17 @@
       display: flex;
       gap: 4px;
       flex-wrap: wrap;
+      align-items: center;
     }
+
+    .periph-btn {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .periph-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--fg-faint); flex-shrink: 0;
+    }
+    .periph-dot.on { background: var(--alive); }
 
     /* ── Dev strip ───────────────────────────────────────────── */
     #dev-strip {
@@ -303,42 +315,7 @@
       line-height: 1;
     }
 
-    /* ── ITI controls ────────────────────────────────────── */
-    #iti-bar {
-      padding: 12px 24px;
-      border-top: 2px solid var(--fg);
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    #iti-bar h2 {
-      font-size: 1rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin-right: 4px;
-    }
-
-    .runner-label {
-      font-size: 0.78rem;
-      color: var(--fg-faint);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .runner-input {
-      border: 1px solid var(--border);
-      background: var(--bg-faint);
-      padding: 5px 8px;
-      font-family: inherit;
-      font-size: 0.82rem;
-      outline: none;
-      color: var(--fg);
-    }
-    .runner-input:focus { border-color: var(--fg); }
+    /* ── Toast ───────────────────────────────────────────── */
 
     /* ── Toast ───────────────────────────────────────────── */
     #toast {
@@ -381,15 +358,6 @@
 
 <div id="metrics-grid"></div>
 
-<div id="iti-bar">
-  <h2>ITI</h2>
-  <span class="runner-label">Base (s)
-    <input id="runner-iti" class="runner-input" type="number" min="0" step="0.5" value="5" style="width:60px" />
-  </span>
-  <span class="runner-label">Fail (s)
-    <input id="runner-fail-iti" class="runner-input" type="number" min="0" step="0.5" value="15" style="width:60px" />
-  </span>
-</div>
 
 <div id="toast"></div>
 
@@ -404,6 +372,8 @@
 
   let allSubjects  = [];
   let streamActive = {};
+  const fanActive   = {};
+  const stripActive = {};
   const lastAdvTs  = {}; // cage_id → last seen advancement ts
 
   // ── Build grid ──────────────────────────────────────────
@@ -427,6 +397,11 @@
             <span>&#9888; Camera Lost</span>
             <span id="lost-elapsed-${i}" style="font-size:0.65rem;font-weight:400;letter-spacing:0.05em"></span>
           </div>
+          <div class="adv-popup" id="adv-popup-${i}">
+            <span id="adv-popup-msg-${i}"></span>
+            <span id="adv-popup-sub-${i}" style="font-size:0.65rem;font-weight:400;letter-spacing:0.05em"></span>
+            <button class="adv-popup-close" onclick="dismissAdv(${i})">Dismiss</button>
+          </div>
         </div>
         <div class="cage-session">
           <select id="subject-${i}" class="cage-subject-sel" onchange="onCageSubjectSelected(${i})">
@@ -439,11 +414,17 @@
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
           <button class="btn small" id="btn-trial-${i}"  onclick="startTrial(${i})">Trial ▶</button>
-          <button class="btn small"                       onclick="stopTrial(${i})">Trial ■</button>
-        </div>
-        <div class="adv-popup" id="adv-popup-${i}">
-          <span id="adv-popup-msg-${i}"></span>
-          <button class="adv-popup-close" onclick="dismissAdv(${i})">✕</button>
+          <span style="display:flex;gap:4px;align-items:center;margin:0 auto">
+            <span class="periph-btn">
+              <span class="periph-dot" id="dot-fan-${i}"></span>
+              <button class="btn small" onclick="toggleFan(${i})" style="filter:grayscale(1)">🌀</button>
+            </span>
+            <span class="periph-btn">
+              <span class="periph-dot" id="dot-strip-${i}"></span>
+              <button class="btn small" onclick="toggleStrip(${i})" style="filter:grayscale(1)">💡</button>
+            </span>
+          </span>
+          <button class="btn small danger" onclick="stopTrial(${i})">Trial ■</button>
         </div>
       </div>`;
   }
@@ -539,6 +520,46 @@
     updateCageSessionUI(id);
   }
 
+  // ── Peripherals ──────────────────────────────────────────
+  function _setPeriphDot(id, device, on) {
+    const dot = document.getElementById(`dot-${device}-${id}`);
+    if (dot) dot.classList.toggle('on', on);
+  }
+
+  async function toggleFan(id) {
+    const next = !fanActive[id];
+    const res  = await post(`/cage/${id}/fan`, { state: next });
+    if (res.ok && res.data.ok) {
+      fanActive[id] = next;
+      _setPeriphDot(id, 'fan', next);
+    } else {
+      toast(`Cage ${id} fan: ${res.data?.msg || 'failed'}`);
+    }
+  }
+
+  async function toggleStrip(id) {
+    const next = !stripActive[id];
+    const res  = await post(`/cage/${id}/strip`, { state: next });
+    if (res.ok && res.data.ok) {
+      stripActive[id] = next;
+      _setPeriphDot(id, 'strip', next);
+    } else {
+      toast(`Cage ${id} strip: ${res.data?.msg || 'failed'}`);
+    }
+  }
+
+  async function pollPeripherals() {
+    try {
+      const res  = await fetch('/cameras/peripherals');
+      const data = await res.json();
+      for (const [key, val] of Object.entries(data)) {
+        const id = parseInt(key);
+        if (val.fan   !== fanActive[id])   { fanActive[id]   = val.fan;   _setPeriphDot(id, 'fan',   val.fan);   }
+        if (val.strip !== stripActive[id]) { stripActive[id] = val.strip; _setPeriphDot(id, 'strip', val.strip); }
+      }
+    } catch (_) {}
+  }
+
   // ── Stream ───────────────────────────────────────────────
   async function toggleStream(id) {
     if (!streamActive[id]) {
@@ -565,15 +586,11 @@
     const state      = cageState[id];
     const substageId = state.substageId;
     const sessionId  = state.sessionId;
-    const baseIti    = parseFloat(document.getElementById('runner-iti').value)      || 5;
-    const failIti    = parseFloat(document.getElementById('runner-fail-iti').value) || 15;
     if (!substageId) { toast(`Cage ${id}: no substage — select a subject`); return; }
     if (!sessionId)  { toast(`Cage ${id}: open a session first`); return; }
     const res = await post(`/cage/${id}/trial/run`, {
       substage_id: substageId,
       session_id:  sessionId,
-      base_iti_s:  baseIti,
-      fail_iti_s:  failIti,
     });
     toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'run started' : 'failed')}`);
   }
@@ -639,7 +656,9 @@
         if (!popup || !msg) continue;
 
         const arrow = data.decision === 'advance' ? '↑' : '↓';
-        msg.textContent = `${arrow} ${data.decision} → ${data.new_label}`;
+        msg.textContent = `${arrow} ${data.decision === 'advance' ? 'Advanced' : 'Fell Back'}`;
+        const sub = document.getElementById(`adv-popup-sub-${i}`);
+        if (sub) sub.textContent = `→ ${data.new_label}`;
         popup.classList.remove('advance', 'fallback');
         popup.classList.add('visible', data.decision);
       } catch (_) {}
@@ -704,8 +723,10 @@
 
   setInterval(pollStatus, 1000);
   setInterval(pollAdvancement, 2000);
+  setInterval(pollPeripherals, 2000);
   pollStatus();
   pollAdvancement();
+  pollPeripherals();
 
   // ── Metrics polling ──────────────────────────────────────
   async function pollMetrics() {

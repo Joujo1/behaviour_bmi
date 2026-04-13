@@ -30,6 +30,12 @@ BEAM_ACTIVE_LOW = {
     "right": True,
 }
 
+FAN_PIN   = 24   # physical 24 — relay-switched fan
+STRIP_PIN = 22   # physical 22 — relay-switched LED strip
+
+FAN_PIN   = 8    # BCM 8,  physical pin 24 — relay-switched fan
+STRIP_PIN = 25   # BCM 25, physical pin 22 — relay-switched LED strip
+
 CLICK_PULSE_US = 100
 
 VALVE_OPEN_DEFAULT_MS = 150

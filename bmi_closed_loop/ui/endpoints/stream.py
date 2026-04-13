@@ -25,3 +25,15 @@ def latest_frame(cage_id: int):
 def camera_status():
     status = _valkey.hgetall("camera_status")
     return {k.decode(): v.decode() for k, v in status.items()}
+
+
+@stream_bp.get("/cameras/peripherals")
+def cameras_peripherals():
+    """Return fan and strip state for all cages."""
+    result = {}
+    for cage_id in range(1, config.N_CAGES + 1):
+        result[cage_id] = {
+            "fan":   _valkey.get(f"cage:{cage_id}:fan")   == b"1",
+            "strip": _valkey.get(f"cage:{cage_id}:strip") == b"1",
+        }
+    return result
