@@ -676,7 +676,7 @@
       try {
         const res  = await fetch(`/cage/${i}/advancement`);
         const data = await res.json();
-        if (!data) continue;
+        if (!data) { dismissAdv(i); continue; }
         if ((lastAdvTs[i] ?? 0) >= data.ts) continue; // already shown
         lastAdvTs[i] = data.ts;
 
