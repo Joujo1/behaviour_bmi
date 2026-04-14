@@ -127,6 +127,13 @@ def main():
         if command == "FAN_OFF":
             gpio_handler.set_fan(False)
             return True, "fan off"
+        if command.startswith("FAN_PWM:"):
+            try:
+                duty = float(command.split(":", 1)[1])
+                gpio_handler.set_fan_pwm(duty)
+                return True, f"fan pwm {duty:.0f}%"
+            except (ValueError, IndexError) as e:
+                return False, f"invalid duty: {e}"
         if command == "STRIP_ON":
             gpio_handler.set_strip(True)
             return True, "strip on"

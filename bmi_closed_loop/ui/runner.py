@@ -12,6 +12,7 @@ import copy
 import json
 import logging
 import threading
+import time
 
 from ui.click_generator import generate_clicks
 
@@ -43,7 +44,7 @@ def start_run(cage_id: int, trial_definition: dict, sender,
         _state[cage_id] = {
             "thread": None, "event": ev, "last_result": None, "stop": False,
             "session_id": session_id, "substage_id": substage_id,
-            "pending_switch": None,
+            "pending_switch": None, "started_at": time.time(),
         }
 
         t = threading.Thread(
@@ -109,6 +110,19 @@ def get_run_context(cage_id: int) -> dict:
     if not s:
         return {}
     return {"session_id": s.get("session_id"), "substage_id": s.get("substage_id")}
+
+
+def get_run_status(cage_id: int) -> dict:
+    """Return {running, substage_id, started_at} for a cage."""
+    with _state_lock:
+        s = _state.get(cage_id)
+    if not s or not s["thread"].is_alive():
+        return {"running": False, "substage_id": None, "started_at": None}
+    return {
+        "running":    True,
+        "substage_id": s.get("substage_id"),
+        "started_at": s.get("started_at"),
+    }
 
 
 def _expand_clicks(trial_definition: dict) -> dict:

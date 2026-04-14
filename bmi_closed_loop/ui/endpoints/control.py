@@ -46,12 +46,22 @@ def fan_toggle(cage_id: int):
     if not (1 <= cage_id <= config.N_CAGES):
         abort(404)
     body = request.get_json(force=True) or {}
-    state = bool(body.get("state", False))
-    ok, msg = _sender(cage_id).send("FAN_ON" if state else "FAN_OFF")
+
+    # Accept duty (0–100) or legacy boolean state
+    if "duty" in body:
+        duty = max(0.0, min(100.0, float(body["duty"])))
+    else:
+        duty = 100.0 if body.get("state", False) else 0.0
+
+    if duty == 0.0:
+        ok, msg = _sender(cage_id).send("FAN_OFF")
+    else:
+        ok, msg = _sender(cage_id).send(f"FAN_PWM:{duty:.1f}")
+
     if ok:
-        _valkey.set(f"cage:{cage_id}:fan", "1" if state else "0")
-        _log.info(f"Cage {cage_id}: fan {'ON' if state else 'OFF'}")
-    return jsonify({"ok": ok, "msg": msg})
+        _valkey.set(f"cage:{cage_id}:fan", str(int(round(duty))))
+        _log.info(f"Cage {cage_id}: fan duty={duty:.0f}%")
+    return jsonify({"ok": ok, "msg": msg, "duty": duty})
 
 
 @control_bp.post("/cage/<int:cage_id>/strip")

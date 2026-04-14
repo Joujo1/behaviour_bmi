@@ -8,7 +8,7 @@ import valkey as valkey_client
 from flask import Blueprint, abort, current_app, jsonify, request
 
 import config
-from ui.runner import start_run, stop_run, switch_substage, on_trial_complete, get_run_context, is_running
+from ui.runner import start_run, stop_run, switch_substage, on_trial_complete, get_run_context, get_run_status, is_running
 from ui import advancement
 
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
@@ -19,53 +19,6 @@ _log = logging.getLogger("trial")
 
 def _get_db():
     return psycopg2.connect(config.POSTGRES_DSN)
-
-
-@trial_bp.get("/metrics")
-def get_metrics():
-    """
-    Per-cage trial metrics aggregated from trial_results.
-    """
-    conn = _get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    cage_id,
-                    COUNT(*)                                                    AS total,
-                    COUNT(*) FILTER (WHERE outcome = 'correct')                 AS successes,
-                    COUNT(*) FILTER (WHERE outcome = 'wrong')                   AS failures,
-                    COUNT(*) FILTER (WHERE outcome = 'aborted')                 AS aborted_count,
-                    AVG(
-                        CASE WHEN jsonb_array_length(events) > 0
-                             THEN (events -> -1 ->> 't')::float
-                        END
-                    ) FILTER (WHERE outcome = 'correct')                        AS avg_success_s,
-                    AVG(
-                        CASE WHEN jsonb_array_length(events) > 0
-                             THEN (events -> -1 ->> 't')::float
-                        END
-                    ) FILTER (WHERE outcome = 'wrong')                          AS avg_fail_s,
-                    (array_agg(outcome ORDER BY completed_at DESC))[1]          AS last_outcome
-                FROM trial_results
-                GROUP BY cage_id
-                ORDER BY cage_id
-            """)
-            rows = cur.fetchall()
-            cols = [d[0] for d in cur.description]
-    finally:
-        conn.close()
-
-    result = []
-    for row in rows:
-        d = dict(zip(cols, row))
-        decided = (d["successes"] or 0) + (d["failures"] or 0)
-        d["success_pct"]   = round(100 * d["successes"] / decided, 1) if decided > 0 else 0
-        d["avg_success_s"] = round(float(d["avg_success_s"]), 2) if d["avg_success_s"] is not None else None
-        d["avg_fail_s"]    = round(float(d["avg_fail_s"]),    2) if d["avg_fail_s"]    is not None else None
-        result.append(d)
-
-    return jsonify(result)
 
 
 
@@ -220,6 +173,31 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
         _log.error("Cage %d: failed to write trial result: %s", cage_id, e)
     finally:
         conn.close()
+
+
+@trial_bp.get("/cage/<int:cage_id>/run/status")
+def run_status(cage_id: int):
+    """Return running state, current substage label, and elapsed seconds."""
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    status = get_run_status(cage_id)
+    substage_label = None
+    if status["substage_id"] is not None:
+        conn = _get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT label FROM training_substages WHERE id = %s",
+                            (status["substage_id"],))
+                row = cur.fetchone()
+            substage_label = row[0] if row else None
+        finally:
+            conn.close()
+    return jsonify({
+        "running":        status["running"],
+        "substage_id":    status["substage_id"],
+        "substage_label": substage_label,
+        "started_at":     status["started_at"],
+    })
 
 
 @trial_bp.get("/cage/<int:cage_id>/advancement")

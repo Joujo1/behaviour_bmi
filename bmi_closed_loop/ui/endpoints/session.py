@@ -52,15 +52,26 @@ def open_session():
     try:
         with conn:
             with conn.cursor() as cur:
+                # Compute per-subject session number atomically inside the transaction
+                if subject_id is not None:
+                    cur.execute(
+                        "SELECT COUNT(*) + 1 FROM sessions WHERE subject_id = %s",
+                        (subject_id,),
+                    )
+                    session_number = cur.fetchone()[0]
+                else:
+                    session_number = None
+
                 cur.execute(
                     """
                     INSERT INTO sessions
-                        (cage_id, researcher, notes, subject_id, substage_id, weight_g, water_ml)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (cage_id, session_number, researcher, notes, subject_id, substage_id, weight_g, water_ml)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         cage_id,
+                        session_number,
                         body.get("researcher"),
                         body.get("notes"),
                         subject_id,
@@ -73,8 +84,10 @@ def open_session():
     finally:
         conn.close()
 
-    _log.info("Session %d opened (cage=%s subject=%s substage=%s)", session_id, cage_id, subject_id, substage_id)
-    return jsonify({"ok": True, "session_id": session_id, "substage_id": substage_id})
+    _log.info("Session %d opened (cage=%s subject=%s substage=%s session_number=%s)",
+              session_id, cage_id, subject_id, substage_id, session_number)
+    return jsonify({"ok": True, "session_id": session_id, "session_number": session_number,
+                    "substage_id": substage_id})
 
 
 @session_bp.post("/session/<int:session_id>/close")
@@ -116,6 +129,7 @@ def list_sessions():
                 SELECT
                     se.id,
                     se.cage_id,
+                    se.session_number,
                     se.researcher,
                     se.started_at,
                     se.closed_at,

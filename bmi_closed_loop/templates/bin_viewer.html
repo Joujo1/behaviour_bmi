@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Bin Viewer</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root {
+      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
+      --bg: #fff; --fg: #000; --faint: #aaa; --border: #e0e0e0;
+      --accent: #ffd000; --correct: #40ca72; --wrong: #cd1414;
+      --signal-led: #3b82f6; --signal-valve: #f59e0b; --signal-beam: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--fg); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+      border-bottom: 2px solid var(--fg); flex-shrink: 0; flex-wrap: wrap;
+    }
+    header h1 { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+    .file-path { font-size: 0.72rem; color: var(--faint); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .btn {
+      padding: 4px 10px; font-family: inherit; font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
+      border: 1.5px solid var(--fg); background: var(--bg); color: var(--fg); white-space: nowrap;
+    }
+    .btn:hover  { background: var(--fg); color: var(--bg); }
+    .btn.open   { background: var(--accent); border-color: var(--accent); color: #000; }
+    .btn.open:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+    .btn.active { background: var(--fg); color: var(--bg); }
+
+    /* ── Layout ── */
+    #app { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── File browser overlay ── */
+    #browser-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+    }
+    #browser-overlay.hidden { display: none; }
+    #browser-panel { background: var(--bg); border: 2px solid var(--fg); width: 560px; max-height: 70vh; display: flex; flex-direction: column; }
+    #browser-header { padding: 10px 14px; border-bottom: 1.5px solid var(--fg); display: flex; align-items: center; gap: 8px; }
+    #browser-header h2 { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; flex: 1; }
+    #browser-path { font-size: 0.68rem; color: var(--faint); padding: 6px 14px; border-bottom: 1px solid var(--border); }
+    #browser-list { flex: 1; overflow-y: auto; }
+    .browser-item { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.78rem; }
+    .browser-item:hover { background: #f5f5f5; }
+    .browser-item .icon { font-size: 1rem; flex-shrink: 0; }
+    .browser-item .name { flex: 1; }
+    .browser-item .meta { font-size: 0.65rem; color: var(--faint); }
+    .browser-item.up { color: var(--faint); font-style: italic; }
+    .browser-item.bin-file .name { font-weight: 600; }
+
+    /* ── Waveform area ── */
+    #waveform-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+    #waveform-empty {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px; color: var(--faint);
+    }
+    #waveform-empty h2 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.04em; }
+    #waveform-empty p  { font-size: 0.8rem; }
+    #waveform-plot { flex: 1; display: none; }
+
+    /* ── Sidebar ── */
+    #sidebar { width: 260px; flex-shrink: 0; border-left: 2px solid var(--fg); display: flex; flex-direction: column; overflow: hidden; }
+    #frame-preview { flex-shrink: 0; background: #111; aspect-ratio: 4/3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    #frame-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    #frame-info { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+    .info-section { display: flex; flex-direction: column; gap: 3px; }
+    .info-title { font-size: 0.57rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+    .info-val { font-size: 0.78rem; font-weight: 600; }
+    .info-val.correct { color: var(--correct); }
+    .info-val.wrong   { color: var(--wrong); }
+    .info-sub { font-size: 0.65rem; color: var(--faint); }
+
+    #gpio-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; margin-top: 2px; }
+    .gpio-item { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); }
+    .gpio-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+    .gpio-dot.on      { background: var(--signal-led); }
+    .gpio-dot.valve   { background: var(--signal-valve); }
+    .gpio-dot.beam-on { background: var(--signal-beam); }
+
+    /* Trial timeline */
+    #tl-list { display: flex; flex-direction: column; }
+    .tl-trial { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 4px 2px; border-top: 1.5px solid var(--fg); margin-top: 4px; cursor: pointer; }
+    .tl-trial:first-child { border-top: none; margin-top: 0; }
+    .tl-state { font-size: 0.72rem; padding: 3px 4px 3px 10px; cursor: pointer; border-left: 2.5px solid var(--border); margin-left: 6px; display: flex; justify-content: space-between; }
+    .tl-state:hover   { background: #f5f5f5; }
+    .tl-state.active  { border-left-color: var(--fg); font-weight: 700; }
+    .tl-state.correct { border-left-color: var(--correct); }
+    .tl-state.wrong   { border-left-color: var(--wrong); }
+    .tl-dur { font-size: 0.62rem; color: var(--faint); flex-shrink: 0; }
+    .tl-iti { font-size: 0.62rem; color: var(--faint); padding: 2px 4px 2px 10px; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Bin Viewer</h1>
+  <span class="file-path" id="hdr-path">No file loaded</span>
+  <button class="btn" id="btn-play" onclick="togglePlay()" disabled>Play ▶</button>
+  <button class="btn open" onclick="openBrowser()">Open File</button>
+</header>
+
+<div id="app">
+
+  <div id="browser-overlay">
+    <div id="browser-panel">
+      <div id="browser-header">
+        <h2>Select Recording</h2>
+        <button class="btn" onclick="closeBrowser()" id="browser-close-btn" style="display:none">Close</button>
+      </div>
+      <div id="browser-path">/</div>
+      <div id="browser-list">Loading…</div>
+    </div>
+  </div>
+
+  <div id="waveform-wrap">
+    <div id="waveform-empty">
+      <h2>No file loaded</h2>
+      <p>Click <strong>Open File</strong> to browse recordings.</p>
+    </div>
+    <div id="waveform-plot"></div>
+  </div>
+
+  <div id="sidebar">
+    <div id="frame-preview">
+      <img id="prev-img" src="" alt="" style="display:none"/>
+    </div>
+    <div id="frame-info">
+      <div class="info-section">
+        <div class="info-title">State</div>
+        <div class="info-val" id="si-state">—</div>
+        <div class="info-sub" id="si-ts">—</div>
+      </div>
+      <div class="info-section" id="stats-section" style="display:none">
+        <div class="info-title">Session</div>
+        <div class="info-val" id="stats-trials">—</div>
+        <div class="info-sub" id="stats-outcomes">—</div>
+        <div class="info-sub" id="stats-pct">—</div>
+      </div>
+      <div class="info-section">
+        <div class="info-title">GPIO</div>
+        <div id="gpio-grid">
+          <div class="gpio-item"><div class="gpio-dot" id="g-led-center"></div>LED C</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-led-left"></div>LED L</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-led-right"></div>LED R</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-valve-left"></div>Valve L</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-valve-right"></div>Valve R</div>
+          <div class="gpio-item"></div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-beam-left"></div>Beam L</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-beam-right"></div>Beam R</div>
+          <div class="gpio-item"><div class="gpio-dot" id="g-beam-center"></div>Beam C</div>
+        </div>
+      </div>
+      <div class="info-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <div class="info-title">Trial Timeline</div>
+        <div id="tl-list" style="overflow-y:auto;flex:1"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let waveform    = null;
+let timeline    = [];
+let frameCount  = 0;
+let currentBin  = null;
+let cursorFrame = 0;
+let playTimer   = null;
+
+const GPIO_MAP = [
+  ['led-center',  'led_center',  false],
+  ['led-left',    'led_left',    false],
+  ['led-right',   'led_right',   false],
+  ['valve-left',  'valve_left',  false],
+  ['valve-right', 'valve_right', false],
+  ['beam-left',   'beam_left',   true],
+  ['beam-right',  'beam_right',  true],
+  ['beam-center', 'beam_center', true],
+];
+
+// ── File browser ──────────────────────────────────────────────────────────────
+function openBrowser()  { document.getElementById('browser-overlay').classList.remove('hidden'); browseTo(''); }
+function closeBrowser() { document.getElementById('browser-overlay').classList.add('hidden'); }
+
+async function browseTo(rel) {
+  const res  = await fetch('/api/browse?path=' + encodeURIComponent(rel));
+  const data = await res.json();
+  document.getElementById('browser-path').textContent = data.abs_path || '/';
+
+  const list = document.getElementById('browser-list');
+  let html = '';
+  if (data.parent !== null)
+    html += `<div class="browser-item up" onclick="browseTo(${JSON.stringify(data.parent)})"><span class="icon">↩</span><span class="name">.. (up)</span></div>`;
+  for (const item of data.items) {
+    if (item.type === 'dir') {
+      html += `<div class="browser-item" onclick="browseTo(${JSON.stringify(item.rel)})"><span class="icon">📁</span><span class="name">${item.name}</span></div>`;
+    } else {
+      const mb = (item.size / 1048576).toFixed(1);
+      html += `<div class="browser-item bin-file" onclick="loadBin(${JSON.stringify(item.rel)})"><span class="icon">📄</span><span class="name">${item.name}</span><span class="meta">${mb} MB</span></div>`;
+    }
+  }
+  if (!html) html = '<div style="padding:14px;font-size:0.78rem;color:#aaa">No recordings here.</div>';
+  list.innerHTML = html;
+}
+
+// ── Load bin file ─────────────────────────────────────────────────────────────
+async function loadBin(rel) {
+  closeBrowser();
+  document.getElementById('hdr-path').textContent = 'Loading…';
+  document.getElementById('btn-play').disabled = true;
+  stopPlay();
+
+  try {
+    const [wfRes, tlRes, figRes, statsRes] = await Promise.all([
+      fetch('/api/waveform?path=' + encodeURIComponent(rel)),
+      fetch('/api/timeline?path=' + encodeURIComponent(rel)),
+      fetch('/api/figure?path='   + encodeURIComponent(rel)),
+      fetch('/api/stats?path='    + encodeURIComponent(rel)),
+    ]);
+
+    if (!wfRes.ok) { alert('Failed to load: ' + await wfRes.text()); return; }
+
+    waveform   = await wfRes.json();
+    timeline   = await tlRes.json();
+    const fig  = await figRes.json();
+    const stats = await statsRes.json();
+
+    frameCount = waveform.t_us.length;
+    currentBin = rel;
+
+    document.getElementById('hdr-path').textContent = rel;
+    document.getElementById('browser-close-btn').style.display = '';
+    document.getElementById('waveform-empty').style.display = 'none';
+
+    const plotEl = document.getElementById('waveform-plot');
+    plotEl.style.display = 'flex';
+
+    Plotly.react('waveform-plot', fig.data, {
+      ...fig.layout,
+      height: plotEl.clientHeight || 400,
+    }, {
+      responsive:             true,
+      scrollZoom:             true,
+      modeBarButtonsToRemove: ['select2d', 'lasso2d'],
+      displaylogo:            false,
+    });
+
+    document.getElementById('waveform-plot').on('plotly_click', data => {
+      if (data.points.length) goToFrame(frameAtTime(data.points[0].x));
+    });
+
+    buildTimelineHtml();
+    showStats(stats);
+    document.getElementById('btn-play').disabled = false;
+    goToFrame(0);
+
+  } catch(e) {
+    alert('Error loading file: ' + e);
+  }
+}
+
+// ── Frame lookup ──────────────────────────────────────────────────────────────
+function frameAtTime(t_s) {
+  const t_us = t_s * 1_000_000;
+  const ts   = waveform.t_us;
+  let lo = 0, hi = ts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    ts[mid] < t_us ? lo = mid + 1 : hi = mid;
+  }
+  return lo;
+}
+
+// ── Frame navigation ──────────────────────────────────────────────────────────
+async function goToFrame(n) {
+  n = Math.max(0, Math.min(frameCount - 1, n));
+  cursorFrame = n;
+
+  const t_s = waveform.t_us[n] / 1_000_000;
+
+  // Update cursor line (shapes[0])
+  Plotly.relayout('waveform-plot', {
+    'shapes[0].x0':      t_s,
+    'shapes[0].x1':      t_s,
+    'shapes[0].visible': true,
+  });
+
+  // State label
+  const state = waveform.state_labels.reduce((acc, sl) => sl.frame <= n ? sl.state : acc, '—');
+  const si = document.getElementById('si-state');
+  si.textContent = state;
+  si.className   = 'info-val' + (state === '__correct__' ? ' correct' : state === '__wrong__' ? ' wrong' : '');
+  document.getElementById('si-ts').textContent = `t = ${t_s.toFixed(3)} s  ·  frame ${n}`;
+
+  // GPIO dots
+  const h = waveform.signals;
+  for (const [id, key, isBeam] of GPIO_MAP) {
+    const dot = document.getElementById('g-' + id);
+    const val = h[key][n];
+    dot.className = 'gpio-dot' + (val
+      ? (isBeam ? ' beam-on' : key.startsWith('valve') ? ' valve' : ' on')
+      : '');
+  }
+
+  // JPEG preview
+  if (currentBin) {
+    const img = document.getElementById('prev-img');
+    img.src   = `/api/frame/image?path=${encodeURIComponent(currentBin)}&frame=${n}&t=${Date.now()}`;
+    img.style.display = '';
+  }
+
+  highlightTimeline(n);
+}
+
+// ── Playback ──────────────────────────────────────────────────────────────────
+function togglePlay() {
+  if (playTimer) stopPlay();
+  else           startPlay();
+}
+
+function startPlay() {
+  if (!waveform) return;
+  document.getElementById('btn-play').textContent = 'Pause ■';
+  document.getElementById('btn-play').classList.add('active');
+  playTimer = setInterval(() => {
+    if (cursorFrame >= frameCount - 1) { stopPlay(); return; }
+    goToFrame(cursorFrame + 1);
+  }, 100); // 10fps
+}
+
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  document.getElementById('btn-play').textContent = 'Play ▶';
+  document.getElementById('btn-play').classList.remove('active');
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function showStats(stats) {
+  const sec = document.getElementById('stats-section');
+  sec.style.display = '';
+  document.getElementById('stats-trials').textContent   = `${stats.n_trials} trials`;
+  document.getElementById('stats-outcomes').textContent = `${stats.correct} correct · ${stats.wrong} wrong`;
+  document.getElementById('stats-pct').textContent      = stats.success_pct !== null
+    ? `${stats.success_pct}% success rate` : 'no decided trials';
+}
+
+// ── Timeline HTML ─────────────────────────────────────────────────────────────
+function buildTimelineHtml() {
+  const tl = document.getElementById('tl-list');
+  let html = '';
+  for (const e of timeline) {
+    if (e.type === 'trial_header') {
+      html += `<div class="tl-trial" onclick="goToFrame(${e.frame})">Trial ${e.trial_num}</div>`;
+    } else if (e.type === 'state') {
+      const cls = e.state === '__correct__' ? ' correct' : e.state === '__wrong__' ? ' wrong' : '';
+      const dur = e.duration !== null ? `${e.duration}s` : '—';
+      html += `<div class="tl-state${cls}" data-frame="${e.frame}" onclick="goToFrame(${e.frame})">
+        <span>${e.state}</span><span class="tl-dur">${dur}</span></div>`;
+    } else if (e.type === 'iti') {
+      html += `<div class="tl-iti">— ITI ${e.duration_s}s —</div>`;
+    }
+  }
+  tl.innerHTML = html || '<span style="font-size:0.72rem;color:#aaa">No transitions found.</span>';
+}
+
+function highlightTimeline(frame) {
+  let best = null;
+  for (const el of document.querySelectorAll('.tl-state')) {
+    if (parseInt(el.dataset.frame) <= frame) best = el;
+  }
+  document.querySelectorAll('.tl-state').forEach(el => el.classList.remove('active'));
+  if (best) { best.classList.add('active'); best.scrollIntoView({block: 'nearest'}); }
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (!waveform) return;
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+  if (e.key === 'ArrowRight') { e.preventDefault(); goToFrame(cursorFrame + 1); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); goToFrame(cursorFrame - 1); }
+  if (e.key === 'ArrowUp')    { e.preventDefault(); goToFrame(cursorFrame + 10); }
+  if (e.key === 'ArrowDown')  { e.preventDefault(); goToFrame(cursorFrame - 10); }
+  if (e.key === ' ')          { e.preventDefault(); togglePlay(); }
+
+  if (e.key === ']') {
+    const next = waveform.state_labels.find(sl => sl.frame > cursorFrame);
+    if (next) goToFrame(next.frame);
+  }
+  if (e.key === '[') {
+    const prev = [...waveform.state_labels].reverse().find(sl => sl.frame < cursorFrame);
+    if (prev) goToFrame(prev.frame);
+  }
+
+  // Zoom via Plotly xaxis range
+  if (e.key === '+' || e.key === '=') plotZoom(2);
+  if (e.key === '-')                   plotZoom(0.5);
+});
+
+function plotZoom(factor) {
+  const plotEl = document.getElementById('waveform-plot');
+  if (!plotEl._fullLayout) return;
+  const xaxis = plotEl._fullLayout.xaxis;
+  const [x0, x1] = xaxis.range;
+  const center = (x0 + x1) / 2;
+  const half   = (x1 - x0) / 2 / factor;
+  Plotly.relayout('waveform-plot', {'xaxis.range': [center - half, center + half]});
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  if (waveform) Plotly.relayout('waveform-plot', {autosize: true});
+});
+</script>
+</body>
+</html>

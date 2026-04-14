@@ -23,12 +23,17 @@ import RPi.GPIO as _GPIO
 from config import (
     LED_PINS, VALVE_PINS, BEAM_PINS, AUDIO_PINS,
     BEAM_ACTIVE_LOW, BEAM_DEBOUNCE_MS,
-    FAN_PIN, STRIP_PIN,
+    FAN_PIN, STRIP_PIN, FAN_PWM_FREQ,
 )
 
 # Internal output-state tracking
 _output_state: dict[int, bool] = {}
 _output_lock = threading.Lock()
+
+# Fan PWM state (None when in simple on/off mode)
+_fan_pwm: "object | None" = None   # _GPIO.PWM instance
+_fan_pwm_lock = threading.Lock()
+_fan_pwm_duty: float = 0.0         # last set duty cycle (0–100)
 
 
 def _drive(pin: int, state: bool) -> None:
@@ -87,8 +92,67 @@ def set_audio(target: str, state: bool) -> None:
     _drive(AUDIO_PINS[target], state)
 
 
+def _stop_fan_pwm() -> None:
+    """Stop PWM on FAN_PIN if active. Must be called with _fan_pwm_lock held."""
+    global _fan_pwm, _fan_pwm_duty
+    if _fan_pwm is not None:
+        _fan_pwm.stop()
+        _fan_pwm      = None
+        _fan_pwm_duty = 0.0
+
+
 def set_fan(state: bool) -> None:
+    """Drive fan fully on or off (binary). Stops any active PWM first."""
+    global _fan_pwm
+    with _fan_pwm_lock:
+        _stop_fan_pwm()
     _drive(FAN_PIN, state)
+
+
+def set_fan_pwm(duty: float, freq: float = FAN_PWM_FREQ) -> None:
+    """
+    Control fan speed via PWM on the SSR gate signal.
+
+    duty : 0.0 – 100.0  (percent of full speed).
+             0   → fan off (falls back to set_fan(False)).
+             100 → fan fully on (falls back to set_fan(True)).
+    freq : PWM frequency in Hz (default 25 Hz).
+           Check your SSR datasheet — most DC SSRs handle up to a few kHz;
+           AC zero-crossing SSRs are limited to ~100 Hz.
+
+    If the relay turns out to be mechanical, call set_fan() instead and do
+    not use this function — rapid switching will destroy the relay contacts.
+    """
+    global _fan_pwm, _fan_pwm_duty
+    duty = max(0.0, min(100.0, float(duty)))
+
+    if duty == 0.0:
+        set_fan(False)
+        return
+    if duty >= 100.0:
+        set_fan(True)
+        return
+
+    with _fan_pwm_lock:
+        if _fan_pwm is None:
+            _fan_pwm = _GPIO.PWM(FAN_PIN, freq)
+            _fan_pwm.start(duty)
+        else:
+            _fan_pwm.ChangeFrequency(freq)
+            _fan_pwm.ChangeDutyCycle(duty)
+        _fan_pwm_duty = duty
+
+    # Mark pin as active in the output tracker
+    with _output_lock:
+        _output_state[FAN_PIN] = True
+
+    logger.debug("Fan PWM: duty=%.1f%% freq=%.1fHz", duty, freq)
+
+
+def get_fan_pwm_duty() -> float:
+    """Return the current PWM duty cycle (0 if off or in binary mode)."""
+    with _fan_pwm_lock:
+        return _fan_pwm_duty
 
 
 def set_strip(state: bool) -> None:
@@ -103,7 +167,7 @@ def safety_sweep() -> None:
         set_valve(target, False)
     for target in AUDIO_PINS:
         set_audio(target, False)
-    set_fan(False)
+    set_fan(False)   # set_fan() stops PWM then drives pin low
     set_strip(False)
     logger.info("Safety sweep complete")
 
@@ -177,4 +241,5 @@ def get_snapshot() -> dict:
                         prefix, target, pin, tracked, readback,
                     )
 
+    snapshot["fan_pwm_duty"] = get_fan_pwm_duty()
     return snapshot

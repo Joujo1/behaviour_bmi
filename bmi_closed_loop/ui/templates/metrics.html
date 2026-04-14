@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BMI Metrics</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <style>
+    :root {
+      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
+      --bg:       #ffffff;
+      --bg-faint: #f0f0f0;
+      --fg:       #000000;
+      --fg-faint: #888888;
+      --accent:   #ffd000;
+      --alive:    rgb(64, 202, 114);
+      --dead:     rgb(205, 20, 20);
+      --border:   #e0e0e0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--fg); min-height: 100vh; }
+
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 24px; border-bottom: 2px solid var(--fg);
+    }
+    header h1 {
+      font-size: 1.1rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+
+    .btn {
+      padding: 6px 14px; font-family: inherit; font-size: 0.8rem;
+      font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+      cursor: pointer; border: 1.5px solid var(--fg);
+      background: var(--bg); color: var(--fg);
+      transition: background 0.1s, color 0.1s;
+      text-decoration: none; display: inline-block;
+    }
+    .btn:hover { background: var(--fg); color: var(--bg); }
+    .btn.small { padding: 4px 8px; font-size: 0.72rem; }
+
+    section {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .section-title {
+      font-size: 0.8rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      margin-right: 6px;
+    }
+
+    label {
+      font-size: 0.72rem; color: var(--fg-faint);
+      display: flex; align-items: center; gap: 5px;
+    }
+    input[type="number"], input[type="date"], input[type="text"], select {
+      border: 1px solid var(--border); background: var(--bg-faint);
+      padding: 4px 8px; font-family: inherit; font-size: 0.78rem;
+      outline: none; color: var(--fg);
+    }
+    input[type="number"] { width: 72px; }
+    input[type="date"]   { width: 136px; }
+    select { min-width: 110px; }
+    input:focus, select:focus { border-color: var(--fg); }
+
+    /* Tables */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+    thead th {
+      text-align: left; padding: 6px 10px;
+      font-size: 0.63rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      border-bottom: 2px solid var(--fg); white-space: nowrap;
+    }
+    tbody td {
+      padding: 6px 10px; border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr:hover td { background: var(--bg-faint); }
+
+    .pct-good { color: var(--alive); font-weight: 700; }
+    .pct-mid  { color: #f59e0b;      font-weight: 700; }
+    .pct-bad  { color: var(--dead);  font-weight: 700; }
+
+    #learning-curve-plot { height: 380px; margin-top: 4px; }
+
+    .no-data {
+      font-size: 0.74rem; color: var(--fg-faint); padding: 14px 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Metrics</h1>
+  <a href="/" class="btn small" style="margin-left:auto">← Dashboard</a>
+</header>
+
+<!-- ── Animal Progress ──────────────────────────────────── -->
+<section>
+  <div class="section-header">
+    <span class="section-title">Animal Progress</span>
+    <label>Last
+      <input id="n-input" type="number" value="20" min="1" max="9999">
+      trials
+    </label>
+    <button class="btn small" onclick="loadAnimals()">↻ Refresh</button>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Subject</th><th>Sex</th><th>Stage</th><th>Substage</th>
+          <th>Days</th><th>Sessions</th><th>Trials</th>
+          <th>Correct</th><th>Wrong</th><th>Aborted</th>
+          <th>% Overall</th><th>% Last N</th><th>Last Session</th>
+        </tr>
+      </thead>
+      <tbody id="animals-tbody">
+        <tr><td colspan="13" class="no-data">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── Learning Curve ───────────────────────────────────── -->
+<section>
+  <div class="section-header">
+    <span class="section-title">Learning Curve</span>
+    <label>Subject
+      <select id="lc-subject">
+        <option value="">All</option>
+      </select>
+    </label>
+    <button class="btn small" onclick="loadLearningCurve()">↻ Refresh</button>
+  </div>
+  <div id="learning-curve-plot"></div>
+</section>
+
+<!-- ── Session Log ──────────────────────────────────────── -->
+<section>
+  <div class="section-header">
+    <span class="section-title">Session Log</span>
+    <label>Subject
+      <select id="sess-subject">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label>Cage
+      <input id="sess-cage" type="number" min="1" placeholder="any" style="width:55px">
+    </label>
+    <label>From
+      <input id="sess-from" type="date">
+    </label>
+    <label>To
+      <input id="sess-to" type="date">
+    </label>
+    <label>Limit
+      <input id="sess-limit" type="number" value="50" min="1" max="500" style="width:60px">
+    </label>
+    <button class="btn small" onclick="loadSessions()">Search</button>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Session #</th><th>Subject</th><th>Cage</th><th>Date</th>
+          <th>Duration</th><th>Stage</th><th>Substage</th>
+          <th>Trials</th><th>Correct</th><th>Wrong</th><th>Aborted</th>
+          <th>% Correct</th><th>Researcher</th><th>Weight (g)</th><th>Water (ml)</th>
+        </tr>
+      </thead>
+      <tbody id="sessions-tbody">
+        <tr><td colspan="15" class="no-data">Use filters above and click Search.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── Substage Dwell ────────────────────────────────────── -->
+<section>
+  <div class="section-header">
+    <span class="section-title">Substage Dwell</span>
+    <label>Subject
+      <select id="dwell-subject" onchange="loadDwell()">
+        <option value="">— select —</option>
+      </select>
+    </label>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Stage</th><th>Substage</th>
+          <th>Sessions</th><th>Trials</th>
+          <th>Correct</th><th>Wrong</th><th>Aborted</th>
+          <th>% Correct</th><th>First Seen</th><th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody id="dwell-tbody">
+        <tr><td colspan="10" class="no-data">Select a subject above.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+  let allSubjects = [];
+
+  // ── Init ─────────────────────────────────────────────────
+  async function init() {
+    try {
+      const res = await fetch('/subjects');
+      allSubjects = await res.json();
+      const opts = allSubjects.map(s =>
+        `<option value="${s.id}">${s.code}</option>`
+      ).join('');
+      document.getElementById('lc-subject').innerHTML    = '<option value="">All</option>' + opts;
+      document.getElementById('sess-subject').innerHTML  = '<option value="">All</option>' + opts;
+      document.getElementById('dwell-subject').innerHTML = '<option value="">— select —</option>' + opts;
+    } catch (e) { console.error('Failed to load subjects:', e); }
+
+    loadAnimals();
+    loadLearningCurve();
+    loadSessions();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────
+  function fmtPct(v) {
+    if (v === null || v === undefined) return '—';
+    const cls = v >= 75 ? 'pct-good' : v >= 50 ? 'pct-mid' : 'pct-bad';
+    return `<span class="${cls}">${v}%</span>`;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    return iso.slice(0, 10);
+  }
+
+  function fmtDuration(s) {
+    if (s === null || s === undefined) return '—';
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
+  }
+
+  function dash(v) {
+    return (v === null || v === undefined) ? '—' : v;
+  }
+
+  // ── Animal Progress ───────────────────────────────────────
+  async function loadAnimals() {
+    const n = document.getElementById('n-input').value || 20;
+    try {
+      const res  = await fetch(`/metrics/animals?n=${n}`);
+      const data = await res.json();
+      const tbody = document.getElementById('animals-tbody');
+      if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="13" class="no-data">No subjects found.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.map(d => `
+        <tr>
+          <td><b>${d.code}</b></td>
+          <td>${d.sex || '—'}</td>
+          <td>${d.stage_name || '—'}</td>
+          <td>${d.substage_label || '—'}</td>
+          <td>${dash(d.days_enrolled)}</td>
+          <td>${dash(d.total_sessions)}</td>
+          <td>${d.total_trials || 0}</td>
+          <td>${d.correct || 0}</td>
+          <td>${d.wrong || 0}</td>
+          <td>${d.aborted || 0}</td>
+          <td>${fmtPct(d.success_pct)}</td>
+          <td>${fmtPct(d.last_n_pct)}</td>
+          <td>${fmtDate(d.last_session_at)}</td>
+        </tr>
+      `).join('');
+    } catch (e) { console.error(e); }
+  }
+
+  // ── Learning Curve ────────────────────────────────────────
+  async function loadLearningCurve() {
+    const subjectId = document.getElementById('lc-subject').value;
+    const url = subjectId
+      ? `/metrics/learning-curve?subject_id=${subjectId}`
+      : '/metrics/learning-curve';
+
+    try {
+      const res  = await fetch(url);
+      const data = await res.json();
+
+      // Group rows by subject
+      const bySubject = {};
+      for (const d of data) {
+        if (!bySubject[d.subject_code]) bySubject[d.subject_code] = [];
+        bySubject[d.subject_code].push(d);
+      }
+
+      const traces = [];
+      for (const [code, rows] of Object.entries(bySubject)) {
+        // Only plot sessions with decided trials
+        const plotRows = rows.filter(r => r.pct_correct !== null);
+        if (!plotRows.length) continue;
+
+        traces.push({
+          type: 'scatter',
+          mode: 'lines+markers',
+          name: code,
+          x: plotRows.map(r => r.session_number),
+          y: plotRows.map(r => r.pct_correct),
+          text: plotRows.map(r =>
+            `<b>${code}</b> — Session ${r.session_number}<br>` +
+            `Substage: ${r.substage_label || '—'}<br>` +
+            `Date: ${r.session_date || '—'}<br>` +
+            `Trials: ${r.total} &nbsp;(${r.correct}✓ &nbsp;${r.wrong}✗ &nbsp;${r.aborted} aborted)`
+          ),
+          hovertemplate: '%{text}<extra></extra>',
+          line:   { width: 2 },
+          marker: { size: 6 },
+          connectgaps: false,
+        });
+      }
+
+      if (!traces.length) {
+        Plotly.react('learning-curve-plot', [], {
+          annotations: [{ text: 'No data', showarrow: false, font: { size: 14, color: '#888' } }],
+          xaxis: { visible: false }, yaxis: { visible: false },
+          plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+          margin: { l: 50, r: 10, t: 10, b: 50 },
+        }, { responsive: true, displayModeBar: false });
+        return;
+      }
+
+      Plotly.react('learning-curve-plot', traces, {
+        xaxis: {
+          title: 'Session Number', zeroline: false,
+          showgrid: true, gridcolor: '#e8e8e8', dtick: 1,
+        },
+        yaxis: {
+          title: '% Correct', range: [0, 105],
+          zeroline: false, showgrid: true, gridcolor: '#e8e8e8',
+        },
+        shapes: [{
+          type: 'line', xref: 'paper', yref: 'y',
+          x0: 0, x1: 1, y0: 75, y1: 75,
+          line: { color: 'rgba(64,202,114,0.5)', width: 1.5, dash: 'dash' },
+        }],
+        annotations: [{
+          xref: 'paper', yref: 'y', x: 1, y: 75,
+          text: '75%', showarrow: false, xanchor: 'left',
+          font: { size: 10, color: 'rgba(64,202,114,0.8)' },
+        }],
+        margin:        { l: 55, r: 30, t: 10, b: 50 },
+        legend:        { orientation: 'h', y: -0.18 },
+        plot_bgcolor:  '#fff',
+        paper_bgcolor: '#fff',
+        hovermode:     'closest',
+        dragmode:      'pan',
+      }, { responsive: true, displayModeBar: false });
+    } catch (e) { console.error(e); }
+  }
+
+  // ── Session Log ───────────────────────────────────────────
+  async function loadSessions() {
+    const params = new URLSearchParams();
+    const subjectId = document.getElementById('sess-subject').value;
+    const cageId    = document.getElementById('sess-cage').value;
+    const from      = document.getElementById('sess-from').value;
+    const to        = document.getElementById('sess-to').value;
+    const limit     = document.getElementById('sess-limit').value;
+    if (subjectId) params.set('subject_id', subjectId);
+    if (cageId)    params.set('cage_id',    cageId);
+    if (from)      params.set('from',       from);
+    if (to)        params.set('to',         to);
+    if (limit)     params.set('limit',      limit);
+
+    try {
+      const res  = await fetch(`/metrics/sessions?${params}`);
+      const data = await res.json();
+      const tbody = document.getElementById('sessions-tbody');
+      if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="15" class="no-data">No sessions found.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.map(d => `
+        <tr>
+          <td>${d.session_number !== null ? d.session_number : '—'}</td>
+          <td>${d.subject_code || '—'}</td>
+          <td>${d.cage_id || '—'}</td>
+          <td>${fmtDate(d.started_at)}</td>
+          <td>${fmtDuration(d.duration_s)}</td>
+          <td>${d.stage_name || '—'}</td>
+          <td>${d.substage_label || '—'}</td>
+          <td>${d.total_trials || 0}</td>
+          <td>${d.correct || 0}</td>
+          <td>${d.wrong || 0}</td>
+          <td>${d.aborted || 0}</td>
+          <td>${fmtPct(d.pct_correct)}</td>
+          <td>${d.researcher || '—'}</td>
+          <td>${d.weight_g !== null && d.weight_g !== undefined ? d.weight_g : '—'}</td>
+          <td>${d.water_ml !== null && d.water_ml !== undefined ? d.water_ml : '—'}</td>
+        </tr>
+      `).join('');
+    } catch (e) { console.error(e); }
+  }
+
+  // ── Substage Dwell ────────────────────────────────────────
+  async function loadDwell() {
+    const subjectId = document.getElementById('dwell-subject').value;
+    const tbody = document.getElementById('dwell-tbody');
+    if (!subjectId) {
+      tbody.innerHTML = '<tr><td colspan="10" class="no-data">Select a subject above.</td></tr>';
+      return;
+    }
+    try {
+      const res  = await fetch(`/metrics/dwell?subject_id=${subjectId}`);
+      const data = await res.json();
+      if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="no-data">No data for this subject.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.map(d => `
+        <tr>
+          <td>${d.stage_name}</td>
+          <td>${d.label}</td>
+          <td>${d.sessions_count}</td>
+          <td>${d.total_trials}</td>
+          <td>${d.correct}</td>
+          <td>${d.wrong}</td>
+          <td>${d.aborted}</td>
+          <td>${fmtPct(d.pct_correct)}</td>
+          <td>${fmtDate(d.first_seen)}</td>
+          <td>${fmtDate(d.last_seen)}</td>
+        </tr>
+      `).join('');
+    } catch (e) { console.error(e); }
+  }
+
+  init();
+</script>
+</body>
+</html>

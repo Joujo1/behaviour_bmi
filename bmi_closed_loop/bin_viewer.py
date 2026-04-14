@@ -19,7 +19,7 @@ import os
 import struct
 import sys
 
-from flask import Flask, abort, jsonify, render_template_string, request, send_file
+from flask import Flask, abort, jsonify, render_template, request, send_file
 
 # ── Packet format (must match udp_sender_pi.py and packet_parser.py) ─────────
 
@@ -219,791 +219,115 @@ def build_waveform(frames: list) -> dict:
     }
 
 
-# ── HTML template ─────────────────────────────────────────────────────────────
+# ── Stats ─────────────────────────────────────────────────────────────────────
 
-HTML = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <title>Bin Viewer</title>
-  <style>
-    :root {
-      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
-      --bg: #fff; --fg: #000; --faint: #aaa; --border: #e0e0e0;
-      --accent: #ffd000;
-      --correct: #40ca72; --wrong: #cd1414;
-      --signal-led: #3b82f6;
-      --signal-valve: #f59e0b;
-      --signal-beam: #ef4444;
-      --row-h: 32px;
-      --label-w: 80px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--fg); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-
-    /* ── Top bar ── */
-    header {
-      display: flex; align-items: center; gap: 10px; padding: 8px 14px;
-      border-bottom: 2px solid var(--fg); flex-shrink: 0; flex-wrap: wrap;
-    }
-    header h1 { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-    .file-path { font-size: 0.72rem; color: var(--faint); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .btn {
-      padding: 4px 10px; font-family: inherit; font-size: 0.68rem; font-weight: 700;
-      letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
-      border: 1.5px solid var(--fg); background: var(--bg); color: var(--fg); white-space: nowrap;
-    }
-    .btn:hover { background: var(--fg); color: var(--bg); }
-    .btn.open { background: var(--accent); border-color: var(--accent); color: #000; }
-    .btn.open:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
-
-    /* ── Layout ── */
-    #app { display: flex; flex: 1; overflow: hidden; }
-
-    /* ── File browser overlay ── */
-    #browser-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 100;
-    }
-    #browser-overlay.hidden { display: none; }
-    #browser-panel {
-      background: var(--bg); border: 2px solid var(--fg);
-      width: 560px; max-height: 70vh; display: flex; flex-direction: column;
-    }
-    #browser-header {
-      padding: 10px 14px; border-bottom: 1.5px solid var(--fg);
-      display: flex; align-items: center; gap: 8px;
-    }
-    #browser-header h2 { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; flex: 1; }
-    #browser-path { font-size: 0.68rem; color: var(--faint); padding: 6px 14px; border-bottom: 1px solid var(--border); }
-    #browser-list { flex: 1; overflow-y: auto; }
-    .browser-item {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 14px; border-bottom: 1px solid var(--border);
-      cursor: pointer; font-size: 0.78rem;
-    }
-    .browser-item:hover { background: #f5f5f5; }
-    .browser-item .icon { font-size: 1rem; flex-shrink: 0; }
-    .browser-item .name { flex: 1; }
-    .browser-item .meta { font-size: 0.65rem; color: var(--faint); }
-    .browser-item.up { color: var(--faint); font-style: italic; }
-    .browser-item.bin-file .name { font-weight: 600; }
-
-    /* ── Main waveform area ── */
-    #waveform-wrap {
-      flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;
-    }
-    #waveform-empty {
-      flex: 1; display: flex; align-items: center; justify-content: center;
-      flex-direction: column; gap: 12px; color: var(--faint);
-    }
-    #waveform-empty h2 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.04em; }
-    #waveform-empty p  { font-size: 0.8rem; }
-
-    /* Signal rows */
-    #signal-container {
-      flex: 1; display: flex; flex-direction: column; overflow: hidden;
-    }
-    #state-lane {
-      height: 28px; flex-shrink: 0; display: flex; overflow: hidden;
-      border-bottom: 1px solid var(--border); position: relative;
-    }
-    #state-lane-label {
-      width: var(--label-w); flex-shrink: 0; font-size: 0.58rem; font-weight: 700;
-      letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
-      display: flex; align-items: center; padding-left: 6px;
-      border-right: 1px solid var(--border);
-    }
-    #state-canvas-wrap { flex: 1; overflow: hidden; position: relative; }
-    #state-canvas { display: block; height: 28px; }
-
-    #signal-rows { flex: 1; overflow: hidden; position: relative; }
-    .signal-row {
-      height: var(--row-h); display: flex; border-bottom: 1px solid var(--border);
-    }
-    .signal-label {
-      width: var(--label-w); flex-shrink: 0;
-      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
-      color: var(--faint); display: flex; align-items: center; padding-left: 6px;
-      border-right: 1px solid var(--border);
-    }
-    .signal-canvas-wrap { flex: 1; overflow: hidden; position: relative; }
-    canvas.signal-canvas { display: block; }
-
-    /* Timescale ruler */
-    #timescale-wrap {
-      height: 24px; flex-shrink: 0; display: flex; border-top: 1.5px solid var(--fg);
-    }
-    #timescale-spacer { width: var(--label-w); flex-shrink: 0; border-right: 1px solid var(--border); }
-    #timescale-canvas { flex: 1; display: block; height: 24px; }
-
-    /* Scrollbar / zoom controls */
-    #scroll-controls {
-      height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-      padding: 0 8px; border-top: 1px solid var(--border);
-    }
-    #scroll-controls label { font-size: 0.62rem; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; }
-    #hscroll { flex: 1; accent-color: var(--fg); }
-    #zoom-in, #zoom-out { font-size: 0.9rem; cursor: pointer; padding: 0 4px; background: none; border: none; }
-
-    /* Cursor line */
-    #cursor-line {
-      position: absolute; top: 0; bottom: 0; width: 1px;
-      background: rgba(0,0,0,0.35); pointer-events: none; display: none;
+def compute_stats(wf: dict) -> dict:
+    """Count trial outcomes from state transition labels."""
+    correct = sum(1 for sl in wf["state_labels"] if sl["state"] == "__correct__")
+    wrong   = sum(1 for sl in wf["state_labels"] if sl["state"] == "__wrong__")
+    decided = correct + wrong
+    return {
+        "n_trials":    decided,
+        "correct":     correct,
+        "wrong":       wrong,
+        "success_pct": round(100 * correct / decided, 1) if decided else None,
     }
 
-    /* ── Right sidebar: JPEG + info ── */
-    #sidebar {
-      width: 260px; flex-shrink: 0; border-left: 2px solid var(--fg);
-      display: flex; flex-direction: column; overflow: hidden;
+
+# ── Plotly figure builder ─────────────────────────────────────────────────────
+
+def build_figure(frames: list, wf: dict, timeline: list) -> dict:
+    """
+    Build a Plotly-compatible figure dict for the waveform.
+    shapes[0] is reserved as the cursor line (initially hidden).
+    State background blocks start at shapes[1].
+    """
+    t_s = [t / 1_000_000 for t in wf["t_us"]]
+    N   = len(GPIO_SIGNALS)
+
+    COLORS = {"led": "#3b82f6", "valve": "#f59e0b", "beam": "#ef4444"}
+
+    traces    = []
+    tick_vals = []
+    tick_text = []
+
+    for idx, (key, label, is_beam) in enumerate(GPIO_SIGNALS):
+        offset = (N - 1 - idx) * 2.5
+        tick_vals.append(offset + 0.5)
+        tick_text.append(label)
+        color = COLORS["beam"] if is_beam else (COLORS["valve"] if "valve" in key else COLORS["led"])
+        traces.append({
+            "type": "scatter",
+            "x":    t_s,
+            "y":    [v + offset for v in wf["signals"][key]],
+            "name": label,
+            "mode": "lines",
+            "line": {"shape": "hv", "color": color, "width": 1.5},
+            "hovertemplate": f"{label}: %{{customdata}}<extra></extra>",
+            "customdata": wf["signals"][key],
+            "showlegend": False,
+        })
+
+    # shapes[0]: cursor line — initially hidden, updated by JS on click/nav
+    shapes = [{
+        "type": "line", "xref": "x", "yref": "paper",
+        "x0": t_s[0], "x1": t_s[0], "y0": 0, "y1": 1,
+        "line": {"color": "rgba(0,0,0,0.45)", "width": 1, "dash": "dot"},
+        "visible": False,
+    }]
+
+    # State background blocks
+    labels = wf["state_labels"]
+    for i, sl in enumerate(labels):
+        t0    = sl["t_us"] / 1_000_000
+        t1    = labels[i + 1]["t_us"] / 1_000_000 if i + 1 < len(labels) else t_s[-1]
+        state = sl["state"] or "—"
+        color = ("rgba(64,202,114,0.18)"  if state == "__correct__" else
+                 "rgba(205,20,20,0.14)"   if state == "__wrong__"   else
+                 "rgba(240,240,240,0.55)")
+        shapes.append({
+            "type": "rect", "xref": "x", "yref": "paper",
+            "x0": t0, "x1": t1, "y0": 0, "y1": 1,
+            "fillcolor": color, "line": {"width": 0}, "layer": "below",
+        })
+
+    # Trial start markers
+    for entry in timeline:
+        if entry["type"] == "trial_header":
+            t = frames[entry["frame"]]["header"]["timestamp"] / 1_000_000
+            shapes.append({
+                "type": "line", "xref": "x", "yref": "paper",
+                "x0": t, "x1": t, "y0": 0, "y1": 1,
+                "line": {"color": "#000", "width": 1.2},
+            })
+
+    layout = {
+        "shapes": shapes,
+        "xaxis": {
+            "title":     "Time (s)",
+            "zeroline":  False,
+            "showgrid":  True,
+            "gridcolor": "#e8e8e8",
+        },
+        "yaxis": {
+            "tickvals":   tick_vals,
+            "ticktext":   tick_text,
+            "zeroline":   False,
+            "showgrid":   False,
+            "range":      [-0.3, N * 2.5 - 0.2],
+            "fixedrange": True,
+        },
+        "margin":        {"l": 80, "r": 10, "t": 10, "b": 50},
+        "showlegend":    False,
+        "hovermode":     "x",
+        "plot_bgcolor":  "#fff",
+        "paper_bgcolor": "#fff",
+        "autosize":      True,
+        "dragmode":      "pan",
     }
-    #frame-preview {
-      flex-shrink: 0; background: #111; aspect-ratio: 4/3; overflow: hidden;
-      display: flex; align-items: center; justify-content: center;
-    }
-    #frame-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
-    #frame-info { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
-    .info-section { display: flex; flex-direction: column; gap: 3px; }
-    .info-title {
-      font-size: 0.57rem; font-weight: 700; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--faint);
-    }
-    .info-val { font-size: 0.78rem; font-weight: 600; }
-    .info-val.correct { color: var(--correct); }
-    .info-val.wrong   { color: var(--wrong); }
-    .info-sub { font-size: 0.65rem; color: var(--faint); }
 
-    #gpio-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; margin-top: 2px; }
-    .gpio-item { display: flex; flex-direction: column; align-items: center; gap: 2px;
-                 font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); }
-    .gpio-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
-    .gpio-dot.on      { background: var(--signal-led); }
-    .gpio-dot.valve   { background: var(--signal-valve); }
-    .gpio-dot.beam-on { background: var(--signal-beam); }
+    return {"data": traces, "layout": layout}
 
-    /* Trial timeline in sidebar */
-    #tl-list { display: flex; flex-direction: column; }
-    .tl-trial { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
-                padding: 6px 4px 2px; border-top: 1.5px solid var(--fg); margin-top: 4px; cursor: pointer; }
-    .tl-trial:first-child { border-top: none; margin-top: 0; }
-    .tl-state { font-size: 0.72rem; padding: 3px 4px 3px 10px; cursor: pointer;
-                border-left: 2.5px solid var(--border); margin-left: 6px;
-                display: flex; justify-content: space-between; }
-    .tl-state:hover { background: #f5f5f5; }
-    .tl-state.active { border-left-color: var(--fg); font-weight: 700; }
-    .tl-state.correct { border-left-color: var(--correct); }
-    .tl-state.wrong   { border-left-color: var(--wrong); }
-    .tl-dur { font-size: 0.62rem; color: var(--faint); flex-shrink: 0; }
-    .tl-iti { font-size: 0.62rem; color: var(--faint); padding: 2px 4px 2px 10px; font-style: italic; }
-  </style>
-</head>
-<body>
-
-<header>
-  <h1>Bin Viewer</h1>
-  <span class="file-path" id="hdr-path">No file loaded</span>
-  <button class="btn open" onclick="openBrowser()">Open File</button>
-</header>
-
-<div id="app">
-
-  <!-- File browser overlay -->
-  <div id="browser-overlay">
-    <div id="browser-panel">
-      <div id="browser-header">
-        <h2>Select Recording</h2>
-        <button class="btn" onclick="closeBrowser()" id="browser-close-btn" style="display:none">Close</button>
-      </div>
-      <div id="browser-path">/</div>
-      <div id="browser-list">Loading…</div>
-    </div>
-  </div>
-
-  <!-- Waveform area -->
-  <div id="waveform-wrap">
-    <div id="waveform-empty">
-      <h2>No file loaded</h2>
-      <p>Click <strong>Open File</strong> to browse recordings.</p>
-    </div>
-    <div id="signal-container" style="display:none">
-      <!-- State annotation lane -->
-      <div id="state-lane">
-        <div id="state-lane-label">State</div>
-        <div id="state-canvas-wrap">
-          <canvas id="state-canvas"></canvas>
-        </div>
-      </div>
-      <!-- GPIO signal rows (injected by JS) -->
-      <div id="signal-rows"></div>
-      <!-- Timescale ruler -->
-      <div id="timescale-wrap">
-        <div id="timescale-spacer"></div>
-        <canvas id="timescale-canvas"></canvas>
-      </div>
-      <!-- Zoom/scroll controls -->
-      <div id="scroll-controls">
-        <label>Scroll</label>
-        <input type="range" id="hscroll" min="0" max="1000" value="0" oninput="onScroll()"/>
-        <button id="zoom-out" onclick="zoom(0.5)" title="Zoom out">−</button>
-        <label id="zoom-label">1×</label>
-        <button id="zoom-in"  onclick="zoom(2)"   title="Zoom in">+</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Sidebar -->
-  <div id="sidebar">
-    <div id="frame-preview">
-      <img id="prev-img" src="" alt="" style="display:none"/>
-    </div>
-    <div id="frame-info">
-      <div class="info-section">
-        <div class="info-title">State</div>
-        <div class="info-val" id="si-state">—</div>
-        <div class="info-sub" id="si-ts">—</div>
-      </div>
-      <div class="info-section">
-        <div class="info-title">GPIO</div>
-        <div id="gpio-grid">
-          <div class="gpio-item"><div class="gpio-dot" id="g-led-center"></div>LED C</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-led-left"></div>LED L</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-led-right"></div>LED R</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-valve-left"></div>Valve L</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-valve-right"></div>Valve R</div>
-          <div class="gpio-item"></div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-beam-left"></div>Beam L</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-beam-right"></div>Beam R</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-beam-center"></div>Beam C</div>
-        </div>
-      </div>
-      <div class="info-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
-        <div class="info-title">Trial Timeline</div>
-        <div id="tl-list" style="overflow-y:auto;flex:1"></div>
-      </div>
-    </div>
-  </div>
-
-</div>
-
-<script>
-// ── Constants injected server-side ───────────────────────────────────────────
-const SIGNAL_DEFS = [
-  {key:"led_center",  label:"LED C",   beam:false},
-  {key:"led_left",    label:"LED L",   beam:false},
-  {key:"led_right",   label:"LED R",   beam:false},
-  {key:"valve_left",  label:"Valve L", beam:false},
-  {key:"valve_right", label:"Valve R", beam:false},
-  {key:"beam_left",   label:"Beam L",  beam:true},
-  {key:"beam_right",  label:"Beam R",  beam:true},
-  {key:"beam_center", label:"Beam C",  beam:true},
-];
-const COLOR_LED   = "#3b82f6";
-const COLOR_VALVE = "#f59e0b";
-const COLOR_BEAM  = "#ef4444";
-const COLOR_STATE_BG  = "#fffbea";
-const COLOR_STATE_TXT = "#000";
-
-// ── State ────────────────────────────────────────────────────────────────────
-let waveform   = null;   // {t_us, signals, state_labels}
-let timeline   = [];     // rich timeline array from /api/timeline
-let frameCount = 0;
-let currentBin = null;
-
-// View: we display frames [viewStart, viewStart+viewLen)
-let viewStart = 0;
-let viewLen   = 0;       // in frames; 0 = not loaded
-let zoomLevel = 1;       // multiplier relative to "fit all"
-let baseLen   = 0;       // frames that fit at zoom=1 (= frameCount)
-
-let canvases  = {};      // key -> canvas element
-let cursorFrame = 0;
-
-// ── File browser ─────────────────────────────────────────────────────────────
-function openBrowser() {
-  document.getElementById('browser-overlay').classList.remove('hidden');
-  browseTo('');
-}
-function closeBrowser() {
-  document.getElementById('browser-overlay').classList.add('hidden');
-}
-
-async function browseTo(rel) {
-  const res  = await fetch('/api/browse?path=' + encodeURIComponent(rel));
-  const data = await res.json();
-  document.getElementById('browser-path').textContent = data.abs_path || '/';
-
-  const list = document.getElementById('browser-list');
-  let html = '';
-
-  if (data.parent !== null) {
-    html += `<div class="browser-item up" onclick="browseTo(${JSON.stringify(data.parent)})">
-               <span class="icon">↩</span><span class="name">.. (up)</span>
-             </div>`;
-  }
-
-  for (const item of data.items) {
-    if (item.type === 'dir') {
-      html += `<div class="browser-item" onclick="browseTo(${JSON.stringify(item.rel)})">
-                 <span class="icon">📁</span>
-                 <span class="name">${item.name}</span>
-               </div>`;
-    } else {
-      const mb = (item.size / 1048576).toFixed(1);
-      html += `<div class="browser-item bin-file" onclick="loadBin(${JSON.stringify(item.rel)})">
-                 <span class="icon">📄</span>
-                 <span class="name">${item.name}</span>
-                 <span class="meta">${mb} MB</span>
-               </div>`;
-    }
-  }
-
-  if (!html) html = '<div style="padding:14px;font-size:0.78rem;color:#aaa">No recordings found here.</div>';
-  list.innerHTML = html;
-}
-
-// ── Load bin file ─────────────────────────────────────────────────────────────
-async function loadBin(rel) {
-  closeBrowser();
-  document.getElementById('hdr-path').textContent = 'Loading…';
-  document.getElementById('waveform-empty').style.display = 'flex';
-  document.getElementById('signal-container').style.display = 'none';
-
-  try {
-    const [wfRes, tlRes] = await Promise.all([
-      fetch('/api/waveform?path=' + encodeURIComponent(rel)),
-      fetch('/api/timeline?path='  + encodeURIComponent(rel)),
-    ]);
-
-    if (!wfRes.ok) { alert('Failed to load: ' + await wfRes.text()); return; }
-
-    waveform   = await wfRes.json();
-    timeline   = await tlRes.json();
-    currentBin = rel;
-    frameCount = waveform.t_us.length;
-
-    document.getElementById('hdr-path').textContent = rel;
-    document.getElementById('browser-close-btn').style.display = '';
-    document.getElementById('waveform-empty').style.display = 'none';
-    document.getElementById('signal-container').style.display = 'flex';
-    document.getElementById('signal-container').style.flexDirection = 'column';
-
-    initCanvases();
-    buildTimelineHtml();
-
-    baseLen   = frameCount;
-    zoomLevel = 1;
-    viewStart = 0;
-    viewLen   = baseLen;
-    updateZoomLabel();
-    updateScroll();
-    renderAll();
-    goToFrame(0);
-
-  } catch(e) {
-    alert('Error: ' + e);
-  }
-}
-
-// ── Canvas setup ──────────────────────────────────────────────────────────────
-function initCanvases() {
-  const rows = document.getElementById('signal-rows');
-  rows.innerHTML = '';
-  canvases = {};
-
-  for (const sig of SIGNAL_DEFS) {
-    const row = document.createElement('div');
-    row.className = 'signal-row';
-    const lbl = document.createElement('div');
-    lbl.className = 'signal-label';
-    lbl.textContent = sig.label;
-    const wrap = document.createElement('div');
-    wrap.className = 'signal-canvas-wrap';
-    wrap.id = 'wrap-' + sig.key;
-    const cv = document.createElement('canvas');
-    cv.className = 'signal-canvas';
-    cv.id = 'cv-' + sig.key;
-    wrap.appendChild(cv);
-    row.appendChild(lbl);
-    row.appendChild(wrap);
-    rows.appendChild(row);
-    canvases[sig.key] = cv;
-  }
-}
-
-function getCanvasWidth(key) {
-  const wrap = document.getElementById('wrap-' + key);
-  return wrap ? wrap.clientWidth : 0;
-}
-
-function getStateCanvasWidth() {
-  return document.getElementById('state-canvas-wrap').clientWidth;
-}
-
-// ── Rendering ─────────────────────────────────────────────────────────────────
-function renderAll() {
-  if (!waveform) return;
-  for (const sig of SIGNAL_DEFS) renderSignal(sig);
-  renderStateLane();
-  renderTimescale();
-}
-
-function renderSignal(sig) {
-  const cv = canvases[sig.key];
-  if (!cv) return;
-  const wrap = document.getElementById('wrap-' + sig.key);
-  const W = wrap.clientWidth;
-  const H = wrap.clientHeight || 32;
-  cv.width  = W;
-  cv.height = H;
-  const ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
-
-  const data = waveform.signals[sig.key];
-  const color = sig.beam ? COLOR_BEAM : (sig.key.startsWith('valve') ? COLOR_VALVE : COLOR_LED);
-
-  const end = Math.min(viewStart + viewLen, frameCount);
-  const n   = end - viewStart;
-  if (n <= 0) return;
-
-  const yHi = H * 0.15;
-  const yLo = H * 0.85;
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth   = 1.5;
-  ctx.beginPath();
-
-  let firstMove = true;
-  for (let i = 0; i < n; i++) {
-    const fi  = viewStart + i;
-    const val = data[fi];
-    const x   = (i / n) * W;
-    const y   = val ? yHi : yLo;
-
-    if (firstMove) { ctx.moveTo(x, y); firstMove = false; }
-    else {
-      const prevVal = data[fi - 1];
-      if (val !== prevVal) {
-        const prevX = ((i-1) / n) * W;
-        const prevY = prevVal ? yHi : yLo;
-        ctx.lineTo(prevX, prevY);
-        ctx.lineTo(x,     prevY);
-        ctx.lineTo(x,     y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
-  }
-  ctx.stroke();
-}
-
-function renderStateLane() {
-  const wrap = document.getElementById('state-canvas-wrap');
-  const W = wrap.clientWidth;
-  const H = 28;
-  const cv = document.getElementById('state-canvas');
-  cv.width  = W;
-  cv.height = H;
-  const ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
-
-  const end = Math.min(viewStart + viewLen, frameCount);
-  const n   = end - viewStart;
-  if (n <= 0) return;
-
-  // State blocks
-  const labels = waveform.state_labels;
-
-  for (let li = 0; li < labels.length; li++) {
-    const startF = labels[li].frame;
-    const endF   = li + 1 < labels.length ? labels[li+1].frame : frameCount;
-    const state  = labels[li].state;
-
-    // Clip to view
-    const csF = Math.max(startF, viewStart);
-    const ceF = Math.min(endF, end);
-    if (csF >= ceF) continue;
-
-    const x1 = ((csF - viewStart) / n) * W;
-    const x2 = ((ceF - viewStart) / n) * W;
-
-    let bg = '#f0f0f0';
-    if (state === '__correct__') bg = 'rgba(64,202,114,0.25)';
-    else if (state === '__wrong__') bg = 'rgba(205,20,20,0.2)';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(x1, 0, x2 - x1, H - 1);
-
-    // Separator line
-    ctx.strokeStyle = '#ccc';
-    ctx.lineWidth   = 1;
-    ctx.beginPath();
-    ctx.moveTo(x1, 0); ctx.lineTo(x1, H);
-    ctx.stroke();
-
-    // Label if wide enough
-    const bw = x2 - x1;
-    if (bw > 20) {
-      ctx.fillStyle = state === '__wrong__' ? '#c00' : state === '__correct__' ? '#1a7' : '#555';
-      ctx.font      = 'bold 9px system-ui';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      const txt = state || '—';
-      ctx.fillText(txt, x1 + 3, H / 2);
-    }
-  }
-
-  // Trial markers
-  for (const entry of timeline) {
-    if (entry.type !== 'trial_header') continue;
-    const fi = entry.frame;
-    if (fi < viewStart || fi >= end) continue;
-    const x = ((fi - viewStart) / n) * W;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(x, 0); ctx.lineTo(x, H);
-    ctx.stroke();
-    ctx.fillStyle = '#000';
-    ctx.font = 'bold 8px system-ui';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText('T' + entry.trial_num, x + 2, 2);
-  }
-
-  // Cursor
-  drawCursor(ctx, W, H);
-}
-
-function renderTimescale() {
-  const W = document.getElementById('timescale-canvas').clientWidth;
-  const H = 24;
-  const cv = document.getElementById('timescale-canvas');
-  cv.width  = W; cv.height = H;
-  const ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
-
-  if (!waveform || viewLen <= 0) return;
-  const end   = Math.min(viewStart + viewLen, frameCount);
-  const n     = end - viewStart;
-  const t0_us = waveform.t_us[viewStart];
-  const t1_us = waveform.t_us[end - 1];
-  const dur_s = (t1_us - t0_us) / 1e6;
-
-  // Pick a nice tick interval
-  const targetTicks = Math.max(4, Math.floor(W / 80));
-  let tickInterval  = niceTick(dur_s / targetTicks);
-
-  ctx.fillStyle   = '#888';
-  ctx.font        = '9px system-ui';
-  ctx.textBaseline = 'top';
-
-  const t0_s = t0_us / 1e6;
-  let t = Math.ceil(t0_s / tickInterval) * tickInterval;
-  while (t <= t0_s + dur_s + tickInterval) {
-    const frac = (t - t0_s) / dur_s;
-    const x    = frac * W;
-    ctx.strokeStyle = '#ccc';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x, 0); ctx.lineTo(x, 6);
-    ctx.stroke();
-    ctx.textAlign = 'center';
-    ctx.fillText(t.toFixed(2) + 's', x, 8);
-    t = Math.round((t + tickInterval) * 1e6) / 1e6;
-  }
-}
-
-function niceTick(approx) {
-  const e = Math.pow(10, Math.floor(Math.log10(approx)));
-  const f = approx / e;
-  if (f < 2) return e;
-  if (f < 5) return 2 * e;
-  return 5 * e;
-}
-
-function drawCursor(ctx, W, H) {
-  if (cursorFrame < viewStart || cursorFrame >= viewStart + viewLen) return;
-  const n = Math.min(viewStart + viewLen, frameCount) - viewStart;
-  const x = ((cursorFrame - viewStart) / n) * W;
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-  ctx.lineWidth   = 1;
-  ctx.setLineDash([3, 3]);
-  ctx.beginPath();
-  ctx.moveTo(x, 0); ctx.lineTo(x, H);
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
-
-// ── Frame navigation ──────────────────────────────────────────────────────────
-async function goToFrame(n) {
-  n = Math.max(0, Math.min(frameCount - 1, n));
-  cursorFrame = n;
-
-  // Scroll view to keep cursor visible
-  if (n < viewStart) {
-    viewStart = Math.max(0, n - Math.floor(viewLen * 0.1));
-  } else if (n >= viewStart + viewLen) {
-    viewStart = Math.min(frameCount - viewLen, n - Math.floor(viewLen * 0.9));
-  }
-  updateScroll();
-  renderAll();
-
-  // Sidebar update
-  const h = waveform.signals;
-  const t_us = waveform.t_us[n];
-
-  const state = waveform.state_labels.reduce((acc, sl) => sl.frame <= n ? sl.state : acc, '—');
-  const si = document.getElementById('si-state');
-  si.textContent = state;
-  si.className = 'info-val' + (state === '__correct__' ? ' correct' : state === '__wrong__' ? ' wrong' : '');
-  document.getElementById('si-ts').textContent =
-    `t = ${(t_us/1e6).toFixed(3)} s  ·  frame ${n}`;
-
-  // GPIO dots
-  const gpioMap = [
-    ['led-center',  'led_center',  false],
-    ['led-left',    'led_left',    false],
-    ['led-right',   'led_right',   false],
-    ['valve-left',  'valve_left',  false],
-    ['valve-right', 'valve_right', false],
-    ['beam-left',   'beam_left',   true],
-    ['beam-right',  'beam_right',  true],
-    ['beam-center', 'beam_center', true],
-  ];
-  for (const [id, key, isBeam] of gpioMap) {
-    const dot = document.getElementById('g-' + id);
-    const val = h[key][n];
-    if (isBeam)                dot.className = 'gpio-dot' + (val ? ' beam-on' : '');
-    else if (key.startsWith('valve')) dot.className = 'gpio-dot' + (val ? ' valve' : '');
-    else                       dot.className = 'gpio-dot' + (val ? ' on' : '');
-  }
-
-  // JPEG preview
-  if (currentBin) {
-    document.getElementById('prev-img').src =
-      `/api/frame/image?path=${encodeURIComponent(currentBin)}&frame=${n}&t=${Date.now()}`;
-    document.getElementById('prev-img').style.display = '';
-  }
-
-  // Timeline highlight
-  highlightTimeline(n);
-}
-
-// ── Timeline HTML ─────────────────────────────────────────────────────────────
-function buildTimelineHtml() {
-  const tl = document.getElementById('tl-list');
-  let html = '';
-  for (const e of timeline) {
-    if (e.type === 'trial_header') {
-      html += `<div class="tl-trial" onclick="goToFrame(${e.frame})">Trial ${e.trial_num}</div>`;
-    } else if (e.type === 'state') {
-      const cls = e.state === '__correct__' ? ' correct' : e.state === '__wrong__' ? ' wrong' : '';
-      const dur = e.duration !== null ? `${e.duration}s` : '—';
-      html += `<div class="tl-state${cls}" data-frame="${e.frame}" onclick="goToFrame(${e.frame})">
-        <span>${e.state}</span><span class="tl-dur">${dur}</span></div>`;
-    } else if (e.type === 'iti') {
-      html += `<div class="tl-iti">— ITI ${e.duration_s}s —</div>`;
-    }
-  }
-  tl.innerHTML = html || '<span style="font-size:0.72rem;color:#aaa">No transitions</span>';
-}
-
-function highlightTimeline(frame) {
-  // Find the most recent state entry at or before this frame
-  let best = null;
-  for (const el of document.querySelectorAll('.tl-state')) {
-    const f = parseInt(el.dataset.frame);
-    if (f <= frame) best = el;
-  }
-  document.querySelectorAll('.tl-state').forEach(el => el.classList.remove('active'));
-  if (best) {
-    best.classList.add('active');
-    best.scrollIntoView({block: 'nearest'});
-  }
-}
-
-// ── Zoom / scroll ─────────────────────────────────────────────────────────────
-function zoom(factor) {
-  if (!waveform) return;
-  const center = viewStart + viewLen / 2;
-  zoomLevel = Math.max(1, Math.min(frameCount / 4, zoomLevel * factor));
-  viewLen   = Math.max(4, Math.round(baseLen / zoomLevel));
-  viewStart = Math.max(0, Math.min(frameCount - viewLen, Math.round(center - viewLen / 2)));
-  updateZoomLabel();
-  updateScroll();
-  renderAll();
-}
-
-function onScroll() {
-  if (!waveform) return;
-  const v = parseInt(document.getElementById('hscroll').value);
-  viewStart = Math.round((v / 1000) * Math.max(0, frameCount - viewLen));
-  renderAll();
-}
-
-function updateScroll() {
-  const el = document.getElementById('hscroll');
-  const maxStart = Math.max(1, frameCount - viewLen);
-  el.value = Math.round((viewStart / maxStart) * 1000);
-}
-
-function updateZoomLabel() {
-  document.getElementById('zoom-label').textContent = zoomLevel.toFixed(1) + '×';
-}
-
-// ── Canvas click → frame ──────────────────────────────────────────────────────
-function canvasClickToFrame(e, wrapId) {
-  const wrap = document.getElementById(wrapId);
-  const rect = wrap.getBoundingClientRect();
-  const frac = (e.clientX - rect.left) / rect.width;
-  const end  = Math.min(viewStart + viewLen, frameCount);
-  return Math.round(viewStart + frac * (end - viewStart));
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  // Wire up canvas clicks for all signal wrappers
-  for (const sig of SIGNAL_DEFS) {
-    const wrap = document.getElementById('wrap-' + sig.key);
-    if (wrap) wrap.addEventListener('click', e => goToFrame(canvasClickToFrame(e, 'wrap-' + sig.key)));
-  }
-  const stateWrap = document.getElementById('state-canvas-wrap');
-  if (stateWrap) stateWrap.addEventListener('click', e => goToFrame(canvasClickToFrame(e, 'state-canvas-wrap')));
-});
-
-// ── Keyboard ──────────────────────────────────────────────────────────────────
-document.addEventListener('keydown', e => {
-  if (!waveform) return;
-  if (e.key === 'ArrowRight') goToFrame(cursorFrame + 1);
-  if (e.key === 'ArrowLeft')  goToFrame(cursorFrame - 1);
-  if (e.key === 'ArrowUp')    goToFrame(cursorFrame + 10);
-  if (e.key === 'ArrowDown')  goToFrame(cursorFrame - 10);
-  if (e.key === ']') {
-    // Jump to next state transition
-    const next = waveform.state_labels.find(sl => sl.frame > cursorFrame);
-    if (next) goToFrame(next.frame);
-  }
-  if (e.key === '[') {
-    const prev = [...waveform.state_labels].reverse().find(sl => sl.frame < cursorFrame);
-    if (prev) goToFrame(prev.frame);
-  }
-  if (e.key === '+' || e.key === '=') zoom(2);
-  if (e.key === '-')                   zoom(0.5);
-});
-
-// ── Resize handler ────────────────────────────────────────────────────────────
-window.addEventListener('resize', () => { if (waveform) renderAll(); });
-
-// ── Mouse wheel zoom ──────────────────────────────────────────────────────────
-document.getElementById('app').addEventListener('wheel', e => {
-  if (!waveform) return;
-  e.preventDefault();
-  zoom(e.deltaY < 0 ? 1.5 : 1/1.5);
-}, {passive: false});
-</script>
-</body>
-</html>
-"""
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 
@@ -1022,12 +346,13 @@ def _load(rel: str, root: str):
 
 
 def create_app(root: str) -> Flask:
-    root = os.path.realpath(root)
-    app  = Flask(__name__)
+    root     = os.path.realpath(root)
+    tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+    app      = Flask(__name__, template_folder=tmpl_dir)
 
     @app.get("/")
     def index():
-        return render_template_string(HTML)
+        return render_template("bin_viewer.html")
 
     @app.get("/api/browse")
     def api_browse():
@@ -1057,6 +382,24 @@ def create_app(root: str) -> Flask:
             parent = "" if p == "." else p
 
         return jsonify({"abs_path": abs_dir, "items": items, "parent": parent})
+
+    @app.get("/api/figure")
+    def api_figure():
+        rel = request.args.get("path", "")
+        try:
+            abs_path, frames, tl, wf = _load(rel, root)
+        except Exception as e:
+            return str(e), 400
+        return jsonify(build_figure(frames, wf, tl))
+
+    @app.get("/api/stats")
+    def api_stats():
+        rel = request.args.get("path", "")
+        try:
+            _, _, _, wf = _load(rel, root)
+        except Exception as e:
+            return str(e), 400
+        return jsonify(compute_stats(wf))
 
     @app.get("/api/waveform")
     def api_waveform():

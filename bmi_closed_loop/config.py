@@ -31,6 +31,9 @@ WATCHDOG_DEAD_THRESHOLD_SECONDS = 5  # camera flagged dead if silent for this lo
 # TCP command channel (PC → Pi)
 TCP_COMMAND_PORT = 6000  # Pi listens on this port; one connection per cage
 
+# Fan PWM
+FAN_MIN_DUTY = 30   # %
+
 # Flask
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000

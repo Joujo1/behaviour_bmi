@@ -10,6 +10,7 @@ from ui.endpoints.session import session_bp
 from ui.endpoints.subjects import subjects_bp
 from ui.endpoints.curriculum import curriculum_bp
 from ui.endpoints.stream import stream_bp
+from ui.endpoints.metrics import metrics_bp
 from ui.endpoints.trial import trial_bp, handle_trial_event
 
 app = Flask(__name__)
@@ -33,6 +34,7 @@ app.config["COMMAND_SENDERS"] = {
     for cage_id in range(1, config.N_CAGES + 1)
 }
 
+app.register_blueprint(metrics_bp)
 app.register_blueprint(builder_bp)
 app.register_blueprint(dev_bp)
 app.register_blueprint(stream_bp)
@@ -45,7 +47,8 @@ app.register_blueprint(control_bp)
 
 @app.get("/")
 def dashboard():
-    return render_template("index.html", n_cages=config.N_CAGES)
+    return render_template("index.html", n_cages=config.N_CAGES,
+                           fan_min_duty=config.FAN_MIN_DUTY)
 
 
 if __name__ == "__main__":

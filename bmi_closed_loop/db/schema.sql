@@ -82,20 +82,32 @@ CREATE TABLE IF NOT EXISTS subjects (
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id          SERIAL       PRIMARY KEY,
-    cage_id     INT,
-    researcher  TEXT,
-    notes       TEXT,
-    subject_id  INT          REFERENCES subjects(id),
-    substage_id INT          REFERENCES training_substages(id),
-    weight_g    NUMERIC(6,1),
-    water_ml    NUMERIC(5,1),
-    started_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    closed_at   TIMESTAMPTZ
+    id             SERIAL       PRIMARY KEY,
+    cage_id        INT,
+    session_number INT,
+    researcher     TEXT,
+    notes          TEXT,
+    subject_id     INT          REFERENCES subjects(id),
+    substage_id    INT          REFERENCES training_substages(id),
+    weight_g       NUMERIC(6,1),
+    water_ml       NUMERIC(5,1),
+    started_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    closed_at      TIMESTAMPTZ,
+    UNIQUE (subject_id, session_number)
 );
 
--- Idempotent migration for existing databases
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS cage_id INT;
+-- Idempotent migrations for existing databases
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS cage_id        INT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_number INT;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'sessions_subject_id_session_number_key'
+    ) THEN
+        ALTER TABLE sessions ADD CONSTRAINT sessions_subject_id_session_number_key
+            UNIQUE (subject_id, session_number);
+    END IF;
+END $$;
 
 
 -- ---------------------------------------------------------------------------

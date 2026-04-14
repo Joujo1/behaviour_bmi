@@ -258,64 +258,47 @@
       margin-right: 4px;
     }
 
-    /* ── Metrics grid ───────────────────────────────────────── */
-    #metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 1px;
-      background: var(--border);
-      border-top: 2px solid var(--fg);
+    /* ── Run status per cage ────────────────────────────── */
+    .run-status {
+      font-size: 0.65rem;
+      color: var(--fg-faint);
+      min-height: 1em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .run-status.active {
+      color: var(--alive);
+      font-weight: 700;
     }
 
-    .metric-card {
-      background: var(--bg);
-      padding: 10px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
+    .run-timer {
+      font-size: 0.68rem;
+      color: var(--fg-faint);
+      font-variant-numeric: tabular-nums;
+      min-width: 2.4em;
+      text-align: right;
     }
+    .run-timer.active { color: var(--alive); font-weight: 700; }
 
-    .metric-card-header {
+    /* ── Global bottom bar ───────────────────────────────── */
+    #global-bar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-    }
-
-    .metric-title {
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-
-    .metric-last-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--border);
-      flex-shrink: 0;
-    }
-    .metric-last-dot.success { background: var(--alive); }
-    .metric-last-dot.fail    { background: var(--dead); }
-
-    .metric-row {
-      display: flex;
-      gap: 12px;
-      font-size: 0.72rem;
-      color: var(--fg-faint);
+      gap: 8px;
+      padding: 8px 24px;
+      background: var(--bg-faint);
+      border-top: 2px solid var(--fg);
+      border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
     }
-
-    .metric-row b { color: var(--fg); font-weight: 600; }
-
-    .metric-pct {
-      font-size: 1.3rem;
+    #global-bar-label {
+      font-size: 0.65rem;
       font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1;
+      letter-spacing: 0.12em;
+      color: var(--fg-faint);
+      margin-right: 4px;
     }
-
-    /* ── Toast ───────────────────────────────────────────── */
 
     /* ── Toast ───────────────────────────────────────────── */
     #toast {
@@ -342,6 +325,7 @@
   <button class="btn small" onclick="loadSubjects()">↻ Subjects</button>
   <a href="/curriculum" class="btn small" style="text-decoration:none;margin-left:auto">Curriculum ↗</a>
   <a href="/subjects-page" class="btn small" style="text-decoration:none">Subjects ↗</a>
+  <a href="/metrics-page" class="btn small" style="text-decoration:none">Metrics ↗</a>
 </header>
 
 <div id="dev-strip">
@@ -356,8 +340,19 @@
 
 <div class="grid" id="cage-grid"></div>
 
-<div id="metrics-grid"></div>
-
+<div id="global-bar">
+  <span id="global-bar-label">ALL CAGES</span>
+  <button class="btn small" onclick="openAllSessions()">Open All Sessions</button>
+  <button class="btn small" onclick="closeAllSessions()">Close All Sessions</button>
+  <button class="btn small" onclick="startAllTrials()">Start All Trials</button>
+  <button class="btn small" onclick="stopAllTrials()">Stop All Trials</button>
+  <button class="btn small" onclick="startAllStreams()">Start All Streams</button>
+  <button class="btn small" onclick="stopAllStreams()">Stop All Streams</button>
+  <button class="btn small" onclick="startAllFans()">Start All Fans</button>
+  <button class="btn small" onclick="stopAllFans()">Stop All Fans</button>
+  <button class="btn small" onclick="startAllStrips()">Start All LEDs</button>
+  <button class="btn small" onclick="stopAllStrips()">Stop All LEDs</button>
+</div>
 
 <div id="toast"></div>
 
@@ -367,19 +362,24 @@
   // Per-cage state
   const cageState = {};
   for (let i = 1; i <= N_CAGES; i++) {
-    cageState[i] = { sessionId: null, subjectId: null, substageId: null };
+    cageState[i] = { sessionId: null, sessionNumber: null, subjectId: null, substageId: null };
   }
+
+  const FAN_MIN  = {{ fan_min_duty }};  // from config.py — adjust after testing
+  const FAN_STEP = 10;
 
   let allSubjects  = [];
   let streamActive = {};
-  const fanActive   = {};
+  const fanDuty    = {};  // cage_id → 0–100 (0 = off)
   const stripActive = {};
   const lastAdvTs  = {}; // cage_id → last seen advancement ts
+  const runStartedAt = {}; // cage_id → epoch seconds (null if not running)
 
   // ── Build grid ──────────────────────────────────────────
   const grid = document.getElementById('cage-grid');
   for (let i = 1; i <= N_CAGES; i++) {
     streamActive[i] = false;
+    fanDuty[i]      = 0;
     grid.innerHTML += `
       <div class="cage-card" id="card-${i}">
         <div class="cage-header">
@@ -389,7 +389,16 @@
             <span id="drops-${i}">0</span> q &nbsp;
             <span id="netdrops-${i}" style="color:var(--dead)">0</span> net
           </div>
-          <div class="status-dot" id="dot-${i}"></div>
+          <span class="periph-btn" style="margin-left:auto;gap:2px">
+            <span class="periph-dot" id="dot-fan-${i}"></span>
+            <button class="btn small" onclick="stepFan(${i}, -FAN_STEP)" style="padding:3px 6px">−</button>
+            <span id="fan-duty-${i}" style="font-size:0.65rem;min-width:2.4em;text-align:center;font-variant-numeric:tabular-nums">OFF</span>
+            <button class="btn small" onclick="stepFan(${i}, +FAN_STEP)" style="padding:3px 6px;filter:grayscale(1)">🌀+</button>
+          </span>
+          <span class="periph-btn">
+            <span class="periph-dot" id="dot-strip-${i}"></span>
+            <button class="btn small" onclick="toggleStrip(${i})" style="filter:grayscale(1)">💡</button>
+          </span>
         </div>
         <div class="cage-img-wrap" id="wrap-${i}">
           <span class="no-feed">no feed</span>
@@ -411,20 +420,13 @@
           <button class="btn small" id="btn-close-${i}" onclick="closeCageSession(${i})" disabled>Close</button>
         </div>
         <div id="session-status-${i}" class="session-status"></div>
+        <div id="run-status-${i}" class="run-status"></div>
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
+          <div class="status-dot" id="dot-${i}" style="align-self:stretch;width:8px;border-radius:4px"></div>
           <button class="btn small" id="btn-trial-${i}"  onclick="startTrial(${i})">Trial ▶</button>
-          <span style="display:flex;gap:4px;align-items:center;margin:0 auto">
-            <span class="periph-btn">
-              <span class="periph-dot" id="dot-fan-${i}"></span>
-              <button class="btn small" onclick="toggleFan(${i})" style="filter:grayscale(1)">🌀</button>
-            </span>
-            <span class="periph-btn">
-              <span class="periph-dot" id="dot-strip-${i}"></span>
-              <button class="btn small" onclick="toggleStrip(${i})" style="filter:grayscale(1)">💡</button>
-            </span>
-          </span>
-          <button class="btn small danger" onclick="stopTrial(${i})">Trial ■</button>
+          <span class="run-timer" id="run-timer-${i}"></span>
+          <button class="btn small" onclick="stopTrial(${i})">Trial ■</button>
         </div>
       </div>`;
   }
@@ -471,7 +473,7 @@
     const closeBtn = document.getElementById(`btn-close-${id}`);
 
     if (state.sessionId) {
-      statusEl.textContent = `session ${state.sessionId}`;
+      statusEl.textContent = `session ${state.sessionNumber ?? state.sessionId}`;
       statusEl.className   = 'session-status active';
       openBtn.disabled     = true;
       closeBtn.disabled    = false;
@@ -502,10 +504,11 @@
       researcher,
     });
     if (res.ok && res.data.ok) {
-      cageState[id].sessionId  = res.data.session_id;
-      cageState[id].substageId = res.data.substage_id;
+      cageState[id].sessionId     = res.data.session_id;
+      cageState[id].sessionNumber = res.data.session_number;
+      cageState[id].substageId    = res.data.substage_id;
       updateCageSessionUI(id);
-      toast(`Cage ${id}: session ${res.data.session_id} opened`);
+      toast(`Cage ${id}: session ${res.data.session_number} opened`);
     } else {
       toast(`Cage ${id}: ${res.data?.msg || 'failed to open session'}`);
     }
@@ -515,8 +518,9 @@
     const state = cageState[id];
     if (!state.sessionId) return;
     await post(`/session/${state.sessionId}/close`);
-    toast(`Cage ${id}: session ${state.sessionId} closed`);
-    cageState[id].sessionId = null;
+    toast(`Cage ${id}: session ${state.sessionNumber ?? state.sessionId} closed`);
+    cageState[id].sessionId     = null;
+    cageState[id].sessionNumber = null;
     updateCageSessionUI(id);
   }
 
@@ -526,15 +530,30 @@
     if (dot) dot.classList.toggle('on', on);
   }
 
-  async function toggleFan(id) {
-    const next = !fanActive[id];
-    const res  = await post(`/cage/${id}/fan`, { state: next });
+  function stepFan(id, delta) {
+    let duty = fanDuty[id] || 0;
+    if (delta > 0 && duty === 0) {
+      duty = FAN_MIN;           // first + press jumps to minimum run speed
+    } else {
+      duty = Math.max(0, Math.min(100, duty + delta));
+    }
+    setFanDuty(id, duty);
+  }
+
+  async function setFanDuty(id, duty) {
+    const res = await post(`/cage/${id}/fan`, { duty });
     if (res.ok && res.data.ok) {
-      fanActive[id] = next;
-      _setPeriphDot(id, 'fan', next);
+      fanDuty[id] = duty;
+      _updateFanUI(id, duty);
     } else {
       toast(`Cage ${id} fan: ${res.data?.msg || 'failed'}`);
     }
+  }
+
+  function _updateFanUI(id, duty) {
+    _setPeriphDot(id, 'fan', duty > 0);
+    const el = document.getElementById(`fan-duty-${id}`);
+    if (el) el.textContent = duty > 0 ? `${duty}%` : 'OFF';
   }
 
   async function toggleStrip(id) {
@@ -554,8 +573,14 @@
       const data = await res.json();
       for (const [key, val] of Object.entries(data)) {
         const id = parseInt(key);
-        if (val.fan   !== fanActive[id])   { fanActive[id]   = val.fan;   _setPeriphDot(id, 'fan',   val.fan);   }
-        if (val.strip !== stripActive[id]) { stripActive[id] = val.strip; _setPeriphDot(id, 'strip', val.strip); }
+        if (val.fan_duty !== fanDuty[id]) {
+          fanDuty[id] = val.fan_duty;
+          _updateFanUI(id, val.fan_duty);
+        }
+        if (val.strip !== stripActive[id]) {
+          stripActive[id] = val.strip;
+          _setPeriphDot(id, 'strip', val.strip);
+        }
       }
     } catch (_) {}
   }
@@ -665,6 +690,154 @@
     }
   }
 
+  // ── Run status + timer ───────────────────────────────────
+  function fmtElapsed(startedAt) {
+    if (!startedAt) return '';
+    const s = Math.max(0, Math.round(Date.now() / 1000 - startedAt));
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    if (h > 0) return `${h}h${m % 60}m`;
+    return `${m}m`;
+  }
+
+  async function pollRunStatus() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      try {
+        const res  = await fetch(`/cage/${i}/run/status`);
+        const data = await res.json();
+        const statusEl = document.getElementById(`run-status-${i}`);
+        const timerEl  = document.getElementById(`run-timer-${i}`);
+        if (data.running) {
+          runStartedAt[i] = data.started_at;
+          if (statusEl) {
+            statusEl.textContent = data.substage_label ? `▶ ${data.substage_label}` : '▶ running';
+            statusEl.className   = 'run-status active';
+          }
+          if (timerEl) {
+            timerEl.textContent = fmtElapsed(data.started_at);
+            timerEl.className   = 'run-timer active';
+          }
+        } else {
+          runStartedAt[i] = null;
+          if (statusEl) { statusEl.textContent = ''; statusEl.className = 'run-status'; }
+          if (timerEl)  { timerEl.textContent  = ''; timerEl.className  = 'run-timer'; }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // ── Global bar actions ───────────────────────────────────
+  async function openAllSessions() {
+    const researcher = document.getElementById('inp-researcher').value.trim();
+    for (let i = 1; i <= N_CAGES; i++) {
+      const state = cageState[i];
+      if (state.sessionId || !state.subjectId) continue;
+      const res = await post('/session/open', {
+        cage_id: i, subject_id: state.subjectId, researcher,
+      });
+      if (res.ok && res.data.ok) {
+        cageState[i].sessionId     = res.data.session_id;
+        cageState[i].sessionNumber = res.data.session_number;
+        cageState[i].substageId    = res.data.substage_id;
+        updateCageSessionUI(i);
+      } else {
+        toast(`Cage ${i}: ${res.data?.msg || 'failed to open session'}`);
+      }
+    }
+  }
+
+  async function closeAllSessions() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      if (!cageState[i].sessionId) continue;
+      await post(`/session/${cageState[i].sessionId}/close`);
+      cageState[i].sessionId     = null;
+      cageState[i].sessionNumber = null;
+      updateCageSessionUI(i);
+    }
+    toast('All sessions closed');
+  }
+
+  async function startAllTrials() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      const state = cageState[i];
+      if (!state.substageId || !state.sessionId) continue;
+      await post(`/cage/${i}/trial/run`, {
+        substage_id: state.substageId,
+        session_id:  state.sessionId,
+      });
+    }
+    toast('All trials started');
+  }
+
+  async function stopAllTrials() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      await post(`/cage/${i}/trial/run/stop`);
+    }
+    toast('All trials stopped');
+  }
+
+  async function startAllStreams() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      if (streamActive[i]) continue;
+      const res = await post(`/cage/${i}/stream/start`);
+      if (res.ok && res.data.ok) {
+        streamActive[i] = true;
+        startImageRefresh(i);
+        const btn = document.getElementById(`btn-stream-${i}`);
+        if (btn) btn.textContent = 'Stream ■';
+      }
+    }
+    toast('All streams started');
+  }
+
+  async function stopAllStreams() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      if (!streamActive[i]) continue;
+      await post(`/cage/${i}/stream/stop`);
+      streamActive[i] = false;
+      stopImageRefresh(i);
+      const btn = document.getElementById(`btn-stream-${i}`);
+      if (btn) btn.textContent = 'Stream ▶';
+    }
+    toast('All streams stopped');
+  }
+
+  async function startAllFans() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      if (fanDuty[i] > 0) continue;
+      const res = await post(`/cage/${i}/fan`, { duty: FAN_MIN });
+      if (res.ok && res.data.ok) { fanDuty[i] = FAN_MIN; _updateFanUI(i, FAN_MIN); }
+    }
+    toast(`All fans started at ${FAN_MIN}%`);
+  }
+
+  async function stopAllFans() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      if (fanDuty[i] === 0) continue;
+      const res = await post(`/cage/${i}/fan`, { duty: 0 });
+      if (res.ok && res.data.ok) { fanDuty[i] = 0; _updateFanUI(i, 0); }
+    }
+    toast('All fans stopped');
+  }
+
+  async function startAllStrips() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      if (stripActive[i]) continue;
+      const res = await post(`/cage/${i}/strip`, { state: true });
+      if (res.ok && res.data.ok) { stripActive[i] = true; _setPeriphDot(i, 'strip', true); }
+    }
+    toast('All LEDs started');
+  }
+
+  async function stopAllStrips() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      if (!stripActive[i]) continue;
+      const res = await post(`/cage/${i}/strip`, { state: false });
+      if (res.ok && res.data.ok) { stripActive[i] = false; _setPeriphDot(i, 'strip', false); }
+    }
+    toast('All LEDs stopped');
+  }
+
   // ── Status polling ───────────────────────────────────────
   async function pollStatus() {
     try {
@@ -724,64 +897,11 @@
   setInterval(pollStatus, 1000);
   setInterval(pollAdvancement, 2000);
   setInterval(pollPeripherals, 2000);
+  setInterval(pollRunStatus, 3000);
   pollStatus();
   pollAdvancement();
   pollPeripherals();
-
-  // ── Metrics polling ──────────────────────────────────────
-  async function pollMetrics() {
-    try {
-      const res  = await fetch('/metrics');
-      if (!res.ok) return;
-      const data = await res.json();
-
-      const byId = {};
-      data.forEach(m => { byId[m.cage_id] = m; });
-
-      const grid = document.getElementById('metrics-grid');
-      let html = '';
-      for (let i = 1; i <= N_CAGES; i++) {
-        const m = byId[i];
-        if (!m) {
-          html += `
-            <div class="metric-card">
-              <div class="metric-card-header">
-                <span class="metric-title">Cage ${i}</span>
-                <div class="metric-last-dot"></div>
-              </div>
-              <div class="metric-pct" style="color:var(--fg-faint)">—</div>
-              <div class="metric-row">no data</div>
-            </div>`;
-          continue;
-        }
-        const lastDot = m.last_outcome === 'correct' ? 'success' : m.last_outcome === 'wrong' ? 'fail' : '';
-        const avgSucc = m.avg_success_s !== null ? `${m.avg_success_s}s` : '—';
-        const avgFail = m.avg_fail_s    !== null ? `${m.avg_fail_s}s`    : '—';
-        html += `
-          <div class="metric-card">
-            <div class="metric-card-header">
-              <span class="metric-title">Cage ${i}</span>
-              <div class="metric-last-dot ${lastDot}"></div>
-            </div>
-            <div class="metric-pct">${m.success_pct}%</div>
-            <div class="metric-row">
-              <span><b>${m.successes}</b> correct</span>
-              <span><b>${m.failures}</b> wrong</span>
-              <span><b>${m.aborted_count}</b> aborted</span>
-              <span><b>${m.total}</b> total</span>
-            </div>
-            <div class="metric-row">
-              <span>avg ok <b>${avgSucc}</b></span>
-              <span>avg fail <b>${avgFail}</b></span>
-            </div>
-          </div>`;
-      }
-      grid.innerHTML = html;
-    } catch (_) {}
-  }
-
-  setInterval(pollMetrics, 5000);
-  pollMetrics();
+  pollRunStatus();
 
   // Refresh subject list every 10s to pick up advancement changes
   setInterval(loadSubjects, 10000);
