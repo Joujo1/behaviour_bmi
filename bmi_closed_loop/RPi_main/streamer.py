@@ -21,7 +21,7 @@ class UDPFrameOutput(Output):
         
         # print(f"frame size: {len(frame_bytes)} bytes ({len(frame_bytes)/1024:.1f} KB)")
 
-        if elapsed_time >= 1.0:
+        if elapsed_time >= 60.0:
             self.fps = self.frame_count / elapsed_time
             print(f"{self.fps:.2f} fps | {len(frame_bytes)/1024:.1f} KB")
 

@@ -70,8 +70,10 @@ CREATE TABLE IF NOT EXISTS subjects (
     water_restricted    BOOLEAN      NOT NULL DEFAULT FALSE,
     enrolled_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     current_substage_id INT          REFERENCES training_substages(id) ON DELETE SET NULL,
+    substage_entered_at TIMESTAMPTZ,                    -- when the current substage was last entered
     notes               TEXT
 );
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS substage_entered_at TIMESTAMPTZ;
 
 
 -- ---------------------------------------------------------------------------

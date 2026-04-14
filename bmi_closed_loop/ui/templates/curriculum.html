@@ -385,6 +385,12 @@
         <span class="bldr-label">Fail ITI (s)
           <input id="bldr-fail-iti" class="bldr-input" type="number" min="0" step="0.5" style="width:60px" placeholder="15" />
         </span>
+        <span class="bldr-label">Click Side
+          <select id="bldr-side-mode" class="bldr-input" onchange="updateJSONPreview()">
+            <option value="random">Random</option>
+            <option value="fixed">Fixed</option>
+          </select>
+        </span>
         <button class="btn small" onclick="addState()">+ State</button>
         <button class="btn accent small" onclick="saveTaskConfig()" style="margin-left:auto">Save trial definition</button>
       </div>
@@ -403,7 +409,7 @@
 
 <script>
   const ACTION_TYPES    = ['led_on','led_off','valve_open','valve_close','play_audio','play_birthday','play_clicks'];
-  const ALL_TARGETS     = ['left','right','center'];
+  const ALL_TARGETS     = ['left','right','center','high_click_side','low_click_side'];
   const TRIGGER_TYPES   = ['beam_break','timeout','clicks_done'];
   const TERMINAL_STATES = ['__correct__','__wrong__'];
 
@@ -757,6 +763,7 @@
     return {
       trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
       initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
+      side_mode:     document.getElementById('bldr-side-mode').value,
       states: bldrStates.map(s => {
         const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
         const mapActions = actions => actions.map(a => {
@@ -827,6 +834,7 @@
     document.getElementById('bldr-trial-id').value  = def.trial_id  || 'trial';
     document.getElementById('bldr-base-iti').value  = def.base_iti_s ?? '';
     document.getElementById('bldr-fail-iti').value  = def.fail_iti_s ?? '';
+    document.getElementById('bldr-side-mode').value = def.side_mode  || 'random';
     bldrStateCount = 1;
     bldrStates = (def.states || []).map(s => {
       const timeoutT = (s.transitions || []).find(t => t.trigger === 'timeout');

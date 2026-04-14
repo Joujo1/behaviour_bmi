@@ -29,13 +29,13 @@ def evaluate(subject_id: int, substage_id: int, conn) -> str:
     advance_criteria, fallback_criteria, advance_target, fallback_target = row
 
     if advance_criteria and advance_target:
-        if _meets(advance_criteria, subject_id, substage_id, conn):
+        if _meets(advance_criteria, subject_id, substage_id, conn, is_fallback=False):
             _log.info("Subject %d met advance criteria on substage %d → substage %d",
                       subject_id, substage_id, advance_target)
             return "advance"
 
     if fallback_criteria and fallback_target:
-        if _meets(fallback_criteria, subject_id, substage_id, conn):
+        if _meets(fallback_criteria, subject_id, substage_id, conn, is_fallback=True):
             _log.info("Subject %d met fallback criteria on substage %d → substage %d",
                       subject_id, substage_id, fallback_target)
             return "fallback"
@@ -68,7 +68,7 @@ def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE subjects SET current_substage_id = %s WHERE id = %s",
+            "UPDATE subjects SET current_substage_id = %s, substage_entered_at = NOW() WHERE id = %s",
             (new_substage_id, subject_id)
         )
 
@@ -77,35 +77,48 @@ def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
     return new_substage_id
 
 
-def _meets(criteria: dict, subject_id: int, substage_id: int, conn) -> bool:
+def _meets(criteria: dict, subject_id: int, substage_id: int, conn,
+           is_fallback: bool = False) -> bool:
     """Dispatch to the correct criteria check based on criteria['type']."""
     ctype = criteria.get("type")
     if ctype == "pct_correct":
-        return _pct_correct(criteria, subject_id, substage_id, conn)
+        return _pct_correct(criteria, subject_id, substage_id, conn, is_fallback)
     _log.warning("Unknown criteria type '%s' — treating as not met", ctype)
     return False
 
 
-def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn) -> bool:
+def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn,
+                 is_fallback: bool = False) -> bool:
     """
-    Returns True if the last `window` trials for this subject on this substage
-    have a correct rate >= threshold.
+    Advance: returns True when correct rate >= threshold over the last `window` trials.
+    Fallback: returns True when correct rate <  threshold over the last `window` trials.
+
+    The entry timestamp comes from subjects.substage_entered_at, which apply()
+    stamps on every advance/fallback.  This ensures that after a fallback the
+    window resets — old results from the previous visit to this substage are
+    excluded and cannot immediately re-trigger advancement.
     """
     window    = int(criteria.get("window",    20))
     threshold = float(criteria.get("threshold", 0.80))
 
+    # Only count trials completed since the subject last entered this substage.
+    # substage_entered_at is stamped by apply() on every advance/fallback.
+    # If NULL (subject was assigned manually before this column existed) there
+    # is no lower bound and all historical trials on this substage are counted.
     with conn.cursor() as cur:
         cur.execute("""
             SELECT outcome
             FROM trial_results
             WHERE substage_id = %s
-              AND session_id IN (
-                  SELECT id FROM sessions WHERE subject_id = %s
-              )
+              AND session_id IN (SELECT id FROM sessions WHERE subject_id = %s)
               AND outcome IN ('correct', 'wrong')
+              AND completed_at > COALESCE(
+                  (SELECT substage_entered_at FROM subjects WHERE id = %s),
+                  '-infinity'::timestamptz
+              )
             ORDER BY completed_at DESC
             LIMIT %s
-        """, (substage_id, subject_id, window))
+        """, (substage_id, subject_id, subject_id, window))
         rows = cur.fetchall()
 
     if len(rows) < window:
@@ -113,6 +126,10 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn) -> boo
 
     correct = sum(1 for r in rows if r[0] == "correct")
     pct = correct / len(rows)
-    _log.info("Subject %d substage %d: %.0f%% correct over last %d trials (threshold %.0f%%)",
-              subject_id, substage_id, pct * 100, len(rows), threshold * 100)
-    return pct >= threshold
+    _log.info(
+        "Subject %d substage %d: %.0f%% correct over last %d trials "
+        "(threshold %.0f%%, checking %s)",
+        subject_id, substage_id, pct * 100, len(rows), threshold * 100,
+        "pct < threshold (fallback)" if is_fallback else "pct >= threshold (advance)",
+    )
+    return pct < threshold if is_fallback else pct >= threshold

@@ -196,13 +196,13 @@ async function browseTo(rel) {
   const list = document.getElementById('browser-list');
   let html = '';
   if (data.parent !== null)
-    html += `<div class="browser-item up" onclick="browseTo(${JSON.stringify(data.parent)})"><span class="icon">↩</span><span class="name">.. (up)</span></div>`;
+    html += `<div class="browser-item up" onclick='browseTo(${JSON.stringify(data.parent)})'><span class="icon">↩</span><span class="name">.. (up)</span></div>`;
   for (const item of data.items) {
     if (item.type === 'dir') {
-      html += `<div class="browser-item" onclick="browseTo(${JSON.stringify(item.rel)})"><span class="icon">📁</span><span class="name">${item.name}</span></div>`;
+      html += `<div class="browser-item" onclick='browseTo(${JSON.stringify(item.rel)})'><span class="icon">📁</span><span class="name">${item.name}</span></div>`;
     } else {
       const mb = (item.size / 1048576).toFixed(1);
-      html += `<div class="browser-item bin-file" onclick="loadBin(${JSON.stringify(item.rel)})"><span class="icon">📄</span><span class="name">${item.name}</span><span class="meta">${mb} MB</span></div>`;
+      html += `<div class="browser-item bin-file" onclick='loadBin(${JSON.stringify(item.rel)})'><span class="icon">📄</span><span class="name">${item.name}</span><span class="meta">${mb} MB</span></div>`;
     }
   }
   if (!html) html = '<div style="padding:14px;font-size:0.78rem;color:#aaa">No recordings here.</div>';
@@ -418,6 +418,9 @@ function plotZoom(factor) {
 window.addEventListener('resize', () => {
   if (waveform) Plotly.relayout('waveform-plot', {autosize: true});
 });
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => browseTo(''));
 </script>
 </body>
 </html>

@@ -11,6 +11,7 @@ Completion events are delivered by the TCP reader thread via on_trial_complete()
 import copy
 import json
 import logging
+import random
 import threading
 import time
 
@@ -125,6 +126,62 @@ def get_run_status(cage_id: int) -> dict:
     }
 
 
+def _resolve_sides(trial_definition: dict) -> tuple:
+    """
+    Resolve click-side assignment for one trial.
+
+    side_mode values:
+      "random" (default) — coin flip each trial.
+          high_rate = max(left_rate, right_rate) goes to correct_side;
+          low_rate  = min(...)                   goes to the other side.
+          'high_click_side' / 'low_click_side' aliases in transitions and
+          actions are replaced with the concrete side string.
+      "fixed" — rates are used exactly as written (left_rate → left speaker,
+          right_rate → right speaker). No alias resolution. The trial
+          definition already has hardcoded left/right targets.
+
+    Returns (resolved_trial_dict, correct_side_str).
+    correct_side is None when side_mode is "fixed".
+    """
+    side_mode = trial_definition.get("side_mode", "random")
+
+    if side_mode != "random":
+        # Fixed mode: pass through unchanged, no coin flip needed.
+        return copy.deepcopy(trial_definition), None
+
+    correct_side = random.choice(["left", "right"])
+    wrong_side   = "right" if correct_side == "left" else "left"
+
+    trial = copy.deepcopy(trial_definition)
+
+    for state in trial.get("states", []):
+        for phase in ("entry_actions", "exit_actions"):
+            for action in state.get(phase, []):
+                if action.get("type") == "play_clicks":
+                    lr        = action.get("left_rate",  0) or 0
+                    rr        = action.get("right_rate", 0) or 0
+                    high_rate = max(lr, rr)
+                    low_rate  = min(lr, rr)
+                    action["left_rate"]  = high_rate if correct_side == "left" else low_rate
+                    action["right_rate"] = low_rate  if correct_side == "left" else high_rate
+                else:
+                    tgt = action.get("target")
+                    if tgt == "high_click_side":
+                        action["target"] = correct_side
+                    elif tgt == "low_click_side":
+                        action["target"] = wrong_side
+
+        for transition in state.get("transitions", []):
+            if transition.get("trigger") == "beam_break":
+                tgt = transition.get("target")
+                if tgt == "high_click_side":
+                    transition["target"] = correct_side
+                elif tgt == "low_click_side":
+                    transition["target"] = wrong_side
+
+    return trial, correct_side
+
+
 def _expand_clicks(trial_definition: dict) -> dict:
     """
     Deep-copy the trial definition and replace any play_clicks action that
@@ -172,7 +229,9 @@ def _run_loop(cage_id, trial_definition, sender, ev, base_iti_s, fail_iti_s):
         _log.info("Cage %d: trial %d — sending", cage_id, trial_count)
         ev.clear()
 
-        trial_to_send = _expand_clicks(trial_definition)
+        resolved, correct_side = _resolve_sides(trial_definition)
+        trial_to_send = _expand_clicks(resolved)
+        _log.info("Cage %d: trial %d — correct_side=%s", cage_id, trial_count, correct_side)
         ok, msg = sender.send(json.dumps(trial_to_send))
         if not ok:
             _log.error("Cage %d: failed to send trial: %s", cage_id, msg)
