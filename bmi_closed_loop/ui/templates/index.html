@@ -121,6 +121,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 6px;
     }
 
     .cage-title {
@@ -131,11 +132,12 @@
     }
 
     .status-dot {
-      width: 8px;
-      height: 8px;
+      width: 10px;
+      height: 10px;
       border-radius: 50%;
       background: var(--dead);
       flex-shrink: 0;
+      align-self: center;
     }
     .status-dot.alive    { background: var(--alive); }
     .status-dot.stopped  { background: var(--fg-faint); }
@@ -187,6 +189,8 @@
       gap: 8px;
       font-size: 0.68rem;
       color: var(--fg-faint);
+      flex: 1;
+      justify-content: center;
     }
     .cage-stats span { font-weight: 600; color: var(--fg); }
 
@@ -234,8 +238,9 @@
       display: flex; align-items: center; gap: 4px;
     }
     .periph-dot {
-      width: 6px; height: 6px; border-radius: 50%;
+      width: 8px; height: 8px; border-radius: 50%;
       background: var(--fg-faint); flex-shrink: 0;
+      align-self: center;
     }
     .periph-dot.on { background: var(--alive); }
 
@@ -389,15 +394,15 @@
             <span id="drops-${i}">0</span> q &nbsp;
             <span id="netdrops-${i}" style="color:var(--dead)">0</span> net
           </div>
-          <span class="periph-btn" style="margin-left:auto;gap:2px">
-            <span class="periph-dot" id="dot-fan-${i}"></span>
+          <span class="periph-btn" style="margin-left:auto;gap:6px">
             <button class="btn small" onclick="stepFan(${i}, -FAN_STEP)" style="padding:3px 6px">−</button>
             <span id="fan-duty-${i}" style="font-size:0.65rem;min-width:2.4em;text-align:center;font-variant-numeric:tabular-nums">OFF</span>
-            <button class="btn small" onclick="stepFan(${i}, +FAN_STEP)" style="padding:3px 6px;filter:grayscale(1)">🌀+</button>
+            <button class="btn small" onclick="stepFan(${i}, +FAN_STEP)" style="padding:3px 6px;filter:grayscale(1)">🌀</button>
+            <span class="periph-dot" id="dot-fan-${i}"></span>
           </span>
-          <span class="periph-btn">
-            <span class="periph-dot" id="dot-strip-${i}"></span>
+          <span class="periph-btn" style="gap:6px">
             <button class="btn small" onclick="toggleStrip(${i})" style="filter:grayscale(1)">💡</button>
+            <span class="periph-dot" id="dot-strip-${i}"></span>
           </span>
         </div>
         <div class="cage-img-wrap" id="wrap-${i}">
@@ -423,10 +428,10 @@
         <div id="run-status-${i}" class="run-status"></div>
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
-          <div class="status-dot" id="dot-${i}" style="align-self:stretch;width:8px;border-radius:4px"></div>
+          <div class="status-dot" id="dot-${i}"></div>
           <button class="btn small" id="btn-trial-${i}"  onclick="startTrial(${i})">Trial ▶</button>
           <span class="run-timer" id="run-timer-${i}"></span>
-          <button class="btn small" onclick="stopTrial(${i})">Trial ■</button>
+          <button class="btn small" onclick="stopTrial(${i})" style="margin-left:auto">Trial ■</button>
         </div>
       </div>`;
   }
