@@ -93,6 +93,44 @@
     .no-data {
       font-size: 0.74rem; color: var(--fg-faint); padding: 14px 0;
     }
+
+    /* Trial detail expand */
+    .expand-btn {
+      background: none; border: none; cursor: pointer; padding: 0 4px;
+      font-size: 0.8rem; color: var(--fg-faint); line-height: 1;
+      transition: color 0.1s;
+    }
+    .expand-btn:hover { color: var(--fg); }
+    .session-row { cursor: pointer; }
+    .session-row:hover td { background: var(--bg-faint); }
+
+    .trial-detail-row td {
+      padding: 0; border-bottom: 2px solid var(--fg);
+    }
+    .trial-detail-wrap {
+      padding: 12px 20px 16px;
+      background: #fafafa;
+    }
+    .outcome-strip {
+      display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 10px;
+    }
+    .outcome-pip {
+      width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+    }
+    .outcome-pip.correct  { background: var(--alive); }
+    .outcome-pip.wrong    { background: var(--dead); }
+    .outcome-pip.aborted  { background: #ccc; }
+
+    .trial-detail-wrap table { font-size: 0.72rem; }
+    .trial-detail-wrap thead th { font-size: 0.6rem; padding: 4px 8px; }
+    .trial-detail-wrap tbody td { padding: 4px 8px; }
+
+    .outcome-correct { color: var(--alive); font-weight: 700; }
+    .outcome-wrong   { color: var(--dead);  font-weight: 700; }
+    .outcome-aborted { color: var(--fg-faint); }
+
+    .rolling-pct { font-size: 0.68rem; color: var(--fg-faint); margin-bottom: 8px; }
+    .rolling-pct b { color: var(--fg); }
   </style>
 </head>
 <body>
@@ -170,6 +208,7 @@
     <table>
       <thead>
         <tr>
+          <th></th>
           <th>Session #</th><th>Subject</th><th>Cage</th><th>Date</th>
           <th>Duration</th><th>Stage</th><th>Substage</th>
           <th>Trials</th><th>Correct</th><th>Wrong</th><th>Aborted</th>
@@ -177,7 +216,7 @@
         </tr>
       </thead>
       <tbody id="sessions-tbody">
-        <tr><td colspan="15" class="no-data">Use filters above and click Search.</td></tr>
+        <tr><td colspan="16" class="no-data">Use filters above and click Search.</td></tr>
       </tbody>
     </table>
   </div>
@@ -386,11 +425,12 @@
       const data = await res.json();
       const tbody = document.getElementById('sessions-tbody');
       if (!data.length) {
-        tbody.innerHTML = '<tr><td colspan="15" class="no-data">No sessions found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="16" class="no-data">No sessions found.</td></tr>';
         return;
       }
       tbody.innerHTML = data.map(d => `
-        <tr>
+        <tr class="session-row" onclick="toggleSessionTrials(${d.id}, this)">
+          <td><button class="expand-btn" title="Show trials">▶</button></td>
           <td>${d.session_number !== null ? d.session_number : '—'}</td>
           <td>${d.subject_code || '—'}</td>
           <td>${d.cage_id || '—'}</td>
@@ -407,8 +447,100 @@
           <td>${d.weight_g !== null && d.weight_g !== undefined ? d.weight_g : '—'}</td>
           <td>${d.water_ml !== null && d.water_ml !== undefined ? d.water_ml : '—'}</td>
         </tr>
+        <tr class="trial-detail-row" id="detail-row-${d.id}" style="display:none">
+          <td colspan="16">
+            <div class="trial-detail-wrap" id="detail-wrap-${d.id}">
+              <span style="font-size:0.72rem;color:var(--fg-faint)">Loading…</span>
+            </div>
+          </td>
+        </tr>
       `).join('');
     } catch (e) { console.error(e); }
+  }
+
+  async function toggleSessionTrials(sessionId, sessionRow) {
+    const detailRow  = document.getElementById(`detail-row-${sessionId}`);
+    const detailWrap = document.getElementById(`detail-wrap-${sessionId}`);
+    const btn = sessionRow.querySelector('.expand-btn');
+
+    const isOpen = detailRow.style.display !== 'none';
+    if (isOpen) {
+      detailRow.style.display = 'none';
+      btn.textContent = '▶';
+      return;
+    }
+
+    detailRow.style.display = '';
+    btn.textContent = '▼';
+
+    // Only fetch if not already loaded
+    if (detailWrap.dataset.loaded) return;
+    detailWrap.dataset.loaded = '1';
+
+    try {
+      const res  = await fetch(`/metrics/trials?session_id=${sessionId}`);
+      const data = await res.json();
+
+      if (!data.length) {
+        detailWrap.innerHTML = '<span style="font-size:0.72rem;color:var(--fg-faint)">No trials recorded for this session.</span>';
+        return;
+      }
+
+      // Outcome strip
+      const strip = data.map(t => `<div class="outcome-pip ${t.outcome}" title="#${t.trial_num} ${t.outcome}"></div>`).join('');
+
+      // Rolling 20-trial accuracy
+      const decided = data.filter(t => t.outcome === 'correct' || t.outcome === 'wrong');
+      const last20  = decided.slice(-20);
+      const rollingPct = last20.length > 0
+        ? Math.round(100 * last20.filter(t => t.outcome === 'correct').length / last20.length)
+        : null;
+      const totalDecided = decided.length;
+      const totalCorrect = decided.filter(t => t.outcome === 'correct').length;
+      const overallPct   = totalDecided > 0 ? Math.round(100 * totalCorrect / totalDecided) : null;
+
+      const statsLine = `
+        <div class="rolling-pct">
+          ${data.length} trials &nbsp;·&nbsp;
+          Overall: <b>${overallPct !== null ? overallPct + '%' : '—'}</b>
+          &nbsp;·&nbsp; Last 20: <b>${rollingPct !== null ? rollingPct + '%' : '—'}</b>
+        </div>`;
+
+      // Group by substage for the table header
+      let lastSubstage = null;
+      const rows = data.map(t => {
+        let subHeader = '';
+        if (t.substage_label !== lastSubstage) {
+          lastSubstage = t.substage_label;
+          subHeader = `<tr style="background:var(--bg-faint)">
+            <td colspan="4" style="padding:4px 8px;font-size:0.62rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--fg-faint)">
+              ↳ Substage: ${t.substage_label || '—'}
+            </td></tr>`;
+        }
+        const outcomeTag = t.outcome === 'correct'
+          ? `<span class="outcome-correct">✓ correct</span>`
+          : t.outcome === 'wrong'
+          ? `<span class="outcome-wrong">✗ wrong</span>`
+          : `<span class="outcome-aborted">— ${t.outcome}</span>`;
+        const time = t.completed_at ? t.completed_at.slice(11, 19) : '—';
+        const dur  = t.duration_s !== null ? t.duration_s + 's' : '—';
+        return subHeader + `<tr>
+          <td style="color:var(--fg-faint)">#${t.trial_num}</td>
+          <td>${outcomeTag}</td>
+          <td>${time}</td>
+          <td>${dur}</td>
+        </tr>`;
+      }).join('');
+
+      detailWrap.innerHTML = statsLine + `
+        <div class="outcome-strip">${strip}</div>
+        <table>
+          <thead><tr><th>#</th><th>Outcome</th><th>Time</th><th>Duration</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    } catch (e) {
+      detailWrap.innerHTML = '<span style="font-size:0.72rem;color:var(--dead)">Failed to load trials.</span>';
+    }
   }
 
   // ── Substage Dwell ────────────────────────────────────────

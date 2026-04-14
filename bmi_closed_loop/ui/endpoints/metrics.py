@@ -305,6 +305,49 @@ def session_log():
     return jsonify(result)
 
 
+@metrics_bp.get("/metrics/trials")
+def session_trials():
+    """
+    Individual trial results for one session, in order.
+    ?session_id=X  (required)
+    """
+    session_id = request.args.get("session_id", type=int)
+    if not session_id:
+        return jsonify([])
+
+    conn = _get_db()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    ROW_NUMBER() OVER (ORDER BY tr.completed_at) AS trial_num,
+                    tr.outcome,
+                    tr.completed_at,
+                    ts.label AS substage_label,
+                    CASE WHEN jsonb_array_length(tr.events) > 0
+                         THEN (tr.events -> -1 ->> 't')::float
+                    END AS duration_s
+                FROM trial_results tr
+                LEFT JOIN training_substages ts ON ts.id = tr.substage_id
+                WHERE tr.session_id = %(session_id)s
+                ORDER BY tr.completed_at
+            """, {"session_id": session_id})
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        if d["completed_at"]:
+            d["completed_at"] = d["completed_at"].isoformat()
+        if d["duration_s"] is not None:
+            d["duration_s"] = round(float(d["duration_s"]), 2)
+        result.append(d)
+
+    return jsonify(result)
+
+
 @metrics_bp.get("/metrics/dwell")
 def substage_dwell():
     """

@@ -112,16 +112,6 @@ def set_fan(state: bool) -> None:
 def set_fan_pwm(duty: float, freq: float = FAN_PWM_FREQ) -> None:
     """
     Control fan speed via PWM on the SSR gate signal.
-
-    duty : 0.0 – 100.0  (percent of full speed).
-             0   → fan off (falls back to set_fan(False)).
-             100 → fan fully on (falls back to set_fan(True)).
-    freq : PWM frequency in Hz (default 25 Hz).
-           Check your SSR datasheet — most DC SSRs handle up to a few kHz;
-           AC zero-crossing SSRs are limited to ~100 Hz.
-
-    If the relay turns out to be mechanical, call set_fan() instead and do
-    not use this function — rapid switching will destroy the relay contacts.
     """
     global _fan_pwm, _fan_pwm_duty
     duty = max(0.0, min(100.0, float(duty)))
