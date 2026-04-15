@@ -3,6 +3,7 @@ import config
 import valkey as valkey_client
 from command.tcp_command_sender import TCPCommandSender
 from flask import Flask, render_template
+from ui.cage_runner import CageRunner, runners
 from ui.endpoints.builder import builder_bp
 from ui.endpoints.control import control_bp
 from ui.endpoints.dev import dev_bp
@@ -11,7 +12,8 @@ from ui.endpoints.subjects import subjects_bp
 from ui.endpoints.curriculum import curriculum_bp
 from ui.endpoints.stream import stream_bp
 from ui.endpoints.metrics import metrics_bp
-from ui.endpoints.trial import trial_bp, handle_trial_event
+from ui.endpoints.trial import trial_bp
+from ui.event_handler import handle_trial_event
 
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -33,6 +35,10 @@ app.config["COMMAND_SENDERS"] = {
     )
     for cage_id in range(1, config.N_CAGES + 1)
 }
+
+# One CageRunner per cage — permanent, episodic run threads start/stop inside.
+for _cage_id in range(1, config.N_CAGES + 1):
+    runners[_cage_id] = CageRunner(_cage_id)
 
 app.register_blueprint(metrics_bp)
 app.register_blueprint(builder_bp)

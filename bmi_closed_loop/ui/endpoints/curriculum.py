@@ -285,3 +285,32 @@ def update_substage(substage_id: int):
         conn.close()
 
     return jsonify({"ok": True})
+
+
+@curriculum_bp.delete("/training-substages/<int:substage_id>")
+def delete_substage(substage_id: int):
+    """Permanently delete a substage. Fails if any trial_results reference it."""
+    conn = _get_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM trial_results WHERE substage_id = %s",
+                    (substage_id,),
+                )
+                if cur.fetchone()[0] > 0:
+                    return jsonify({
+                        "ok": False,
+                        "msg": "Cannot delete: substage has trial results. Retire it instead.",
+                    }), 409
+                cur.execute(
+                    "DELETE FROM training_substages WHERE id = %s RETURNING id",
+                    (substage_id,),
+                )
+                if cur.fetchone() is None:
+                    abort(404)
+    finally:
+        conn.close()
+
+    _log.info("Deleted substage id=%d", substage_id)
+    return jsonify({"ok": True})

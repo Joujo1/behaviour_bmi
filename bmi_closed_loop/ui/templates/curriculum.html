@@ -121,6 +121,12 @@
       font-size: 0.65rem; color: var(--fg-faint);
       min-width: 18px;
     }
+    .substage-del-btn {
+      margin-left: auto; background: none; border: none; cursor: pointer;
+      color: transparent; font-size: 0.7rem; line-height: 1; padding: 0 2px;
+      transition: color 0.1s;
+    }
+    .substage-item:hover .substage-del-btn { color: var(--dead); }
 
     /* ── Main editor panel ── */
     #editor {
@@ -468,6 +474,8 @@
                onclick="selectSubstage(${sub.id})">
             <span class="substage-num">${sub.substage_number}</span>
             <span>${sub.label}</span>
+            <button class="substage-del-btn" title="Delete substage"
+                    onclick="deleteSubstage(event, ${sub.id}, '${sub.label.replace(/'/g, "\\'")}')">✕</button>
           </div>`).join('')}
       </div>`).join('');
   }
@@ -528,6 +536,27 @@
         toast(`Substage "${label}" created`);
         await loadTree();
         selectSubstage(data.id);
+      } else {
+        toast(`Failed: ${data.msg}`);
+      }
+    } catch (e) { toast(`Error: ${e.message}`); }
+  }
+
+  // ── Delete substage ───────────────────────────────────────
+  async function deleteSubstage(event, substageId, label) {
+    event.stopPropagation();
+    if (!confirm(`Delete substage "${label}"?\n\nThis cannot be undone.`)) return;
+    try {
+      const res  = await fetch(`/training-substages/${substageId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        toast(`Substage "${label}" deleted`);
+        if (currentSubstageId === substageId) {
+          currentSubstageId = null;
+          document.getElementById('editor-empty').style.display = '';
+          document.getElementById('editor-panel').style.display = 'none';
+        }
+        await loadTree();
       } else {
         toast(`Failed: ${data.msg}`);
       }
