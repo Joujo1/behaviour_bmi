@@ -23,8 +23,7 @@ def metrics_page():
     return render_template("metrics.html")
 
 
-# ── Cage-level operational metrics (used by main dashboard) ──────────────────
-
+# Legacy
 @metrics_bp.get("/metrics")
 def cage_metrics():
     """Per-cage trial metrics aggregated from trial_results."""
@@ -70,7 +69,7 @@ def cage_metrics():
     return jsonify(result)
 
 
-# ── Animal-level metrics ──────────────────────────────────────────────────────
+
 
 @metrics_bp.get("/metrics/animals")
 def animal_metrics():
