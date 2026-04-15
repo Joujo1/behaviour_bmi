@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}BMI Closed Loop{% endblock %}</title>
+  <style>
+    :root {
+      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
+      --bg:       #ffffff;
+      --bg-faint: #f0f0f0;
+      --fg:       #000000;
+      --fg-faint: #888888;
+      --accent:   #ffd000;
+      --alive:    rgb(64, 202, 114);
+      --dead:     rgb(205, 20, 20);
+      --border:   #e0e0e0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 24px;
+      border-bottom: 2px solid var(--fg);
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-right: 8px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 6px 14px;
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1.5px solid var(--fg);
+      background: var(--bg);
+      color: var(--fg);
+      text-decoration: none;
+      display: inline-block;
+      transition: background 0.1s, color 0.1s;
+    }
+    .btn:hover { background: var(--fg); color: var(--bg); }
+    .btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+    .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--fg); }
+    .btn.accent:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+    .btn.small { padding: 4px 8px; font-size: 0.72rem; }
+    .btn.danger { border-color: var(--dead); color: var(--dead); }
+    .btn.danger:hover { background: var(--dead); color: var(--bg); border-color: var(--dead); }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--fg);
+      color: var(--bg);
+      padding: 10px 18px;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+
+<header>
+  <h1>{% block header_title %}BMI Closed Loop{% endblock %}</h1>
+  {% block header_content %}{% endblock %}
+  <a href="/" class="btn small" style="margin-left:auto">Dashboard</a>
+  <a href="/curriculum" class="btn small">Curriculum ↗</a>
+  <a href="/subjects-page" class="btn small">Subjects ↗</a>
+  <a href="/metrics-page" class="btn small">Metrics ↗</a>
+</header>
+
+{% block content %}{% endblock %}
+
+<div id="toast"></div>
+
+<script>
+  // ── Shared helpers ─────────────────────────────────────────
+  async function post(url, body = null) {
+    try {
+      const opts = { method: 'POST' };
+      if (body) {
+        opts.headers = { 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(body);
+      }
+      const res = await fetch(url, opts);
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, data };
+    } catch (e) {
+      return { ok: false, data: { msg: e.message } };
+    }
+  }
+
+  let _toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  }
+</script>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

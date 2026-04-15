@@ -1,104 +1,58 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Subjects — BMI</title>
-  <style>
-    :root {
-      font-family: Futura, Inter, system-ui, Helvetica, Arial, sans-serif;
-      --bg:       #ffffff;
-      --bg-faint: #f0f0f0;
-      --fg:       #000000;
-      --fg-faint: #888888;
-      --accent:   #ffd000;
-      --alive:    rgb(64, 202, 114);
-      --dead:     rgb(205, 20, 20);
-      --border:   #e0e0e0;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--fg); min-height: 100vh; }
+{% extends "base.html" %}
 
-    header {
-      display: flex; align-items: center; gap: 16px;
-      padding: 14px 24px; border-bottom: 2px solid var(--fg);
-    }
-    header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-    header a  { margin-left: auto; }
+{% block title %}Subjects — BMI{% endblock %}
 
-    .btn {
-      padding: 6px 14px; font-family: inherit; font-size: 0.8rem;
-      font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
-      cursor: pointer; border: 1.5px solid var(--fg);
-      background: var(--bg); color: var(--fg); text-decoration: none;
-      transition: background 0.1s, color 0.1s;
-    }
-    .btn:hover { background: var(--fg); color: var(--bg); }
-    .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--fg); }
-    .btn.accent:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
-    .btn.small { padding: 4px 8px; font-size: 0.72rem; }
+{% block head_extra %}
+<style>
+  main { padding: 24px; max-width: 1000px; }
 
-    main { padding: 24px; max-width: 1000px; }
+  /* ── Create form ── */
+  #create-form {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    align-items: flex-end; margin-bottom: 28px;
+    padding-bottom: 20px; border-bottom: 1px solid var(--border);
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-faint); }
+  .field input, .field select {
+    border: 1px solid var(--border); background: var(--bg-faint);
+    padding: 5px 8px; font-family: inherit; font-size: 0.82rem;
+    outline: none; color: var(--fg);
+  }
+  .field input:focus, .field select:focus { border-color: var(--fg); }
 
-    /* ── Create form ── */
-    #create-form {
-      display: flex; gap: 10px; flex-wrap: wrap;
-      align-items: flex-end; margin-bottom: 28px;
-      padding-bottom: 20px; border-bottom: 1px solid var(--border);
-    }
-    .field { display: flex; flex-direction: column; gap: 4px; }
-    .field label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-faint); }
-    .field input, .field select {
-      border: 1px solid var(--border); background: var(--bg-faint);
-      padding: 5px 8px; font-family: inherit; font-size: 0.82rem;
-      outline: none; color: var(--fg);
-    }
-    .field input:focus, .field select:focus { border-color: var(--fg); }
+  /* ── Table ── */
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  thead tr { border-bottom: 2px solid var(--fg); }
+  th { text-align: left; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 10px; color: var(--fg-faint); }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:hover td { background: var(--bg-faint); }
 
-    /* ── Table ── */
-    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    thead tr { border-bottom: 2px solid var(--fg); }
-    th { text-align: left; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 10px; color: var(--fg-faint); }
-    td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    tr:hover td { background: var(--bg-faint); }
+  .badge {
+    display: inline-block; padding: 2px 7px;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; border: 1px solid var(--border);
+  }
+  .badge.water { border-color: #6ab4ff; color: #6ab4ff; }
 
-    .badge {
-      display: inline-block; padding: 2px 7px;
-      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
-      text-transform: uppercase; border: 1px solid var(--border);
-    }
-    .badge.water { border-color: #6ab4ff; color: #6ab4ff; }
+  /* ── Substage override modal ── */
+  #modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.35); align-items: center; justify-content: center;
+  }
+  #modal-overlay.open { display: flex; }
+  #modal {
+    background: var(--bg); border: 2px solid var(--fg);
+    padding: 24px; min-width: 320px; display: flex; flex-direction: column; gap: 14px;
+  }
+  #modal h2 { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  #modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+{% endblock %}
 
-    /* ── Substage override modal ── */
-    #modal-overlay {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.35); align-items: center; justify-content: center;
-    }
-    #modal-overlay.open { display: flex; }
-    #modal {
-      background: var(--bg); border: 2px solid var(--fg);
-      padding: 24px; min-width: 320px; display: flex; flex-direction: column; gap: 14px;
-    }
-    #modal h2 { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-    #modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+{% block header_title %}Subjects{% endblock %}
 
-    #toast {
-      position: fixed; bottom: 24px; right: 24px;
-      background: var(--fg); color: var(--bg);
-      padding: 10px 18px; font-size: 0.8rem; letter-spacing: 0.04em;
-      opacity: 0; pointer-events: none; transition: opacity 0.2s;
-    }
-    #toast.show { opacity: 1; }
-  </style>
-</head>
-<body>
-
-<header>
-  <h1>Subjects</h1>
-  <a href="/" class="btn small">← Dashboard</a>
-  <a href="/curriculum" class="btn small">Curriculum ↗</a>
-</header>
-
+{% block content %}
 <main>
 
   <!-- Create subject -->
@@ -184,9 +138,9 @@
     </div>
   </div>
 </div>
+{% endblock %}
 
-<div id="toast"></div>
-
+{% block scripts %}
 <script>
   let allStages  = [];   // [{id, name, substages:[{id,label},...]}]
   let subjectIdForModal = null;
@@ -323,17 +277,6 @@
     }
   }
 
-  // ── Toast ─────────────────────────────────────────────────
-  let toastTimer;
-  function toast(msg) {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
-  }
-
   init();
 </script>
-</body>
-</html>
+{% endblock %}
