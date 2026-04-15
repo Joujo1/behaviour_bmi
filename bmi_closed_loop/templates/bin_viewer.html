@@ -31,8 +31,9 @@
     .btn.open:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
     .btn.active { background: var(--fg); color: var(--bg); }
 
-    /* ── Layout ── */
-    #app { display: flex; flex: 1; overflow: hidden; }
+    /* ── Main layout ── */
+    #app     { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+    #top-row { display: flex; flex-direction: row; flex: 1; overflow: hidden; }
 
     /* ── File browser overlay ── */
     #browser-overlay {
@@ -82,17 +83,47 @@
     .gpio-dot.valve   { background: var(--signal-valve); }
     .gpio-dot.beam-on { background: var(--signal-beam); }
 
-    /* Trial timeline */
-    #tl-list { display: flex; flex-direction: column; }
-    .tl-trial { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 4px 2px; border-top: 1.5px solid var(--fg); margin-top: 4px; cursor: pointer; }
-    .tl-trial:first-child { border-top: none; margin-top: 0; }
-    .tl-state { font-size: 0.72rem; padding: 3px 4px 3px 10px; cursor: pointer; border-left: 2.5px solid var(--border); margin-left: 6px; display: flex; justify-content: space-between; }
-    .tl-state:hover   { background: #f5f5f5; }
-    .tl-state.active  { border-left-color: var(--fg); font-weight: 700; }
-    .tl-state.correct { border-left-color: var(--correct); }
-    .tl-state.wrong   { border-left-color: var(--wrong); }
-    .tl-dur { font-size: 0.62rem; color: var(--faint); flex-shrink: 0; }
-    .tl-iti { font-size: 0.62rem; color: var(--faint); padding: 2px 4px 2px 10px; font-style: italic; }
+    /* ── Bottom panel: Gantt trial timeline ── */
+    #bottom-panel {
+      height: 120px; flex-shrink: 0;
+      border-top: 2px solid var(--fg);
+      overflow-x: auto; overflow-y: hidden;
+      display: none;
+    }
+    #trial-gantt {
+      display: flex; flex-direction: row; align-items: stretch;
+      gap: 6px; padding: 6px 8px; height: 100%;
+    }
+    .gantt-trial {
+      flex-shrink: 0; display: flex; flex-direction: column;
+      border: 1.5px solid var(--border); border-radius: 2px; overflow: hidden;
+      min-width: 50px;
+    }
+    .gantt-trial-header {
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 3px 5px; background: #f0f0f0; cursor: pointer; white-space: nowrap;
+      border-bottom: 2px solid var(--border); flex-shrink: 0;
+    }
+    .gantt-trial-header:hover { background: var(--fg); color: var(--bg); }
+    .gantt-trial-header.correct { border-bottom-color: var(--correct); }
+    .gantt-trial-header.wrong   { border-bottom-color: var(--wrong); }
+    .gantt-trial.zoomed > .gantt-trial-header { background: var(--accent); }
+    .gantt-states {
+      display: flex; flex-direction: row; flex: 1; overflow: hidden;
+    }
+    .gantt-seg {
+      flex-shrink: 0; display: flex; align-items: center;
+      overflow: hidden; padding: 0 3px;
+      font-size: 0.5rem; cursor: pointer;
+      border-right: 1px solid rgba(0,0,0,0.08);
+      white-space: nowrap; text-overflow: ellipsis;
+      background: #ebebeb; color: #555;
+      min-width: 4px;
+    }
+    .gantt-seg:hover { filter: brightness(0.88); }
+    .gantt-seg.correct { background: #d0f0e0; color: #1a6b3a; }
+    .gantt-seg.wrong   { background: #fad4d4; color: #8a0e0e; }
+    .gantt-seg.active  { outline: 2px solid var(--fg); outline-offset: -2px; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -117,61 +148,69 @@
     </div>
   </div>
 
-  <div id="waveform-wrap">
-    <div id="waveform-empty">
-      <h2>No file loaded</h2>
-      <p>Click <strong>Open File</strong> to browse recordings.</p>
-    </div>
-    <div id="waveform-plot"></div>
-  </div>
+  <div id="top-row">
 
-  <div id="sidebar">
-    <div id="frame-preview">
-      <img id="prev-img" src="" alt="" style="display:none"/>
+    <div id="waveform-wrap">
+      <div id="waveform-empty">
+        <h2>No file loaded</h2>
+        <p>Click <strong>Open File</strong> to browse recordings.</p>
+      </div>
+      <div id="waveform-plot"></div>
     </div>
-    <div id="frame-info">
-      <div class="info-section">
-        <div class="info-title">State</div>
-        <div class="info-val" id="si-state">—</div>
-        <div class="info-sub" id="si-ts">—</div>
+
+    <div id="sidebar">
+      <div id="frame-preview">
+        <img id="prev-img" src="" alt="" style="display:none"/>
       </div>
-      <div class="info-section" id="stats-section" style="display:none">
-        <div class="info-title">Session</div>
-        <div class="info-val" id="stats-trials">—</div>
-        <div class="info-sub" id="stats-outcomes">—</div>
-        <div class="info-sub" id="stats-pct">—</div>
-      </div>
-      <div class="info-section">
-        <div class="info-title">GPIO</div>
-        <div id="gpio-grid">
-          <div class="gpio-item"><div class="gpio-dot" id="g-led-center"></div>LED C</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-led-left"></div>LED L</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-led-right"></div>LED R</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-valve-left"></div>Valve L</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-valve-right"></div>Valve R</div>
-          <div class="gpio-item"></div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-beam-left"></div>Beam L</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-beam-right"></div>Beam R</div>
-          <div class="gpio-item"><div class="gpio-dot" id="g-beam-center"></div>Beam C</div>
+      <div id="frame-info">
+        <div class="info-section">
+          <div class="info-title">State</div>
+          <div class="info-val" id="si-state">—</div>
+          <div class="info-sub" id="si-ts">—</div>
+        </div>
+        <div class="info-section" id="stats-section" style="display:none">
+          <div class="info-title">Session</div>
+          <div class="info-val" id="stats-trials">—</div>
+          <div class="info-sub" id="stats-outcomes">—</div>
+          <div class="info-sub" id="stats-pct">—</div>
+        </div>
+        <div class="info-section">
+          <div class="info-title">GPIO</div>
+          <div id="gpio-grid">
+            <div class="gpio-item"><div class="gpio-dot" id="g-led-center"></div>LED C</div>
+            <div class="gpio-item"><div class="gpio-dot" id="g-led-left"></div>LED L</div>
+            <div class="gpio-item"><div class="gpio-dot" id="g-led-right"></div>LED R</div>
+            <div class="gpio-item"><div class="gpio-dot" id="g-valve-left"></div>Valve L</div>
+            <div class="gpio-item"><div class="gpio-dot" id="g-valve-right"></div>Valve R</div>
+            <div class="gpio-item"></div>
+            <div class="gpio-item"><div class="gpio-dot" id="g-beam-left"></div>Beam L</div>
+            <div class="gpio-item"><div class="gpio-dot" id="g-beam-right"></div>Beam R</div>
+            <div class="gpio-item"><div class="gpio-dot" id="g-beam-center"></div>Beam C</div>
+          </div>
         </div>
       </div>
-      <div class="info-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
-        <div class="info-title">Trial Timeline</div>
-        <div id="tl-list" style="overflow-y:auto;flex:1"></div>
-      </div>
     </div>
+
+  </div><!-- #top-row -->
+
+  <div id="bottom-panel">
+    <div id="trial-gantt"></div>
   </div>
 
-</div>
+</div><!-- #app -->
 
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
-let waveform    = null;
-let timeline    = [];
-let frameCount  = 0;
-let currentBin  = null;
-let cursorFrame = 0;
-let playTimer   = null;
+let waveform       = null;
+let timeline       = [];
+let frameCount     = 0;
+let currentBin     = null;
+let cursorFrame    = 0;
+let playTimer      = null;
+let trialRanges    = [];   // [{t0_s, t1_s, frame0, frame1}] indexed by trial order
+let zoomedTrialIdx = -1;
+
+const PX_PER_SEC = 120;
 
 const GPIO_MAP = [
   ['led-center',  'led_center',  false],
@@ -233,6 +272,7 @@ async function loadBin(rel) {
 
     frameCount = waveform.t_us.length;
     currentBin = rel;
+    zoomedTrialIdx = -1;
 
     document.getElementById('hdr-path').textContent = rel;
     document.getElementById('browser-close-btn').style.display = '';
@@ -255,9 +295,10 @@ async function loadBin(rel) {
       if (data.points.length) goToFrame(frameAtTime(data.points[0].x));
     });
 
-    buildTimelineHtml();
+    buildBottomPanel();
     showStats(stats);
     document.getElementById('btn-play').disabled = false;
+    document.getElementById('bottom-panel').style.display = '';
     goToFrame(0);
 
   } catch(e) {
@@ -315,7 +356,7 @@ async function goToFrame(n) {
     img.style.display = '';
   }
 
-  highlightTimeline(n);
+  highlightActiveState(n);
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────
@@ -350,32 +391,92 @@ function showStats(stats) {
     ? `${stats.success_pct}% success rate` : 'no decided trials';
 }
 
-// ── Timeline HTML ─────────────────────────────────────────────────────────────
-function buildTimelineHtml() {
-  const tl = document.getElementById('tl-list');
+// ── Gantt bottom panel ────────────────────────────────────────────────────────
+function buildBottomPanel() {
+  const gantt = document.getElementById('trial-gantt');
+  trialRanges = [];
   let html = '';
-  for (const e of timeline) {
-    if (e.type === 'trial_header') {
-      html += `<div class="tl-trial" onclick="goToFrame(${e.frame})">Trial ${e.trial_num}</div>`;
-    } else if (e.type === 'state') {
-      const cls = e.state === '__correct__' ? ' correct' : e.state === '__wrong__' ? ' wrong' : '';
-      const dur = e.duration !== null ? `${e.duration}s` : '—';
-      html += `<div class="tl-state${cls}" data-frame="${e.frame}" onclick="goToFrame(${e.frame})">
-        <span>${e.state}</span><span class="tl-dur">${dur}</span></div>`;
-    } else if (e.type === 'iti') {
-      html += `<div class="tl-iti">— ITI ${e.duration_s}s —</div>`;
+
+  let i = 0;
+  while (i < timeline.length) {
+    if (timeline[i].type !== 'trial_header') { i++; continue; }
+
+    const th = timeline[i];
+    i++;
+
+    // Collect state segments belonging to this trial
+    const states = [];
+    let totalDur  = 0;
+    let outcome   = '';
+    let lastFrame = th.frame;
+
+    while (i < timeline.length && timeline[i].type !== 'trial_header') {
+      const e = timeline[i];
+      if (e.type === 'state') {
+        states.push(e);
+        if (e.duration !== null) totalDur += e.duration;
+        if (e.state === '__correct__') outcome = 'correct';
+        else if (e.state === '__wrong__') outcome = 'wrong';
+        lastFrame = e.frame;
+      }
+      i++;
     }
+
+    // Time range for xaxis zoom (use actual timestamps)
+    const t0_s = waveform.t_us[th.frame] / 1e6;
+    const t1_s = waveform.t_us[lastFrame] / 1e6 + 1.0; // 1s buffer
+    const trialIdx = trialRanges.length;
+    trialRanges.push({ t0_s, t1_s, frame0: th.frame, frame1: lastFrame });
+
+    const trialPx = Math.max(totalDur * PX_PER_SEC, 50);
+
+    html += `<div class="gantt-trial" style="width:${trialPx}px" data-trial-idx="${trialIdx}">`;
+    html += `<div class="gantt-trial-header ${outcome}" onclick="zoomToTrial(${trialIdx})">T${th.trial_num}</div>`;
+    html += `<div class="gantt-states">`;
+
+    for (const s of states) {
+      const dur = s.duration !== null ? s.duration : 0;
+      const w   = Math.max(dur * PX_PER_SEC, 4);
+      const cls = s.state === '__correct__' ? 'correct' : s.state === '__wrong__' ? 'wrong' : 'normal';
+      const lbl = s.state || '—';
+      html += `<div class="gantt-seg ${cls}" style="width:${w}px" data-frame="${s.frame}"` +
+              ` onclick="goToFrame(${s.frame})" title="${lbl} (${dur.toFixed(2)}s)">${lbl}</div>`;
+    }
+
+    html += `</div></div>`;
   }
-  tl.innerHTML = html || '<span style="font-size:0.72rem;color:#aaa">No transitions found.</span>';
+
+  gantt.innerHTML = html || '<span style="padding:8px;font-size:0.72rem;color:#aaa">No trials found.</span>';
 }
 
-function highlightTimeline(frame) {
+function zoomToTrial(trialIdx) {
+  const r = trialRanges[trialIdx];
+  if (!r) return;
+
+  // Clear previous zoomed marker
+  if (zoomedTrialIdx >= 0) {
+    const prev = document.querySelector(`.gantt-trial[data-trial-idx="${zoomedTrialIdx}"]`);
+    if (prev) prev.classList.remove('zoomed');
+  }
+  zoomedTrialIdx = trialIdx;
+  const el = document.querySelector(`.gantt-trial[data-trial-idx="${trialIdx}"]`);
+  if (el) el.classList.add('zoomed');
+
+  Plotly.relayout('waveform-plot', { 'xaxis.range': [r.t0_s, r.t1_s] });
+  goToFrame(r.frame0);
+}
+
+function highlightActiveState(frame) {
   let best = null;
-  for (const el of document.querySelectorAll('.tl-state')) {
+  for (const el of document.querySelectorAll('.gantt-seg')) {
     if (parseInt(el.dataset.frame) <= frame) best = el;
   }
-  document.querySelectorAll('.tl-state').forEach(el => el.classList.remove('active'));
-  if (best) { best.classList.add('active'); best.scrollIntoView({block: 'nearest'}); }
+  document.querySelectorAll('.gantt-seg').forEach(el => el.classList.remove('active'));
+  if (best) {
+    best.classList.add('active');
+    // Scroll the segment into view within the bottom panel
+    best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────

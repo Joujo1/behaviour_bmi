@@ -256,15 +256,27 @@ def build_figure(frames: list, wf: dict, timeline: list) -> dict:
         tick_vals.append(offset + 0.5)
         tick_text.append(label)
         color = COLORS["beam"] if is_beam else (COLORS["valve"] if "valve" in key else COLORS["led"])
+
+        # Build explicit transition points so edges are truly vertical.
+        # At each 0→1 or 1→0 transition, insert the old value at the new
+        # sample's time before the new value — creates a vertical step.
+        vals = wf["signals"][key]
+        xs, ys = [], []
+        for i, v in enumerate(vals):
+            if i > 0 and v != vals[i - 1]:
+                xs.append(t_s[i])
+                ys.append(vals[i - 1] + offset)
+            xs.append(t_s[i])
+            ys.append(v + offset)
+
         traces.append({
-            "type": "scatter",
-            "x":    t_s,
-            "y":    [v + offset for v in wf["signals"][key]],
-            "name": label,
-            "mode": "lines",
-            "line": {"shape": "hv", "color": color, "width": 1.5},
-            "hovertemplate": f"{label}: %{{customdata}}<extra></extra>",
-            "customdata": wf["signals"][key],
+            "type":       "scatter",
+            "x":          xs,
+            "y":          ys,
+            "name":       label,
+            "mode":       "lines",
+            "line":       {"color": color, "width": 1.5},
+            "hoverinfo":  "skip",
             "showlegend": False,
         })
 
