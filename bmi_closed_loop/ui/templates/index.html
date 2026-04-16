@@ -575,7 +575,7 @@
       next.src = `/cage/${id}/frame?t=${Date.now()}`;
     }
     refresh();
-    refreshTimers[id] = setInterval(refresh, 16.7);
+    refreshTimers[id] = setInterval(refresh, 33);
   }
 
   function stopImageRefresh(id) {
@@ -822,9 +822,9 @@
   }
 
   setInterval(pollStatus, 1000);
-  setInterval(pollAdvancement, 2000);
-  setInterval(pollPeripherals, 2000);
-  setInterval(pollRunStatus, 3000);
+  setInterval(pollAdvancement, 1000);
+  setInterval(pollPeripherals, 1000);
+  setInterval(pollRunStatus, 1000);
   pollStatus();
   pollAdvancement();
   pollPeripherals();

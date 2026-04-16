@@ -57,7 +57,7 @@ class CameraStreamer:
         self.picam2 = Picamera2()
         
         self.stream_output = UDPFrameOutput(data_queue, gpio_controller, fsm_data_cb)
-        self.encoder = MJPEGEncoder(bitrate=12_000_000)
+        self.encoder = MJPEGEncoder(bitrate=8_000_000)
         
         fps = 60
         width = 1280
