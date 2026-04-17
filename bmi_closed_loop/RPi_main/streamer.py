@@ -17,7 +17,9 @@ class UDPFrameOutput(Output):
         # K: CLOCK_MONOTONIC at the moment recording starts (µs).
         # cam_ts from picamera2 resets to 0 each recording; adding K converts
         # it to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
-        self._mono_at_start_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
+        # K is set on the first frame so it reflects CLOCK_MONOTONIC at the
+        # exact moment the camera starts outputting, not at object creation.
+        self._mono_at_start_us = None
         self._last_debug_ts = 0.0
 
     def outputframe(self, frame_bytes, keyframe=True, timestamp=None, packet=None, *args, **kwargs):
@@ -35,6 +37,12 @@ class UDPFrameOutput(Output):
 
         current_gpio = self.gpio.get_current_state()
         mono_now_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
+
+        if self._mono_at_start_us is None:
+            # First frame: K = CLOCK_MONOTONIC now minus cam_ts (which is ~0),
+            # so abs_ts for every frame = K + cam_ts ≈ CLOCK_MONOTONIC at capture.
+            self._mono_at_start_us = mono_now_us - (timestamp if timestamp is not None else 0)
+
         abs_ts = (self._mono_at_start_us + timestamp) if timestamp is not None else mono_now_us
 
         # Debug: print every ~3 seconds
