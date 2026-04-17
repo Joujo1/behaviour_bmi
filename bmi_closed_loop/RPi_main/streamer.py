@@ -17,6 +17,12 @@ class UDPFrameOutput(Output):
 
     def outputframe(self, frame_bytes, keyframe=True, timestamp=None, packet=None, *args, **kwargs):
         self.frame_count += 1
+        if self.frame_count <= 5:
+            mono = time.clock_gettime(time.CLOCK_MONOTONIC)
+            print(f"[timestamp_debug] frame={self.frame_count}"
+                  f"  cam_ts={timestamp}µs"
+                  f"  CLOCK_MONOTONIC={mono*1e6:.0f}µs"
+                  f"  diff={(mono - (timestamp or 0)/1e6)*1000:.1f}ms")
         elapsed_time = time.time() - self.start_time
         
         # print(f"frame size: {len(frame_bytes)} bytes ({len(frame_bytes)/1024:.1f} KB)")
@@ -60,7 +66,7 @@ class CameraStreamer:
         self.encoder = MJPEGEncoder(bitrate=8_000_000)
         
         fps = 60
-        width = 1280
+        width = 1080
         height = 720
 
         config = self.picam2.create_video_configuration(

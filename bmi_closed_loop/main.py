@@ -34,6 +34,7 @@ def main():
         [sys.executable, "-m", "ui.ui_main"],
         cwd=PROJECT_ROOT,
     )
+    time.sleep(3)  # wait for Flask to be ready before stress logger starts polling
     procs["stress"] = subprocess.Popen(
         [sys.executable, os.path.join(PROJECT_ROOT, "debug", "stress_logger.py"), stress_log],
         cwd=PROJECT_ROOT,

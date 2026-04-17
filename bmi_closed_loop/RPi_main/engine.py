@@ -84,7 +84,7 @@ class Engine:
         if not self._states:
             raise RuntimeError("call load() before start()")
 
-        self._trial_start = time.time()
+        self._trial_start = time.clock_gettime(time.CLOCK_MONOTONIC)
 
         self._watchdog_timer = threading.Timer(TRIAL_WATCHDOG_S, self._on_watchdog)
         self._watchdog_timer.daemon = True
@@ -153,7 +153,7 @@ class Engine:
         logger.info("Transition  '%s' → '%s'", self._current_state_id, next_state_id)
         with self._event_lock:
             entry = {
-                "t":    time.time() - self._trial_start,
+                "t":    time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
                 "from": self._current_state_id,
                 "to":   next_state_id,
             }
@@ -182,7 +182,7 @@ class Engine:
 
             with self._event_lock:
                 entry = {
-                    "t":      time.time() - self._trial_start,
+                    "t":      time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
                     "sensor": target,
                     "active": is_active,
                 }
