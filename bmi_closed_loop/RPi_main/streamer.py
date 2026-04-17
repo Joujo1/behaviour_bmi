@@ -14,17 +14,16 @@ class UDPFrameOutput(Output):
         self.frame_count = 0
         self.start_time = time.time()
         self.fps = 0
+        # K: CLOCK_MONOTONIC at the moment recording starts (µs).
+        # cam_ts from picamera2 resets to 0 each recording; adding K converts
+        # it to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
+        self._mono_at_start_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
+        self._last_debug_ts = 0.0
 
     def outputframe(self, frame_bytes, keyframe=True, timestamp=None, packet=None, *args, **kwargs):
         self.frame_count += 1
-        if self.frame_count <= 5:
-            mono = time.clock_gettime(time.CLOCK_MONOTONIC)
-            print(f"[timestamp_debug] frame={self.frame_count}"
-                  f"  cam_ts={timestamp}µs"
-                  f"  CLOCK_MONOTONIC={mono*1e6:.0f}µs"
-                  f"  diff={(mono - (timestamp or 0)/1e6)*1000:.1f}ms")
         elapsed_time = time.time() - self.start_time
-        
+
         # print(f"frame size: {len(frame_bytes)} bytes ({len(frame_bytes)/1024:.1f} KB)")
 
         if elapsed_time >= 60.0:
@@ -35,7 +34,20 @@ class UDPFrameOutput(Output):
             self.start_time = time.time()
 
         current_gpio = self.gpio.get_current_state()
-        current_timestamp = timestamp if timestamp is not None else int(time.time() * 1_000_000)
+        mono_now_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
+        abs_ts = (self._mono_at_start_us + timestamp) if timestamp is not None else mono_now_us
+
+        # Debug: print every ~3 seconds
+        if mono_now_us - self._last_debug_ts >= 3_000_000:
+            self._last_debug_ts = mono_now_us
+            print(f"[timestamp_debug] frame={self.frame_count}"
+                  f"  cam_ts={timestamp}µs"
+                  f"  K={self._mono_at_start_us}µs"
+                  f"  abs_ts={abs_ts}µs"
+                  f"  CLOCK_MONOTONIC={mono_now_us}µs"
+                  f"  skew={mono_now_us - abs_ts}µs")
+
+        current_timestamp = abs_ts
 
         recent_events = []
 
