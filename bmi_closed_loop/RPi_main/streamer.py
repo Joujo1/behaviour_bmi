@@ -14,19 +14,13 @@ class UDPFrameOutput(Output):
         self.frame_count = 0
         self.start_time = time.time()
         self.fps = 0
-        # K: CLOCK_MONOTONIC at the moment recording starts (µs).
-        # cam_ts from picamera2 resets to 0 each recording; adding K converts
-        # it to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
-        # K is set on the first frame so it reflects CLOCK_MONOTONIC at the
-        # exact moment the camera starts outputting, not at object creation.
+        # K (set on first frame): CLOCK_MONOTONIC − cam_ts, converts camera-relative
+        # timestamps to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
         self._mono_at_start_us = None
-        self._last_debug_ts = 0.0
 
     def outputframe(self, frame_bytes, keyframe=True, timestamp=None, packet=None, *args, **kwargs):
         self.frame_count += 1
         elapsed_time = time.time() - self.start_time
-
-        # print(f"frame size: {len(frame_bytes)} bytes ({len(frame_bytes)/1024:.1f} KB)")
 
         if elapsed_time >= 60.0:
             self.fps = self.frame_count / elapsed_time
@@ -39,22 +33,9 @@ class UDPFrameOutput(Output):
         mono_now_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
 
         if self._mono_at_start_us is None:
-            # First frame: K = CLOCK_MONOTONIC now minus cam_ts (which is ~0),
-            # so abs_ts for every frame = K + cam_ts ≈ CLOCK_MONOTONIC at capture.
             self._mono_at_start_us = mono_now_us - (timestamp if timestamp is not None else 0)
 
         abs_ts = (self._mono_at_start_us + timestamp) if timestamp is not None else mono_now_us
-
-        # Debug: print every ~3 seconds
-        if mono_now_us - self._last_debug_ts >= 3_000_000:
-            self._last_debug_ts = mono_now_us
-            print(f"[timestamp_debug] frame={self.frame_count}"
-                  f"  cam_ts={timestamp}µs"
-                  f"  K={self._mono_at_start_us}µs"
-                  f"  abs_ts={abs_ts}µs"
-                  f"  CLOCK_MONOTONIC={mono_now_us}µs"
-                  f"  skew={mono_now_us - abs_ts}µs")
-
         current_timestamp = abs_ts
 
         recent_events = []

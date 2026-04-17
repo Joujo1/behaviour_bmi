@@ -34,14 +34,14 @@ HEADER_FIELDS = [
 ]
 
 GPIO_SIGNALS = [
-    ("led_center",  "LED C",    False),
-    ("led_left",    "LED L",    False),
-    ("led_right",   "LED R",    False),
-    ("valve_left",  "Valve L",  False),
-    ("valve_right", "Valve R",  False),
-    ("beam_left",   "Beam L",   True),
-    ("beam_right",  "Beam R",   True),
-    ("beam_center", "Beam C",   True),
+    ("led_left",    "LED L",   False),
+    ("led_center",  "LED C",   False),
+    ("led_right",   "LED R",   False),
+    ("beam_left",   "Beam L",  True),
+    ("beam_center", "Beam C",  True),
+    ("beam_right",  "Beam R",  True),
+    ("valve_left",  "Valve L", False),
+    ("valve_right", "Valve R", False),
 ]
 
 # ── Bin file indexing ─────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ def index_bin(path: str) -> tuple:
                 "current_state": current_state,
             })
 
-    TERMINALS = {"__correct__", "__wrong__", "aborted"}
+    TERMINALS = {"__correct__", "__wrong__", "__end__", "aborted"}
 
     for i, (change_frame, tl) in enumerate(zip(state_changes, raw_timeline)):
         from_state  = tl["from"]
@@ -110,14 +110,24 @@ def index_bin(path: str) -> tuple:
                index[k]["current_state"] in TERMINALS:
                 index[k]["current_state"] = from_state
 
-    # Group transitions into trials
+    # Group transitions into trials.
+    # Two split conditions:
+    #   1. Terminal state reached (__correct__, __wrong__, __end__, aborted).
+    #   2. t decreases — the engine restarted (new trial_start), so the terminal
+    #      event was never flushed into the stream before fsm_data_cb changed.
     trials_raw    = []
     current_trial = []
+    prev_t        = None
     for tl in raw_timeline:
+        if current_trial and prev_t is not None and tl["t"] < prev_t:
+            trials_raw.append(current_trial)
+            current_trial = []
         current_trial.append(tl)
+        prev_t = tl["t"]
         if tl["state"] in TERMINALS:
             trials_raw.append(current_trial)
             current_trial = []
+            prev_t = None
     if current_trial:
         trials_raw.append(current_trial)
 
@@ -178,7 +188,12 @@ def index_bin(path: str) -> tuple:
             ts_end  = index[last["frame"]]["header"]["timestamp"]
             ts_next = index[next_first_frame]["header"]["timestamp"]
             gap_s   = round((ts_next - ts_end) / 1_000_000, 1)
-            timeline.append({"type": "iti", "duration_s": gap_s, "frame": last["frame"]})
+            iti_outcome = ("correct" if last["state"] in ("__correct__", "__end__")
+                           else "wrong" if last["state"] == "__wrong__"
+                           else "unknown")
+            timeline.append({"type": "iti", "duration_s": gap_s,
+                              "frame": last["frame"], "next_frame": next_first_frame,
+                              "outcome": iti_outcome})
 
     nav_frames = sorted(set(nav_frames))
     return index, nav_frames, timeline
@@ -195,7 +210,8 @@ def build_waveform(frames: list) -> dict:
       - state_labels: [{t_us, state, frame}]
       - trial_markers: [{t_us, trial_num, frame}]
     """
-    t_us = [f["header"]["timestamp"] for f in frames]
+    t0   = frames[0]["header"]["timestamp"] if frames else 0
+    t_us = [f["header"]["timestamp"] - t0 for f in frames]
 
     signals = {}
     for key, _label, _is_beam in GPIO_SIGNALS:
@@ -236,7 +252,7 @@ def compute_stats(wf: dict) -> dict:
 
 # ── Plotly figure builder ─────────────────────────────────────────────────────
 
-def build_figure(frames: list, wf: dict, timeline: list) -> dict:
+def build_figure(frames: list, wf: dict) -> dict:
     """
     Build a Plotly-compatible figure dict for the waveform.
     shapes[0] is reserved as the cursor line (initially hidden).
@@ -252,7 +268,7 @@ def build_figure(frames: list, wf: dict, timeline: list) -> dict:
     tick_text = []
 
     for idx, (key, label, is_beam) in enumerate(GPIO_SIGNALS):
-        offset = (N - 1 - idx) * 2.5
+        offset = (N - 1 - idx) * 1.8
         tick_vals.append(offset + 0.5)
         tick_text.append(label)
         color = COLORS["beam"] if is_beam else (COLORS["valve"] if "valve" in key else COLORS["led"])
@@ -284,7 +300,7 @@ def build_figure(frames: list, wf: dict, timeline: list) -> dict:
     shapes = [{
         "type": "line", "xref": "x", "yref": "paper",
         "x0": t_s[0], "x1": t_s[0], "y0": 0, "y1": 1,
-        "line": {"color": "rgba(0,0,0,0.45)", "width": 1, "dash": "dot"},
+        "line": {"color": "rgba(255,100,0,0.85)", "width": 2, "dash": "solid"},
         "visible": False,
     }]
 
@@ -303,20 +319,11 @@ def build_figure(frames: list, wf: dict, timeline: list) -> dict:
             "fillcolor": color, "line": {"width": 0}, "layer": "below",
         })
 
-    # Trial start markers
-    for entry in timeline:
-        if entry["type"] == "trial_header":
-            t = frames[entry["frame"]]["header"]["timestamp"] / 1_000_000
-            shapes.append({
-                "type": "line", "xref": "x", "yref": "paper",
-                "x0": t, "x1": t, "y0": 0, "y1": 1,
-                "line": {"color": "#000", "width": 1.2},
-            })
 
     layout = {
         "shapes": shapes,
         "xaxis": {
-            "title":     "Time (s)",
+            "title":     "Time from recording start (s)",
             "zeroline":  False,
             "showgrid":  True,
             "gridcolor": "#e8e8e8",
@@ -326,10 +333,10 @@ def build_figure(frames: list, wf: dict, timeline: list) -> dict:
             "ticktext":   tick_text,
             "zeroline":   False,
             "showgrid":   False,
-            "range":      [-0.3, N * 2.5 - 0.2],
+            "range":      [-0.3, N * 1.8 - 0.2],
             "fixedrange": True,
         },
-        "margin":        {"l": 80, "r": 10, "t": 10, "b": 50},
+        "margin":        {"l": 80, "r": 10, "t": 10, "b": 60},
         "showlegend":    False,
         "hovermode":     "x",
         "plot_bgcolor":  "#fff",
@@ -399,10 +406,10 @@ def create_app(root: str) -> Flask:
     def api_figure():
         rel = request.args.get("path", "")
         try:
-            abs_path, frames, tl, wf = _load(rel, root)
+            abs_path, frames, _, wf = _load(rel, root)
         except Exception as e:
             return str(e), 400
-        return jsonify(build_figure(frames, wf, tl))
+        return jsonify(build_figure(frames, wf))
 
     @app.get("/api/stats")
     def api_stats():
