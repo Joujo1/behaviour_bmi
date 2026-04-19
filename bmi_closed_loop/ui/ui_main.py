@@ -12,6 +12,7 @@ from ui.endpoints.subjects import subjects_bp
 from ui.endpoints.curriculum import curriculum_bp
 from ui.endpoints.stream import stream_bp
 from ui.endpoints.metrics import metrics_bp
+from ui.endpoints.scoresheet import scoresheet_bp
 from ui.endpoints.trial import trial_bp
 from ui.event_handler import handle_trial_event
 
@@ -42,6 +43,7 @@ for _cage_id in range(1, config.N_CAGES + 1):
     runners[_cage_id] = CageRunner(_cage_id)
 
 app.register_blueprint(metrics_bp)
+app.register_blueprint(scoresheet_bp)
 app.register_blueprint(builder_bp)
 app.register_blueprint(dev_bp)
 app.register_blueprint(stream_bp)

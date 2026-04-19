@@ -36,6 +36,10 @@ def list_subjects():
                     s.enrolled_at,
                     s.notes,
                     s.current_substage_id,
+                    s.species,
+                    s.strain,
+                    s.experiment_nr,
+                    s.reference_weight_g,
                     ts.label        AS substage_label,
                     tst.name        AS stage_name
                 FROM subjects s
@@ -65,8 +69,9 @@ def create_subject():
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO subjects
-                        (code, sex, dob, weight_g, water_restricted, current_substage_id, notes)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (code, sex, dob, weight_g, water_restricted, current_substage_id,
+                         notes, species, strain, experiment_nr)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """, (
                     code,
@@ -76,6 +81,9 @@ def create_subject():
                     bool(body.get("water_restricted", False)),
                     body.get("current_substage_id"),
                     body.get("notes"),
+                    body.get("species"),
+                    body.get("strain"),
+                    body.get("experiment_nr"),
                 ))
                 subject_id = cur.fetchone()[0]
     except psycopg2.errors.UniqueViolation:

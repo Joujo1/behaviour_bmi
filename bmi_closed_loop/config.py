@@ -41,3 +41,6 @@ FLASK_PORT = 5000
 # Logging
 LOGGING_DIR = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs"
 LOGGING_LEVEL = "INFO"
+
+# Welfare scoresheet .xlsx template path (set to your actual file location)
+SCORESHEET_TEMPLATE_PATH = ""

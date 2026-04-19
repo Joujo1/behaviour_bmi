@@ -74,6 +74,10 @@ CREATE TABLE IF NOT EXISTS subjects (
     notes               TEXT
 );
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS substage_entered_at TIMESTAMPTZ;
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS species             TEXT;
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS strain              TEXT;
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS experiment_nr       TEXT;
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS reference_weight_g  NUMERIC;
 
 
 -- ---------------------------------------------------------------------------
@@ -110,6 +114,33 @@ DO $$ BEGIN
             UNIQUE (subject_id, session_number);
     END IF;
 END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- Welfare scoresheet entries
+-- One row per daily welfare check per subject.  Auto-created on session open;
+-- researchers fill in scores, weight, and notes via the scoresheet UI.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS welfare_entries (
+    id                  SERIAL      PRIMARY KEY,
+    subject_id          INT         NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+    session_id          INT         REFERENCES sessions(id),
+    entry_date          DATE        NOT NULL DEFAULT CURRENT_DATE,
+    entry_time          TIME        NOT NULL DEFAULT CURRENT_TIME,
+    days_in_experiment  INT,
+    procedure_nr        TEXT,
+    procedure_details   TEXT,
+    weight_g            NUMERIC,
+    weight_change_pct   NUMERIC,
+    score_a             SMALLINT    NOT NULL DEFAULT 0 CHECK (score_a IN (0,1,2)),
+    score_b             SMALLINT    NOT NULL DEFAULT 0 CHECK (score_b IN (0,1,2)),
+    score_c             SMALLINT    NOT NULL DEFAULT 0 CHECK (score_c IN (0,1,2)),
+    score_d             SMALLINT    NOT NULL DEFAULT 0 CHECK (score_d IN (0,1,2)),
+    medication          TEXT,
+    remarks             TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 
 -- ---------------------------------------------------------------------------
@@ -162,5 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_subjects_substage        ON subjects (current_sub
 CREATE INDEX IF NOT EXISTS idx_substages_stage          ON training_substages (stage_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_cage          ON recordings (cage_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_subject         ON sessions (subject_id);
+CREATE INDEX IF NOT EXISTS idx_welfare_subject          ON welfare_entries (subject_id);
+CREATE INDEX IF NOT EXISTS idx_welfare_session          ON welfare_entries (session_id);
 
 

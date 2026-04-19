@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+
+{% block title %}Scoresheet — BMI{% endblock %}
+
+{% block head_extra %}
+<style>
+  main { padding: 24px; max-width: 1300px; }
+
+  /* ── Subject selector bar ── */
+  #selector-bar {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 20px; flex-wrap: wrap;
+  }
+  #selector-bar select {
+    border: 1px solid var(--border); background: var(--bg-faint);
+    padding: 6px 10px; font-family: inherit; font-size: 0.85rem;
+    outline: none; color: var(--fg); min-width: 180px;
+  }
+  #selector-bar select:focus { border-color: var(--fg); }
+
+  /* ── Subject header strip ── */
+  #subject-strip {
+    display: none; gap: 24px; flex-wrap: wrap;
+    padding: 12px 16px; background: var(--bg-faint);
+    border: 1px solid var(--border); margin-bottom: 20px;
+    font-size: 0.82rem;
+  }
+  #subject-strip.visible { display: flex; }
+  .strip-item { display: flex; flex-direction: column; gap: 2px; }
+  .strip-label { font-size: 0.67rem; font-weight: 700; letter-spacing: 0.08em;
+                 text-transform: uppercase; color: var(--fg-faint); }
+  .strip-value { font-weight: 600; }
+
+  /* ── Scoresheet table ── */
+  .score-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; table-layout: fixed; }
+  .score-table thead tr { border-bottom: 2px solid var(--fg); }
+  .score-table th {
+    text-align: left; font-size: 0.67rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 6px 6px; color: var(--fg-faint); white-space: nowrap;
+  }
+  .score-table td { padding: 6px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .score-table tr:hover td { background: var(--bg-faint); }
+
+  /* inline editable text */
+  .editable {
+    border: none; background: transparent; font-family: inherit;
+    font-size: inherit; color: var(--fg); width: 100%; min-width: 60px;
+    outline: none; padding: 1px 3px;
+  }
+  .editable:hover { background: var(--bg-faint); }
+  .editable:focus { background: var(--bg-faint); border-bottom: 1px solid var(--fg); }
+
+  /* score selects */
+  .score-sel {
+    border: 1px solid var(--border); background: var(--bg-faint);
+    font-family: inherit; font-size: 0.8rem; color: var(--fg);
+    padding: 2px 4px; outline: none; width: 52px;
+  }
+  .score-sel:focus { border-color: var(--fg); }
+
+  /* total badge */
+  .total-cell { font-weight: 700; }
+  .total-warn { color: var(--dead); }
+
+  /* empty state */
+  .empty-row td { color: var(--fg-faint); padding: 20px 6px; font-style: italic; }
+
+  /* column widths */
+  .col-date   { width: 90px; }
+  .col-time   { width: 58px; }
+  .col-day    { width: 44px; }
+  .col-procnr { width: 70px; }
+  .col-proc   { width: 160px; }
+  .col-weight { width: 100px; }
+  .col-pct    { width: 70px; }
+  .col-score  { width: 52px; }
+  .col-total  { width: 50px; }
+  .col-med    { width: 120px; }
+  .col-rem    { /* flexible */ }
+</style>
+{% endblock %}
+
+{% block header_title %}Welfare Scoresheet{% endblock %}
+
+{% block content %}
+<main>
+
+  <!-- Subject selector -->
+  <div id="selector-bar">
+    <span style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Subject</span>
+    <select id="subject-sel" onchange="selectSubject()">
+      <option value="">— select subject —</option>
+    </select>
+    <button class="btn small" onclick="addEntry()" id="btn-add" style="display:none">+ Add Entry</button>
+    <button class="btn small accent" onclick="exportXlsx()" id="btn-export" style="display:none">Export .xlsx</button>
+  </div>
+
+  <!-- Subject header strip -->
+  <div id="subject-strip">
+    <div class="strip-item"><span class="strip-label">Animal ID</span><span class="strip-value" id="si-code">—</span></div>
+    <div class="strip-item"><span class="strip-label">DOB</span><span class="strip-value" id="si-dob">—</span></div>
+    <div class="strip-item"><span class="strip-label">Species / Strain</span><span class="strip-value" id="si-species">—</span></div>
+    <div class="strip-item"><span class="strip-label">Sex</span><span class="strip-value" id="si-sex">—</span></div>
+    <div class="strip-item"><span class="strip-label">Experiment Nr</span><span class="strip-value" id="si-exp">—</span></div>
+    <div class="strip-item"><span class="strip-label">Reference Weight</span><span class="strip-value" id="si-refweight">—</span></div>
+  </div>
+
+  <!-- Welfare entries table -->
+  <table class="score-table">
+    <thead>
+      <tr>
+        <th class="col-date">Date</th>
+        <th class="col-time">Time</th>
+        <th class="col-day">Day</th>
+        <th class="col-procnr">Proc Nr</th>
+        <th class="col-proc">Procedure</th>
+        <th class="col-weight">Weight (g)</th>
+        <th class="col-pct">Δ Weight</th>
+        <th class="col-score">A</th>
+        <th class="col-score">B</th>
+        <th class="col-score">C</th>
+        <th class="col-score">D</th>
+        <th class="col-total">Total</th>
+        <th class="col-med">Medication</th>
+        <th class="col-rem">Remarks</th>
+      </tr>
+    </thead>
+    <tbody id="welfare-body">
+      <tr class="empty-row"><td colspan="14">Select a subject to view entries.</td></tr>
+    </tbody>
+  </table>
+
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let currentSubjectId = null;
+  let allSubjects = [];
+
+  async function init() {
+    const res  = await fetch('/subjects');
+    allSubjects = await res.json();
+    const sel  = document.getElementById('subject-sel');
+    allSubjects.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value       = s.id;
+      opt.textContent = s.code + (s.species ? ` (${s.species})` : '');
+      sel.appendChild(opt);
+    });
+  }
+
+  async function selectSubject() {
+    const sel  = document.getElementById('subject-sel');
+    const sid  = parseInt(sel.value);
+    if (!sid) {
+      currentSubjectId = null;
+      document.getElementById('subject-strip').classList.remove('visible');
+      document.getElementById('btn-add').style.display    = 'none';
+      document.getElementById('btn-export').style.display = 'none';
+      document.getElementById('welfare-body').innerHTML =
+        '<tr class="empty-row"><td colspan="14">Select a subject to view entries.</td></tr>';
+      return;
+    }
+    currentSubjectId = sid;
+
+    // Fill header strip
+    const s = allSubjects.find(x => x.id === sid) || {};
+    document.getElementById('si-code').textContent     = s.code     || '—';
+    document.getElementById('si-dob').textContent      = s.dob      || '—';
+    document.getElementById('si-species').textContent  = [s.species, s.strain].filter(Boolean).join(' / ') || '—';
+    document.getElementById('si-sex').textContent      = s.sex      || '—';
+    document.getElementById('si-exp').textContent      = s.experiment_nr || '—';
+    document.getElementById('si-refweight').textContent = s.reference_weight_g != null ? s.reference_weight_g + ' g' : '—';
+    document.getElementById('subject-strip').classList.add('visible');
+    document.getElementById('btn-add').style.display    = '';
+    document.getElementById('btn-export').style.display = '';
+
+    await loadWelfare();
+  }
+
+  async function loadWelfare() {
+    if (!currentSubjectId) return;
+    const res    = await fetch(`/subjects/${currentSubjectId}/welfare`);
+    const entries = await res.json();
+    renderTable(entries);
+  }
+
+  function renderTable(entries) {
+    const tbody = document.getElementById('welfare-body');
+    if (!entries.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="14">No entries yet. Entries are created automatically when a session is opened.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = entries.map(e => {
+      const total = (e.score_a || 0) + (e.score_b || 0) + (e.score_c || 0) + (e.score_d || 0);
+      const totalCls = total >= 6 ? 'total-cell total-warn' : 'total-cell';
+      const pct = e.weight_change_pct != null ? `${parseFloat(e.weight_change_pct) >= 0 ? '+' : ''}${parseFloat(e.weight_change_pct).toFixed(1)}%` : '—';
+      return `
+      <tr data-id="${e.id}">
+        <td class="col-date">${e.entry_date || '—'}</td>
+        <td class="col-time">${e.entry_time || '—'}</td>
+        <td class="col-day">${e.days_in_experiment ?? '—'}</td>
+        <td class="col-procnr"><input class="editable" value="${esc(e.procedure_nr)}"
+          onchange="patchField(${e.id}, 'procedure_nr', this.value)" /></td>
+        <td class="col-proc"><input class="editable" value="${esc(e.procedure_details)}"
+          onchange="patchField(${e.id}, 'procedure_details', this.value)" /></td>
+        <td class="col-weight"><input class="editable" type="number" step="0.1"
+          value="${e.weight_g ?? ''}" style="width:85px"
+          onchange="patchWeight(${e.id}, this.value)" /></td>
+        <td class="col-pct" id="pct-${e.id}">${pct}</td>
+        ${scoreSelect(e.id, 'score_a', e.score_a)}
+        ${scoreSelect(e.id, 'score_b', e.score_b)}
+        ${scoreSelect(e.id, 'score_c', e.score_c)}
+        ${scoreSelect(e.id, 'score_d', e.score_d)}
+        <td class="col-total ${totalCls}" id="total-${e.id}">${total}</td>
+        <td class="col-med"><input class="editable" value="${esc(e.medication)}"
+          onchange="patchField(${e.id}, 'medication', this.value)" /></td>
+        <td class="col-rem"><input class="editable" value="${esc(e.remarks)}"
+          onchange="patchField(${e.id}, 'remarks', this.value)" /></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function scoreSelect(entryId, field, val) {
+    const v = val ?? 0;
+    return `<td class="col-score">
+      <select class="score-sel" onchange="patchScore(${entryId}, '${field}', +this.value)">
+        <option value="0"${v===0?' selected':''}>0</option>
+        <option value="1"${v===1?' selected':''}>1</option>
+        <option value="2"${v===2?' selected':''}>2</option>
+      </select></td>`;
+  }
+
+  function esc(v) { return v == null ? '' : String(v).replace(/"/g, '&quot;'); }
+
+  async function patchField(entryId, field, value) {
+    const body = { [field]: value || null };
+    const res  = await fetch(`/welfare/${entryId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data.ok) toast(`Save failed: ${data.msg || 'unknown'}`);
+  }
+
+  async function patchWeight(entryId, value) {
+    const weight_g = parseFloat(value) || null;
+    const res = await fetch(`/welfare/${entryId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weight_g }),
+    });
+    const data = await res.json();
+    if (!data.ok) { toast(`Save failed: ${data.msg || 'unknown'}`); return; }
+    // Reload to get updated weight_change_pct and reference_weight
+    await refreshSubjectStrip();
+    await loadWelfare();
+  }
+
+  async function patchScore(entryId, field, value) {
+    const res = await fetch(`/welfare/${entryId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value }),
+    });
+    const data = await res.json();
+    if (!data.ok) { toast(`Save failed: ${data.msg || 'unknown'}`); return; }
+    // Recompute total in this row
+    const row = document.querySelector(`tr[data-id="${entryId}"]`);
+    if (!row) return;
+    const sels = row.querySelectorAll('.score-sel');
+    const total = Array.from(sels).reduce((s, el) => s + parseInt(el.value), 0);
+    const totalEl = document.getElementById(`total-${entryId}`);
+    if (totalEl) {
+      totalEl.textContent = total;
+      totalEl.className = 'col-total total-cell' + (total >= 6 ? ' total-warn' : '');
+    }
+  }
+
+  async function addEntry() {
+    if (!currentSubjectId) return;
+    const res  = await fetch(`/subjects/${currentSubjectId}/welfare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      toast('Entry added');
+      await loadWelfare();
+    } else {
+      toast(`Failed: ${data.msg || 'entry may already exist for today'}`);
+    }
+  }
+
+  async function refreshSubjectStrip() {
+    if (!currentSubjectId) return;
+    const res = await fetch('/subjects');
+    allSubjects = await res.json();
+    const s = allSubjects.find(x => x.id === currentSubjectId) || {};
+    document.getElementById('si-refweight').textContent = s.reference_weight_g != null ? s.reference_weight_g + ' g' : '—';
+  }
+
+  async function exportXlsx() {
+    if (!currentSubjectId) return;
+    const res  = await fetch(`/subjects/${currentSubjectId}/welfare/export`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) toast(`Saved to ${data.path}`);
+    else toast(`Export failed: ${data.msg}`);
+  }
+
+  init();
+</script>
+{% endblock %}

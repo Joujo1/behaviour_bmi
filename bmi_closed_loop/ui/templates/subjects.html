@@ -91,6 +91,18 @@
       </select>
     </div>
     <div class="field">
+      <label>Species</label>
+      <input id="inp-species" placeholder="Rattus specius adabrakadabra" style="width:160px" />
+    </div>
+    <div class="field">
+      <label>Strain</label>
+      <input id="inp-strain" placeholder="Max reps" style="width:120px" />
+    </div>
+    <div class="field">
+      <label>Experiment Nr</label>
+      <input id="inp-experiment-nr" placeholder="2025-001" style="width:110px" />
+    </div>
+    <div class="field">
       <label>Notes</label>
       <input id="inp-notes" placeholder="optional" style="width:160px" />
     </div>
@@ -220,6 +232,9 @@
       weight_g:           parseFloat(document.getElementById('inp-weight').value) || null,
       water_restricted:   document.getElementById('inp-water').value === 'true',
       current_substage_id: parseInt(document.getElementById('inp-substage').value) || null,
+      species:            document.getElementById('inp-species').value.trim() || null,
+      strain:             document.getElementById('inp-strain').value.trim() || null,
+      experiment_nr:      document.getElementById('inp-experiment-nr').value.trim() || null,
       notes:              document.getElementById('inp-notes').value.trim() || null,
     };
 
