@@ -296,18 +296,20 @@
   const FAN_MIN  = {{ fan_min_duty }};  // from config.py — adjust after testing
   const FAN_STEP = 10;
 
-  let allSubjects  = [];
-  let streamActive = {};
-  const fanDuty    = {};  // cage_id → 0–100 (0 = off)
+  let allSubjects   = [];
+  let streamActive  = {};
+  let recordingActive = {};
+  const fanDuty     = {};  // cage_id → 0–100 (0 = off)
   const stripActive = {};
-  const lastAdvTs  = {}; // cage_id → last seen advancement ts
+  const lastAdvTs   = {}; // cage_id → last seen advancement ts
   const runStartedAt = {}; // cage_id → epoch seconds (null if not running)
 
   // ── Build grid ──────────────────────────────────────────
   const grid = document.getElementById('cage-grid');
   for (let i = 1; i <= N_CAGES; i++) {
-    streamActive[i] = false;
-    fanDuty[i]      = 0;
+    streamActive[i]   = false;
+    recordingActive[i] = false;
+    fanDuty[i]        = 0;
     grid.innerHTML += `
       <div class="cage-card" id="card-${i}">
         <div class="cage-header">
@@ -352,7 +354,10 @@
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
           <div class="status-dot" id="dot-${i}"></div>
-          <button class="btn small" id="btn-trial-${i}"  onclick="startTrial(${i})">Trial ▶</button>
+          <button class="btn small" id="btn-rec-${i}" onclick="toggleRecording(${i})">Rec ▶</button>
+          <div class="status-dot" id="dot-rec-${i}"></div>
+          <button class="btn small" id="btn-trial-${i}" onclick="startTrial(${i})">Trial ▶</button>
+          <div class="status-dot" id="dot-trial-${i}"></div>
           <span class="run-timer" id="run-timer-${i}"></span>
           <button class="btn small" onclick="stopTrial(${i})" style="margin-left:auto">Trial ■</button>
         </div>
@@ -533,6 +538,25 @@
     }
   }
 
+  // ── Recording ────────────────────────────────────────────
+  async function toggleRecording(id) {
+    const next = !recordingActive[id];
+    const res  = await post(`/cage/${id}/recording`, { state: next });
+    if (res.ok && res.data.ok) {
+      recordingActive[id] = next;
+      _updateRecordingUI(id, next);
+    } else {
+      toast(`Cage ${id}: recording ${res.data?.msg || 'failed'}`);
+    }
+  }
+
+  function _updateRecordingUI(id, active) {
+    const btn = document.getElementById(`btn-rec-${id}`);
+    const dot = document.getElementById(`dot-rec-${id}`);
+    if (btn) btn.textContent = active ? 'Rec ■' : 'Rec ▶';
+    if (dot) dot.classList.toggle('alive', active);
+  }
+
   // ── Trial runner ─────────────────────────────────────────
   async function startTrial(id) {
     const state      = cageState[id];
@@ -634,6 +658,7 @@
         const data = await res.json();
         const statusEl = document.getElementById(`run-status-${i}`);
         const timerEl  = document.getElementById(`run-timer-${i}`);
+        const trialDot = document.getElementById(`dot-trial-${i}`);
         if (data.running) {
           runStartedAt[i] = data.started_at;
           if (statusEl) {
@@ -644,10 +669,12 @@
             timerEl.textContent = fmtElapsed(data.started_at);
             timerEl.className   = 'run-timer active';
           }
+          if (trialDot) trialDot.classList.add('alive');
         } else {
           runStartedAt[i] = null;
-          if (statusEl) { statusEl.textContent = ''; statusEl.className = 'run-status'; }
-          if (timerEl)  { timerEl.textContent  = ''; timerEl.className  = 'run-timer'; }
+          if (statusEl)  { statusEl.textContent = ''; statusEl.className = 'run-status'; }
+          if (timerEl)   { timerEl.textContent  = ''; timerEl.className  = 'run-timer'; }
+          if (trialDot)  trialDot.classList.remove('alive');
         }
       } catch (_) {}
     }
@@ -780,7 +807,8 @@
         const drops      = parts.find(p => p.startsWith('drops='))?.split('=')[1] ?? '0';
         const netDrops   = parts.find(p => p.startsWith('net_drops='))?.split('=')[1] ?? '0';
         const lastSeen   = parseFloat(parts.find(p => p.startsWith('last_seen='))?.split('=')[1] ?? '0');
-        const isStreaming = parts.find(p => p.startsWith('streaming='))?.split('=')[1] === '1';
+        const isStreaming  = parts.find(p => p.startsWith('streaming='))?.split('=')[1] === '1';
+        const isRecording  = parts.find(p => p.startsWith('recording='))?.split('=')[1] === '1';
 
         // Restore stream UI if backend is streaming but JS state was reset (e.g. page navigation)
         if (isStreaming && !streamActive[id]) {
@@ -793,6 +821,11 @@
           stopImageRefresh(id);
           const btn = document.getElementById(`btn-stream-${id}`);
           if (btn) btn.textContent = 'Stream ▶';
+        }
+
+        if (isRecording !== recordingActive[id]) {
+          recordingActive[id] = isRecording;
+          _updateRecordingUI(id, isRecording);
         }
 
         const dot = document.getElementById(`dot-${id}`);

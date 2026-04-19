@@ -23,6 +23,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 for _cage_id in range(1, config.N_CAGES + 1):
     _valkey.set(f"cage:{_cage_id}:streaming", "0")
+    _valkey.set(f"cage:{_cage_id}:recording", "0")
     _valkey.set(f"cage:{_cage_id}:fan",       "0")
     _valkey.set(f"cage:{_cage_id}:strip",     "0")
 

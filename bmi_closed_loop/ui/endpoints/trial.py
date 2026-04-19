@@ -20,6 +20,45 @@ def _get_db():
 
 
 
+def start_runner(cage_id: int, substage_id: int, session_id: int | None,
+                 task_config: dict | None = None) -> tuple[bool, str]:
+    """
+    Start the trial runner for a cage.  If task_config is not supplied it is
+    fetched from the DB.  Returns (ok, message).  Must be called inside a
+    Flask request context (needs current_app for COMMAND_SENDERS).
+    """
+    if task_config is None:
+        conn = _get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT task_config FROM training_substages WHERE id = %s",
+                            (substage_id,))
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return False, f"substage {substage_id} not found"
+        task_config = row[0]
+
+    base_iti_s = task_config.get("base_iti_s")
+    fail_iti_s = task_config.get("fail_iti_s")
+    if base_iti_s is None or fail_iti_s is None:
+        return False, "substage has no ITI defined — set Base ITI and Fail ITI in the curriculum builder"
+
+    runner = runners.get(cage_id)
+    sender = current_app.config["COMMAND_SENDERS"].get(cage_id)
+    if runner is None or sender is None:
+        return False, f"no runner/sender for cage {cage_id}"
+
+    return runner.start(
+        task_config, sender,
+        max(0.0, float(base_iti_s)),
+        max(0.0, float(fail_iti_s)),
+        session_id=session_id,
+        substage_id=substage_id,
+    )
+
+
 @trial_bp.post("/cage/<int:cage_id>/trial/run")
 def run_start(cage_id: int):
     """
@@ -36,33 +75,7 @@ def run_start(cage_id: int):
     if not substage_id:
         return jsonify({"ok": False, "msg": "substage_id is required"}), 400
 
-    conn = _get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT task_config FROM training_substages WHERE id = %s", (substage_id,))
-            row = cur.fetchone()
-    finally:
-        conn.close()
-
-    if not row:
-        return jsonify({"ok": False, "msg": f"substage {substage_id} not found"}), 404
-
-    trial_definition = row[0]
-
-    base_iti_s = trial_definition.get("base_iti_s")
-    fail_iti_s = trial_definition.get("fail_iti_s")
-    if base_iti_s is None or fail_iti_s is None:
-        return jsonify({"ok": False, "msg": "substage has no ITI defined — set Base ITI and Fail ITI in the curriculum builder"}), 400
-    base_iti_s = max(0.0, float(base_iti_s))
-    fail_iti_s = max(0.0, float(fail_iti_s))
-
-    runner = runners.get(cage_id)
-    sender = current_app.config["COMMAND_SENDERS"].get(cage_id)
-    if runner is None or sender is None:
-        abort(404)
-
-    ok, msg = runner.start(trial_definition, sender, base_iti_s, fail_iti_s,
-                           session_id=session_id, substage_id=substage_id)
+    ok, msg = start_runner(cage_id, substage_id, session_id)
     return jsonify({"ok": ok, "msg": msg})
 
 

@@ -1,10 +1,55 @@
+import logging
+
 import valkey as valkey_client
-from flask import Blueprint, abort, make_response
+from flask import Blueprint, abort, current_app, jsonify, make_response, request
 
 import config
 
 stream_bp = Blueprint("stream", __name__)
+_log    = logging.getLogger("stream")
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
+
+
+def _sender(cage_id: int):
+    senders = current_app.config.get("COMMAND_SENDERS", {})
+    sender  = senders.get(cage_id)
+    if sender is None:
+        abort(404)
+    return sender
+
+
+@stream_bp.post("/cage/<int:cage_id>/stream/start")
+def stream_start(cage_id: int):
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    ok, msg = _sender(cage_id).send("START_STREAMING")
+    if ok:
+        _valkey.set(f"cage:{cage_id}:streaming", "1")
+        _log.info(f"Cage {cage_id}: stream STARTED")
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@stream_bp.post("/cage/<int:cage_id>/stream/stop")
+def stream_stop(cage_id: int):
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    ok, msg = _sender(cage_id).send("STOP_STREAMING")
+    if ok:
+        _valkey.set(f"cage:{cage_id}:streaming", "0")
+        _valkey.set(f"cage:{cage_id}:recording", "0")
+        _log.info(f"Cage {cage_id}: stream STOPPED")
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@stream_bp.post("/cage/<int:cage_id>/recording")
+def recording_set(cage_id: int):
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    body  = request.get_json(force=True) or {}
+    state = bool(body.get("state", False))
+    _valkey.set(f"cage:{cage_id}:recording", "1" if state else "0")
+    _log.info(f"Cage {cage_id}: recording {'STARTED' if state else 'STOPPED'}")
+    return jsonify({"ok": True})
 
 
 @stream_bp.get("/cage/<int:cage_id>/frame")

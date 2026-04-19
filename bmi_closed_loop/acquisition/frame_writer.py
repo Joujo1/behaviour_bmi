@@ -1,5 +1,6 @@
 import os
 import struct
+import time
 from typing import Optional
 
 import config
@@ -32,6 +33,9 @@ class FrameWriter:
         self._chunk_byte_offset: int = 0
         self._current_byte_offset: int = 0
 
+        self._recording: bool = False
+        self._recording_checked_at: float = 0.0
+
     def start(self, session_dir: str):
         import valkey as valkey_client
         import psycopg2
@@ -57,9 +61,20 @@ class FrameWriter:
         self._log.info(f"Writer stopped (cage {self.cage_id})")
 
     def write_frame(self, frame: ParsedFrame):
-        self._write_nas(frame)
         self._write_valkey(frame)
-        self._write_postgres(frame)
+
+        now = time.time()
+        if now - self._recording_checked_at >= 1.0:
+            was = self._recording
+            self._recording = self._valkey.get(f"cage:{self.cage_id}:recording") == b"1"
+            self._recording_checked_at = now
+            if was and not self._recording:
+                self._flush_chunk()
+
+        if self._recording:
+            self._write_nas(frame)
+            self._write_postgres(frame)
+
         self._stats[self.cage_id]["frames_written"] += 1
 
     def _write_nas(self, frame: ParsedFrame):
