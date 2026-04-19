@@ -158,8 +158,10 @@ CREATE TABLE IF NOT EXISTS trial_results (
     events       JSONB       NOT NULL DEFAULT '[]',
     session_id   INT         REFERENCES sessions(id),
     substage_id  INT         REFERENCES training_substages(id),
+    correct_side TEXT        CHECK (correct_side IN ('left', 'right')),
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS correct_side TEXT CHECK (correct_side IN ('left', 'right'));
 
 
 -- ---------------------------------------------------------------------------

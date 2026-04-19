@@ -54,6 +54,10 @@
   .pct-bad  { color: var(--dead);  font-weight: 700; }
 
   #learning-curve-plot { height: 380px; margin-top: 4px; }
+  #side-bias-plot      { height: 320px; margin-top: 4px; }
+
+  .side-left  { color: #3b82f6; font-weight: 700; }
+  .side-right { color: #f97316; font-weight: 700; }
 
   .no-data {
     font-size: 0.74rem; color: var(--fg-faint); padding: 14px 0;
@@ -143,6 +147,19 @@
   <div id="learning-curve-plot"></div>
 </section>
 
+<!-- ── Side Bias ─────────────────────────────────────────── -->
+<section>
+  <div class="section-header">
+    <span class="section-title">Side Bias</span>
+    <label>Subject
+      <select id="bias-subject" onchange="loadSideBias()">
+        <option value="">— select —</option>
+      </select>
+    </label>
+  </div>
+  <div id="side-bias-plot"></div>
+</section>
+
 <!-- ── Session Log ──────────────────────────────────────── -->
 <section>
   <div class="section-header">
@@ -227,6 +244,7 @@
       document.getElementById('lc-subject').innerHTML    = '<option value="">All</option>' + opts;
       document.getElementById('sess-subject').innerHTML  = '<option value="">All</option>' + opts;
       document.getElementById('dwell-subject').innerHTML = '<option value="">— select —</option>' + opts;
+      document.getElementById('bias-subject').innerHTML  = '<option value="">— select —</option>' + opts;
     } catch (e) { console.error('Failed to load subjects:', e); }
 
     loadAnimals();
@@ -486,11 +504,17 @@
           : t.outcome === 'wrong'
           ? `<span class="outcome-wrong">✗ wrong</span>`
           : `<span class="outcome-aborted">— ${t.outcome}</span>`;
+        const sideTag = t.correct_side === 'left'
+          ? `<span class="side-left">◀ left</span>`
+          : t.correct_side === 'right'
+          ? `<span class="side-right">right ▶</span>`
+          : `<span style="color:var(--fg-faint)">—</span>`;
         const time = t.completed_at ? t.completed_at.slice(11, 19) : '—';
         const dur  = t.duration_s !== null ? t.duration_s + 's' : '—';
         return subHeader + `<tr>
           <td style="color:var(--fg-faint)">#${t.trial_num}</td>
           <td>${outcomeTag}</td>
+          <td>${sideTag}</td>
           <td>${time}</td>
           <td>${dur}</td>
         </tr>`;
@@ -499,7 +523,7 @@
       detailWrap.innerHTML = statsLine + `
         <div class="outcome-strip">${strip}</div>
         <table>
-          <thead><tr><th>#</th><th>Outcome</th><th>Time</th><th>Duration</th></tr></thead>
+          <thead><tr><th>#</th><th>Outcome</th><th>Correct Side</th><th>Time</th><th>Duration</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
     } catch (e) {
@@ -507,7 +531,68 @@
     }
   }
 
-  // ── Substage Dwell ────────────────────────────────────────
+  // ── Side Bias ─────────────────────────────────────────────
+  async function loadSideBias() {
+    const subjectId = document.getElementById('bias-subject').value;
+    const el = document.getElementById('side-bias-plot');
+    if (!subjectId) {
+      Plotly.react(el, [], {
+        annotations: [{ text: 'Select a subject', showarrow: false, font: { size: 13, color: '#888' } }],
+        xaxis: { visible: false }, yaxis: { visible: false },
+        plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+        margin: { l: 50, r: 10, t: 10, b: 40 },
+      }, { responsive: true, displayModeBar: false });
+      return;
+    }
+
+    try {
+      const res  = await fetch(`/metrics/side-bias?subject_id=${subjectId}`);
+      const data = await res.json();
+
+      if (!data.length) {
+        Plotly.react(el, [], {
+          annotations: [{ text: 'No side data yet', showarrow: false, font: { size: 13, color: '#888' } }],
+          xaxis: { visible: false }, yaxis: { visible: false },
+          plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+          margin: { l: 50, r: 10, t: 10, b: 40 },
+        }, { responsive: true, displayModeBar: false });
+        return;
+      }
+
+      const sides   = data.map(d => d.correct_side.charAt(0).toUpperCase() + d.correct_side.slice(1));
+      const correct = data.map(d => d.correct);
+      const wrong   = data.map(d => d.wrong);
+      const total   = data.map(d => d.total);
+      const pct     = data.map(d => d.total > 0 ? Math.round(100 * d.correct / d.total) : 0);
+
+      const customdata = data.map((d, i) => [total[i], pct[i]]);
+
+      Plotly.react(el, [
+        {
+          type: 'bar', name: 'Correct',
+          x: sides, y: correct,
+          marker: { color: 'rgba(64,202,114,0.85)' },
+          customdata,
+          hovertemplate: '<b>%{x}</b><br>Correct: %{y}<br>Total: %{customdata[0]}<br>%{customdata[1]}% correct<extra></extra>',
+        },
+        {
+          type: 'bar', name: 'Wrong',
+          x: sides, y: wrong,
+          marker: { color: 'rgba(205,20,20,0.75)' },
+          hovertemplate: '<b>%{x}</b><br>Wrong: %{y}<extra></extra>',
+        },
+      ], {
+        barmode: 'group',
+        xaxis: { title: 'Correct Side' },
+        yaxis: { title: 'Trials', zeroline: false, showgrid: true, gridcolor: '#e8e8e8' },
+        legend: { orientation: 'h', y: -0.2 },
+        margin: { l: 55, r: 20, t: 10, b: 60 },
+        plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+      }, { responsive: true, displayModeBar: false });
+    } catch (e) { console.error(e); }
+  }
+
+  // ── Substage Dwell ─────────────────────────────────────────
   async function loadDwell() {
     const subjectId = document.getElementById('dwell-subject').value;
     const tbody = document.getElementById('dwell-tbody');

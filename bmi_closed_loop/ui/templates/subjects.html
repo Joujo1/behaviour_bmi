@@ -35,18 +35,33 @@
   }
   .badge.water { border-color: #6ab4ff; color: #6ab4ff; }
 
-  /* ── Substage override modal ── */
-  #modal-overlay {
+  /* ── Modals ── */
+  .modal-overlay {
     display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,0.35); align-items: center; justify-content: center;
   }
-  #modal-overlay.open { display: flex; }
-  #modal {
+  .modal-overlay.open { display: flex; }
+  .modal {
     background: var(--bg); border: 2px solid var(--fg);
-    padding: 24px; min-width: 320px; display: flex; flex-direction: column; gap: 14px;
+    padding: 24px; min-width: 340px; max-width: 560px; width: 100%;
+    display: flex; flex-direction: column; gap: 14px;
+    max-height: 90vh; overflow-y: auto;
   }
-  #modal h2 { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-  #modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal h2 { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* Advanced section */
+  .advanced-toggle {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; cursor: pointer; color: var(--fg-faint);
+    border: none; background: none; font-family: inherit; padding: 0;
+    text-align: left;
+  }
+  .advanced-toggle:hover { color: var(--fg); }
+  .advanced-body { display: none; flex-direction: column; gap: 10px; }
+  .advanced-body.open { display: flex; }
+  .advanced-divider { border: none; border-top: 1px dashed var(--border); margin: 2px 0; }
 </style>
 {% endblock %}
 
@@ -131,12 +146,12 @@
 </main>
 
 <!-- Substage override modal -->
-<div id="modal-overlay">
-  <div id="modal">
+<div id="substage-overlay" class="modal-overlay">
+  <div class="modal">
     <h2>Move to substage</h2>
     <div class="field">
       <label>Subject</label>
-      <span id="modal-subject-label" style="font-size:0.85rem;font-weight:700"></span>
+      <span id="substage-subject-label" style="font-size:0.85rem;font-weight:700"></span>
     </div>
     <div class="field">
       <label>New substage</label>
@@ -144,9 +159,85 @@
         <option value="">— select —</option>
       </select>
     </div>
-    <div id="modal-actions">
-      <button class="btn small" onclick="closeModal()">Cancel</button>
+    <div class="modal-actions">
+      <button class="btn small" onclick="closeSubstageModal()">Cancel</button>
       <button class="btn accent small" onclick="applySubstageOverride()">Move</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit subject modal -->
+<div id="edit-overlay" class="modal-overlay">
+  <div class="modal">
+    <h2>Edit subject</h2>
+    <div class="modal-row">
+      <div class="field">
+        <label>Code *</label>
+        <input id="edit-code" style="width:90px" />
+      </div>
+      <div class="field">
+        <label>Sex</label>
+        <select id="edit-sex" style="width:70px">
+          <option value="">—</option>
+          <option value="M">M</option>
+          <option value="F">F</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>DOB</label>
+        <input id="edit-dob" placeholder="DD/MM/YYYY" style="width:130px" />
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="field">
+        <label>Weight (g)</label>
+        <input id="edit-weight" type="number" step="0.1" style="width:90px" />
+      </div>
+      <div class="field">
+        <label>Water restricted</label>
+        <select id="edit-water" style="width:80px">
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="field">
+        <label>Species</label>
+        <input id="edit-species" style="width:160px" />
+      </div>
+      <div class="field">
+        <label>Strain</label>
+        <input id="edit-strain" style="width:120px" />
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="field">
+        <label>Experiment Nr</label>
+        <input id="edit-experiment-nr" style="width:110px" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>Notes</label>
+        <input id="edit-notes" style="width:100%" />
+      </div>
+    </div>
+
+    <hr class="advanced-divider" />
+    <button class="advanced-toggle" onclick="toggleAdvanced()">▸ Advanced</button>
+    <div class="advanced-body" id="edit-advanced">
+      <div class="field">
+        <label>Reference weight (g)</label>
+        <input id="edit-refweight" type="number" step="0.1" style="width:120px" />
+      </div>
+      <p style="font-size:0.72rem;color:var(--fg-faint)">
+        This is the baseline used to compute Δ weight on the scoresheet.
+        Only change if the experiment baseline needs resetting.
+      </p>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn small" onclick="closeEditModal()">Cancel</button>
+      <button class="btn accent small" onclick="saveEdit()">Save</button>
     </div>
   </div>
 </div>
@@ -154,7 +245,8 @@
 
 {% block scripts %}
 <script>
-  let allStages  = [];   // [{id, name, substages:[{id,label},...]}]
+  let allStages   = [];   // [{id, name, substages:[{id,label},...]}]
+  let allSubjects = [];   // full subject list, kept for edit modal pre-fill
   let subjectIdForModal = null;
 
   // ── Init ──────────────────────────────────────────────────
@@ -192,8 +284,8 @@
   async function loadSubjects() {
     try {
       const res  = await fetch('/subjects');
-      const data = await res.json();
-      renderTable(data);
+      allSubjects = await res.json();
+      renderTable(allSubjects);
     } catch (e) {
       toast(`Failed to load subjects: ${e.message}`);
     }
@@ -214,8 +306,9 @@
         <td>${s.stage_name || '—'}</td>
         <td>${s.substage_label || '—'}</td>
         <td>${s.water_restricted ? '<span class="badge water">Water restricted</span>' : ''}</td>
-        <td>
-          <button class="btn small" onclick="openModal(${s.id}, '${s.code}')">Move substage</button>
+        <td style="display:flex;gap:6px">
+          <button class="btn small" onclick="openSubstageModal(${s.id}, '${s.code}')">Move substage</button>
+          <button class="btn small" onclick="openEditModal(${s.id})">Edit</button>
         </td>
       </tr>`).join('');
   }
@@ -258,15 +351,15 @@
   }
 
   // ── Substage override modal ───────────────────────────────
-  function openModal(subjectId, code) {
+  function openSubstageModal(subjectId, code) {
     subjectIdForModal = subjectId;
-    document.getElementById('modal-subject-label').textContent = code;
-    document.getElementById('modal-overlay').classList.add('open');
+    document.getElementById('substage-subject-label').textContent = code;
+    document.getElementById('substage-overlay').classList.add('open');
   }
 
-  function closeModal() {
+  function closeSubstageModal() {
     subjectIdForModal = null;
-    document.getElementById('modal-overlay').classList.remove('open');
+    document.getElementById('substage-overlay').classList.remove('open');
   }
 
   async function applySubstageOverride() {
@@ -282,7 +375,90 @@
       const data = await res.json();
       if (data.ok) {
         toast('Substage updated');
-        closeModal();
+        closeSubstageModal();
+        loadSubjects();
+      } else {
+        toast(`Failed: ${data.msg}`);
+      }
+    } catch (e) {
+      toast(`Error: ${e.message}`);
+    }
+  }
+
+  // ── Edit subject modal ────────────────────────────────────
+  let editSubjectId = null;
+
+  function parseDob(iso) {
+    if (!iso) return '';
+    const [yyyy, mm, dd] = iso.split('-');
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  function openEditModal(subjectId) {
+    const s = allSubjects.find(x => x.id === subjectId);
+    if (!s) return;
+    editSubjectId = subjectId;
+
+    document.getElementById('edit-code').value        = s.code || '';
+    document.getElementById('edit-sex').value         = s.sex  || '';
+    document.getElementById('edit-dob').value         = parseDob(s.dob);
+    document.getElementById('edit-weight').value      = s.weight_g ?? '';
+    document.getElementById('edit-water').value       = s.water_restricted ? 'true' : 'false';
+    document.getElementById('edit-species').value     = s.species       || '';
+    document.getElementById('edit-strain').value      = s.strain        || '';
+    document.getElementById('edit-experiment-nr').value = s.experiment_nr || '';
+    document.getElementById('edit-notes').value       = s.notes         || '';
+    document.getElementById('edit-refweight').value   = s.reference_weight_g ?? '';
+
+    document.getElementById('edit-advanced').classList.remove('open');
+    document.querySelector('.advanced-toggle').textContent = '▸ Advanced';
+    document.getElementById('edit-overlay').classList.add('open');
+  }
+
+  function closeEditModal() {
+    editSubjectId = null;
+    document.getElementById('edit-overlay').classList.remove('open');
+  }
+
+  function toggleAdvanced() {
+    const body = document.getElementById('edit-advanced');
+    const btn  = document.querySelector('.advanced-toggle');
+    const open = body.classList.toggle('open');
+    btn.textContent = open ? '▾ Advanced' : '▸ Advanced';
+  }
+
+  async function saveEdit() {
+    if (!editSubjectId) return;
+    const code = document.getElementById('edit-code').value.trim();
+    if (!code) { toast('Code is required'); return; }
+
+    const dobRaw = document.getElementById('edit-dob').value;
+    const [dd, mm, yyyy] = (dobRaw || '').split('/');
+    const dob = (dd && mm && yyyy) ? `${yyyy}-${mm}-${dd}` : null;
+
+    const body = {
+      code,
+      sex:                document.getElementById('edit-sex').value    || null,
+      dob,
+      weight_g:           parseFloat(document.getElementById('edit-weight').value) || null,
+      water_restricted:   document.getElementById('edit-water').value === 'true',
+      species:            document.getElementById('edit-species').value.trim()        || null,
+      strain:             document.getElementById('edit-strain').value.trim()         || null,
+      experiment_nr:      document.getElementById('edit-experiment-nr').value.trim()  || null,
+      notes:              document.getElementById('edit-notes').value.trim()           || null,
+      reference_weight_g: parseFloat(document.getElementById('edit-refweight').value) || null,
+    };
+
+    try {
+      const res  = await fetch(`/subjects/${editSubjectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast('Subject updated');
+        closeEditModal();
         loadSubjects();
       } else {
         toast(`Failed: ${data.msg}`);

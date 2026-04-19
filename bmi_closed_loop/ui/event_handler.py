@@ -48,8 +48,9 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
         runner.on_trial_complete(event)
 
     ctx = runner.get_context() if runner else {}
-    session_id  = ctx.get("session_id")
-    substage_id = ctx.get("substage_id")
+    session_id   = ctx.get("session_id")
+    substage_id  = ctx.get("substage_id")
+    correct_side = ctx.get("correct_side")
 
     conn = _get_db()
     try:
@@ -58,11 +59,12 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                 cur.execute(
                     """
                     INSERT INTO trial_results
-                        (cage_id, trial_id, outcome, events, session_id, substage_id, completed_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                        (cage_id, trial_id, outcome, events, session_id, substage_id,
+                         correct_side, completed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                     """,
                     (cage_id, trial_id, outcome, psycopg2.extras.Json(events),
-                     session_id, substage_id),
+                     session_id, substage_id, correct_side),
                 )
 
         if session_id is not None and substage_id is not None:

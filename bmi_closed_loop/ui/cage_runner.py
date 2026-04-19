@@ -38,6 +38,7 @@ class CageRunner:
         self.session_id:      int  | None = None
         self.substage_id:     int  | None = None
         self._started_at:     float| None = None
+        self._correct_side:   str  | None = None
 
     @property
     def is_running(self) -> bool:
@@ -97,9 +98,13 @@ class CageRunner:
         return True
 
     def get_context(self) -> dict:
-        """Return {session_id, substage_id} for the active run."""
+        """Return {session_id, substage_id, correct_side} for the active run."""
         with self._lock:
-            return {"session_id": self.session_id, "substage_id": self.substage_id}
+            return {
+                "session_id":   self.session_id,
+                "substage_id":  self.substage_id,
+                "correct_side": self._correct_side,
+            }
 
     def get_status(self) -> dict:
         """Return {running, substage_id, started_at}."""
@@ -140,6 +145,8 @@ class CageRunner:
 
             resolved, correct_side = _resolve_sides(trial_definition)
             trial_to_send = _expand_clicks(resolved)
+            with self._lock:
+                self._correct_side = correct_side
             _log.info("Cage %d: trial %d — correct_side=%s",
                       self.cage_id, trial_count, correct_side)
 
@@ -207,8 +214,8 @@ def _resolve_sides(trial_definition: dict) -> tuple:
 
     if side_mode != "random":
         # Pass 1 — determine high/low side from the play_clicks action.
-        high_side = "left"
-        low_side  = "right"
+        high_side = None
+        low_side  = None
         for state in trial.get("states", []):
             for phase in ("entry_actions", "exit_actions"):
                 for action in state.get(phase, []):
@@ -235,7 +242,7 @@ def _resolve_sides(trial_definition: dict) -> tuple:
                         transition["target"] = high_side
                     elif tgt == "low_click_side":
                         transition["target"] = low_side
-        return trial, None
+        return trial, high_side
 
     # Random mode — coin flip, then swap rates and resolve aliases.
     correct_side = random.choice(["left", "right"])

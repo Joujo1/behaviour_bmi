@@ -321,6 +321,7 @@ def session_trials():
                 SELECT
                     ROW_NUMBER() OVER (ORDER BY tr.completed_at) AS trial_num,
                     tr.outcome,
+                    tr.correct_side,
                     tr.completed_at,
                     ts.label AS substage_label,
                     CASE WHEN jsonb_array_length(tr.events) > 0
@@ -345,6 +346,40 @@ def session_trials():
         result.append(d)
 
     return jsonify(result)
+
+
+@metrics_bp.get("/metrics/side-bias")
+def side_bias():
+    """
+    Left/right trial counts and correct/wrong breakdown per side.
+    ?subject_id=X  (required)
+    """
+    subject_id = request.args.get("subject_id", type=int)
+    if not subject_id:
+        return jsonify([])
+
+    conn = _get_db()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    tr.correct_side,
+                    COUNT(*)                                           AS total,
+                    COUNT(*) FILTER (WHERE tr.outcome = 'correct')    AS correct,
+                    COUNT(*) FILTER (WHERE tr.outcome = 'wrong')      AS wrong
+                FROM trial_results tr
+                JOIN sessions se ON se.id = tr.session_id
+                WHERE se.subject_id = %(subject_id)s
+                  AND tr.correct_side IS NOT NULL
+                  AND tr.outcome IN ('correct', 'wrong')
+                GROUP BY tr.correct_side
+                ORDER BY tr.correct_side
+            """, {"subject_id": subject_id})
+            rows = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    return jsonify(rows)
 
 
 @metrics_bp.get("/metrics/dwell")

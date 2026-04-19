@@ -144,6 +144,38 @@ def get_subject(subject_id: int):
     return jsonify(subject)
 
 
+@subjects_bp.patch("/subjects/<int:subject_id>")
+def update_subject(subject_id: int):
+    """Update editable fields of a subject."""
+    body = request.get_json(force=True) or {}
+    allowed = {
+        "code", "sex", "dob", "weight_g", "water_restricted",
+        "species", "strain", "experiment_nr", "notes", "reference_weight_g",
+    }
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        return jsonify({"ok": False, "msg": "no updatable fields provided"}), 400
+
+    conn = _get_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                set_clause = ", ".join(f"{k} = %s" for k in updates)
+                cur.execute(
+                    f"UPDATE subjects SET {set_clause} WHERE id = %s RETURNING id",
+                    list(updates.values()) + [subject_id],
+                )
+                if cur.fetchone() is None:
+                    abort(404)
+    except psycopg2.errors.UniqueViolation:
+        return jsonify({"ok": False, "msg": "subject code already exists"}), 409
+    finally:
+        conn.close()
+
+    _log.info("Subject %d updated: %s", subject_id, list(updates.keys()))
+    return jsonify({"ok": True})
+
+
 @subjects_bp.patch("/subjects/<int:subject_id>/substage")
 def set_substage(subject_id: int):
     """Manually move a subject to a different substage."""

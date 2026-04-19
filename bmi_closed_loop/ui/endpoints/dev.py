@@ -8,6 +8,7 @@ dev_bp = Blueprint("dev", __name__)
 _ALLOWED_TABLES = {
     "trial_results", "recordings", "sessions",
     "subjects", "training_substages", "training_stages",
+    "welfare_entries",
 }
 
 
