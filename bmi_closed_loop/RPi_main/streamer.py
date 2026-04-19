@@ -14,12 +14,13 @@ class UDPFrameOutput(Output):
         self.frame_count = 0
         self.start_time = time.time()
         self.fps = 0
+        # K (set on first frame): CLOCK_MONOTONIC − cam_ts, converts camera-relative
+        # timestamps to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
+        self._mono_at_start_us = None
 
     def outputframe(self, frame_bytes, keyframe=True, timestamp=None, packet=None, *args, **kwargs):
         self.frame_count += 1
         elapsed_time = time.time() - self.start_time
-        
-        # print(f"frame size: {len(frame_bytes)} bytes ({len(frame_bytes)/1024:.1f} KB)")
 
         if elapsed_time >= 60.0:
             self.fps = self.frame_count / elapsed_time
@@ -29,7 +30,13 @@ class UDPFrameOutput(Output):
             self.start_time = time.time()
 
         current_gpio = self.gpio.get_current_state()
-        current_timestamp = timestamp if timestamp is not None else int(time.time() * 1_000_000)
+        mono_now_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
+
+        if self._mono_at_start_us is None:
+            self._mono_at_start_us = mono_now_us - (timestamp if timestamp is not None else 0)
+
+        abs_ts = (self._mono_at_start_us + timestamp) if timestamp is not None else mono_now_us
+        current_timestamp = abs_ts
 
         recent_events = []
 
@@ -57,10 +64,10 @@ class CameraStreamer:
         self.picam2 = Picamera2()
         
         self.stream_output = UDPFrameOutput(data_queue, gpio_controller, fsm_data_cb)
-        self.encoder = MJPEGEncoder(bitrate=12_000_000)
+        self.encoder = MJPEGEncoder(bitrate=8_000_000)
         
         fps = 60
-        width = 1280
+        width = 1080
         height = 720
 
         config = self.picam2.create_video_configuration(
