@@ -60,6 +60,7 @@ class Engine:
         self._event_buffer: list  = []   # drained every frame by pop_frame_events()
         self._trial_events: list  = []   # full trial log, sent at completion
         self._event_lock = threading.Lock()
+        self._clicks_active = False
 
         # Per-sensor hold timers: sensor_target → threading.Timer
         # A hold timer is armed on beam-break and cancelled on beam-restore.
@@ -98,6 +99,9 @@ class Engine:
         self._cancel_timeout()
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
+        if self._clicks_active:
+            self._log_output("clicks", False)
+            self._clicks_active = False
         actions.stop_clicks()
         gpio_handler.stop_monitoring()
         actions.safety_sweep()
@@ -129,26 +133,53 @@ class Engine:
                     state_id, duration if duration is not None else "none")
 
         for action in state.get("entry_actions", []):
-            if action.get("type") == "play_clicks":
-                actions.dispatch(action, on_complete=self._on_clicks_done)
-            else:
-                actions.dispatch(action)
+            self._dispatch_action(action)
 
         if duration is not None:
             self._timeout_timer = threading.Timer(duration, self._on_timeout)
             self._timeout_timer.daemon = True
             self._timeout_timer.start()
 
+    def _log_output(self, name: str, active: bool) -> None:
+        """Append a GPIO output event to the frame buffer and trial log."""
+        with self._event_lock:
+            entry = {
+                "t":      time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
+                "output": name,
+                "active": active,
+            }
+            self._event_buffer.append(entry)
+            self._trial_events.append(entry)
+
+    def _dispatch_action(self, action: dict) -> None:
+        """Log GPIO-affecting actions then dispatch them."""
+        atype = action.get("type")
+        if atype == "led_on":
+            self._log_output(f"led_{action.get('target', '?')}", True)
+        elif atype == "led_off":
+            self._log_output(f"led_{action.get('target', '?')}", False)
+        elif atype == "valve_open":
+            self._log_output(f"valve_{action.get('target', '?')}", True)
+        elif atype == "valve_close":
+            self._log_output(f"valve_{action.get('target', '?')}", False)
+        elif atype == "play_clicks":
+            self._clicks_active = True
+        actions.dispatch(action, on_complete=self._on_clicks_done,
+                         log_cb=self._log_output if atype == "play_clicks" else None)
+
     def transition_to(self, next_state_id: str) -> None:
         """Cancel the running timer, run exit_actions of current state, enter the next state."""
         self._cancel_timeout()
         self._cancel_all_hold_timers()
+        if self._clicks_active:
+            self._log_output("clicks", False)
+            self._clicks_active = False
         actions.stop_clicks()
 
         current = self._states.get(self._current_state_id)
         if current is not None:
             for action in current.get("exit_actions", []):
-                actions.dispatch(action)
+                self._dispatch_action(action)
 
         logger.info("Transition  '%s' → '%s'", self._current_state_id, next_state_id)
         with self._event_lock:
@@ -249,6 +280,9 @@ class Engine:
                     self.transition_to(t["next_state"])
                     return
 
+            if self._clicks_active:
+                self._log_output("clicks", False)
+                self._clicks_active = False
             logger.info("Clicks done in state '%s' — no clicks_done transition (ignoring)",
                         self._current_state_id)
 

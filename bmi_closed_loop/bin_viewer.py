@@ -42,6 +42,7 @@ GPIO_SIGNALS = [
     ("beam_right",  "Beam R",  True),
     ("valve_left",  "Valve L", False),
     ("valve_right", "Valve R", False),
+    ("clicks",      "Clicks",  False),
 ]
 
 # ── Bin file indexing ─────────────────────────────────────────────────────────
@@ -146,6 +147,16 @@ def index_bin(path: str) -> tuple:
             else:
                 break
 
+        # Compute trial_start in absolute µs from the first transition event.
+        # trial_start_us = frame_timestamp - event_t_seconds * 1e6
+        first_tr   = transitions[0]
+        trial_start_us = (index[first_tr["frame"]]["header"]["timestamp"]
+                          - int(first_tr["t"] * 1_000_000))
+        frame_end = (trials_raw[trial_idx + 1][0]["frame"]
+                     if trial_idx + 1 < len(trials_raw) else len(index))
+        for k in range(trial_start_frame, frame_end):
+            index[k]["trial_start_us"] = trial_start_us
+
         timeline.append({"type": "trial_header", "trial_num": trial_idx + 1,
                           "frame": trial_start_frame})
         nav_frames.append(trial_start_frame)
@@ -203,25 +214,59 @@ def index_bin(path: str) -> tuple:
 
 def build_waveform(frames: list) -> dict:
     """
-    Build compact waveform data for client-side Canvas rendering.
+    Build event-driven waveform data.
+    Output/beam signals use precise event timestamps (sub-frame accuracy).
     Returns dict with:
-      - t_us: list of timestamps (µs)
-      - signals: {signal_name: [0/1 per frame]}
+      - t_us: list of frame timestamps (µs from recording start)
+      - signals: {signal_name: {"xs_us": [...], "ys": [...]}}  (step functions)
       - state_labels: [{t_us, state, frame}]
-      - trial_markers: [{t_us, trial_num, frame}]
     """
     t0   = frames[0]["header"]["timestamp"] if frames else 0
     t_us = [f["header"]["timestamp"] - t0 for f in frames]
 
+    BEAM_KEYS   = {"beam_left", "beam_center", "beam_right"}
+    OUTPUT_KEYS = {"led_left", "led_center", "led_right",
+                   "valve_left", "valve_right", "clicks"}
+
+    # Seed initial state: beams from first header, outputs all off
+    cur = {}
+    for sig in BEAM_KEYS:
+        cur[sig] = frames[0]["header"][sig] if frames else 0
+    for sig in OUTPUT_KEYS:
+        cur[sig] = 0
+
+    # Collect (t_us_from_t0, state) pairs per signal from events
+    sig_pts = {sig: [(0, cur[sig])] for sig in cur}
+
+    for frame in frames:
+        tsu = frame.get("trial_start_us")
+        if tsu is None:
+            continue
+        for ev in frame["events"]:
+            if "output" in ev:
+                sig = ev["output"]
+                if sig in sig_pts:
+                    t = int(tsu + ev["t"] * 1_000_000) - t0
+                    sig_pts[sig].append((t, 1 if ev["active"] else 0))
+            elif "sensor" in ev:
+                sig = f"beam_{ev['sensor']}"
+                if sig in sig_pts:
+                    t = int(tsu + ev["t"] * 1_000_000) - t0
+                    sig_pts[sig].append((t, 1 if ev["active"] else 0))
+
+    # Build step-function xs/ys: insert duplicate x at each transition for vertical edge
     signals = {}
-    for key, _label, _is_beam in GPIO_SIGNALS:
-        signals[key] = [f["header"][key] for f in frames]
+    for sig, pts in sig_pts.items():
+        pts.sort(key=lambda p: p[0])
+        xs, ys = [], []
+        for i, (t, v) in enumerate(pts):
+            if i > 0 and pts[i - 1][1] != v:
+                xs.append(t); ys.append(pts[i - 1][1])
+            xs.append(t); ys.append(v)
+        signals[sig] = {"xs_us": xs, "ys": ys}
 
-    state_labels  = []
-    trial_markers = []
-    prev_state = None
-    prev_trial = None
-
+    state_labels = []
+    prev_state   = None
     for i, f in enumerate(frames):
         cs = f["current_state"]
         if cs != prev_state:
@@ -229,9 +274,9 @@ def build_waveform(frames: list) -> dict:
             prev_state = cs
 
     return {
-        "t_us":          t_us,
-        "signals":       signals,
-        "state_labels":  state_labels,
+        "t_us":         t_us,
+        "signals":      signals,
+        "state_labels": state_labels,
     }
 
 
@@ -261,7 +306,7 @@ def build_figure(frames: list, wf: dict) -> dict:
     t_s = [t / 1_000_000 for t in wf["t_us"]]
     N   = len(GPIO_SIGNALS)
 
-    COLORS = {"led": "#3b82f6", "valve": "#f59e0b", "beam": "#ef4444"}
+    COLORS = {"led": "#3b82f6", "valve": "#f59e0b", "beam": "#ef4444", "clicks": "#8b5cf6"}
 
     traces    = []
     tick_vals = []
@@ -271,19 +316,14 @@ def build_figure(frames: list, wf: dict) -> dict:
         offset = (N - 1 - idx) * 1.8
         tick_vals.append(offset + 0.5)
         tick_text.append(label)
-        color = COLORS["beam"] if is_beam else (COLORS["valve"] if "valve" in key else COLORS["led"])
+        color = (COLORS["beam"]   if is_beam else
+                 COLORS["valve"]  if "valve"  in key else
+                 COLORS["clicks"] if key == "clicks" else
+                 COLORS["led"])
 
-        # Build explicit transition points so edges are truly vertical.
-        # At each 0→1 or 1→0 transition, insert the old value at the new
-        # sample's time before the new value — creates a vertical step.
-        vals = wf["signals"][key]
-        xs, ys = [], []
-        for i, v in enumerate(vals):
-            if i > 0 and v != vals[i - 1]:
-                xs.append(t_s[i])
-                ys.append(vals[i - 1] + offset)
-            xs.append(t_s[i])
-            ys.append(v + offset)
+        sig   = wf["signals"].get(key, {"xs_us": [0], "ys": [0]})
+        xs    = [x / 1_000_000 for x in sig["xs_us"]]
+        ys    = [y + offset     for y in sig["ys"]]
 
         traces.append({
             "type":       "scatter",
@@ -296,13 +336,24 @@ def build_figure(frames: list, wf: dict) -> dict:
             "showlegend": False,
         })
 
-    # shapes[0]: cursor line — initially hidden, updated by JS on click/nav
-    shapes = [{
-        "type": "line", "xref": "x", "yref": "paper",
-        "x0": t_s[0], "x1": t_s[0], "y0": 0, "y1": 1,
-        "line": {"color": "rgba(255,100,0,0.85)", "width": 2, "dash": "solid"},
-        "visible": False,
-    }]
+    # shapes[0]: cursor line   — updated by JS on click/nav
+    # shapes[1]: state highlight — updated by JS when active state changes
+    shapes = [
+        {
+            "type": "line", "xref": "x", "yref": "paper",
+            "x0": t_s[0], "x1": t_s[0], "y0": 0, "y1": 1,
+            "line": {"color": "rgba(255,100,0,0.85)", "width": 2, "dash": "solid"},
+            "visible": False,
+        },
+        {
+            "type": "rect", "xref": "x", "yref": "paper",
+            "x0": t_s[0], "x1": t_s[0], "y0": 0, "y1": 1,
+            "fillcolor": "rgba(0,0,0,0)",
+            "line": {"color": "rgba(255,160,0,0.9)", "width": 2},
+            "layer": "above",
+            "visible": False,
+        },
+    ]
 
     # State background blocks
     labels = wf["state_labels"]

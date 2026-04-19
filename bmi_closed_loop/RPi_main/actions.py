@@ -65,7 +65,8 @@ def _click_loop(side: str, click_times: list, stop_event: threading.Event) -> No
         _play_audio(side)
 
 
-def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None) -> None:
+def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
+                 log_cb=None) -> None:
     """
     Play two independent Poisson click trains (one per ear) in background threads.
 
@@ -76,6 +77,9 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None) -> Non
     _click_stop.set()               # cancel any previous playback
     _click_stop = threading.Event() # fresh event for this run
     stop = _click_stop              # local ref shared by all threads below
+
+    if log_cb:
+        log_cb("clicks", True)
 
     t_left  = threading.Thread(target=_click_loop,
                                args=("left",  left_clicks,  stop),
@@ -156,12 +160,11 @@ ACTIONS: dict = {
 }
 
 
-def dispatch(action_dict: dict, on_complete=None) -> None:
+def dispatch(action_dict: dict, on_complete=None, log_cb=None) -> None:
     """
     Look up the action type, pass remaining fields as kwargs, and execute it.
 
-    on_complete is forwarded only for the 'play_clicks' action type, so the
-    engine can receive a callback when both click trains finish naturally.
+    on_complete and log_cb are forwarded only for the 'play_clicks' action type.
     """
     action_dict = dict(action_dict)
     action_type = action_dict.pop("type", None)
@@ -175,8 +178,11 @@ def dispatch(action_dict: dict, on_complete=None) -> None:
         logger.error("Unknown action type '%s' — skipping", action_type)
         return
 
-    if action_type == "play_clicks" and on_complete is not None:
-        action_dict["on_complete"] = on_complete
+    if action_type == "play_clicks":
+        if on_complete is not None:
+            action_dict["on_complete"] = on_complete
+        if log_cb is not None:
+            action_dict["log_cb"] = log_cb
 
     try:
         logger.info("Action  %s  %s", action_type, action_dict)

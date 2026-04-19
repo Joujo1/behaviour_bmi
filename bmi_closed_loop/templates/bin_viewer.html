@@ -83,6 +83,50 @@
     .gpio-dot.valve   { background: var(--signal-valve); }
     .gpio-dot.beam-on { background: var(--signal-beam); }
 
+    /* ── Bottom Gantt ── */
+    #bottom-panel {
+      height: 110px; flex-shrink: 0;
+      border-top: 2px solid var(--fg);
+      overflow-x: auto; overflow-y: hidden;
+      display: flex; align-items: stretch;
+      background: var(--bg);
+    }
+    #trial-gantt {
+      display: flex; flex-direction: row; align-items: stretch;
+      padding: 0 8px; gap: 2px; min-width: max-content;
+    }
+    .gantt-trial {
+      display: flex; flex-direction: column;
+      flex-shrink: 0; border: 1px solid var(--border);
+      overflow: hidden; cursor: pointer; min-width: 24px;
+    }
+    .gantt-trial:hover { border-color: var(--fg); }
+    .gantt-trial-header {
+      font-size: 0.58rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 3px 5px;
+      border-bottom: 2px solid transparent; white-space: nowrap; flex-shrink: 0;
+    }
+    .gantt-trial-header.correct { border-bottom-color: var(--correct); }
+    .gantt-trial-header.wrong   { border-bottom-color: var(--wrong); }
+    .gantt-trial-header.zoomed  { background: var(--fg); color: var(--bg); }
+    .gantt-states { display: flex; flex-direction: row; flex: 1; overflow: hidden; }
+    .gantt-seg {
+      flex-shrink: 0; height: 100%; min-width: 2px;
+      border-right: 1px solid rgba(0,0,0,0.07);
+      background: rgba(220,220,220,0.5);
+    }
+    .gantt-seg.correct { background: rgba(64,202,114,0.28); }
+    .gantt-seg.wrong   { background: rgba(205,20,20,0.22); }
+    .gantt-seg.active  { outline: 2px solid rgba(255,140,0,0.9); outline-offset: -2px; z-index: 1; position: relative; }
+    .gantt-iti {
+      flex-shrink: 0; height: 100%; align-self: stretch;
+      background: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.04) 4px, rgba(0,0,0,0.04) 8px);
+      border-right: 1px solid var(--border);
+      display: flex; align-items: flex-end; justify-content: center;
+      padding-bottom: 4px; font-size: 0.53rem; color: var(--faint);
+      min-width: 4px;
+    }
+
   </style>
 </head>
 <body>
@@ -152,6 +196,10 @@
 
   </div><!-- #top-row -->
 
+  <div id="bottom-panel">
+    <div id="trial-gantt"></div>
+  </div>
+
 </div><!-- #app -->
 
 <script>
@@ -161,6 +209,9 @@ let frameCount  = 0;
 let currentBin  = null;
 let cursorFrame = 0;
 let playTimer   = null;
+let trialRanges = [];
+
+const PX_PER_SEC = 120;
 
 const GPIO_MAP = [
   ['led-left',    'led_left',    false],
@@ -252,11 +303,27 @@ async function loadBin(rel) {
 
     showStats(stats);
     document.getElementById('btn-play').disabled = false;
+    await buildBottomPanel();
     goToFrame(0);
 
   } catch(e) {
     alert('Error loading file: ' + e);
   }
+}
+
+// ── Signal value lookup ───────────────────────────────────────────────────────
+function signalAtFrame(key, n) {
+  const sig = waveform.signals[key];
+  if (!sig) return 0;
+  const xs = sig.xs_us;
+  const t  = waveform.t_us[n];
+  let lo = 0, hi = xs.length - 1, idx = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (xs[mid] <= t) { idx = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return sig.ys[idx];
 }
 
 // ── Frame lookup ──────────────────────────────────────────────────────────────
@@ -292,22 +359,38 @@ async function goToFrame(n, autoPan = false) {
   }
   Plotly.relayout('waveform-plot', update);
 
-  // State label
-  const state = waveform.state_labels.reduce((acc, sl) => sl.frame <= n ? sl.state : acc, '—');
+  // State label + highlight
+  const labels = waveform.state_labels;
+  let stateIdx = 0;
+  for (let i = 0; i < labels.length; i++) {
+    if (labels[i].frame <= n) stateIdx = i; else break;
+  }
+  const state = labels.length ? labels[stateIdx].state : '—';
   const si = document.getElementById('si-state');
   si.textContent = state;
   si.className   = 'info-val' + (state === '__correct__' ? ' correct' : state === '__wrong__' ? ' wrong' : '');
   document.getElementById('si-ts').textContent = `t = ${t_s.toFixed(3)} s  ·  frame ${n}`;
 
+  if (labels.length) {
+    const hl_t0 = labels[stateIdx].t_us / 1e6;
+    const hl_t1 = stateIdx + 1 < labels.length
+      ? labels[stateIdx + 1].t_us / 1e6
+      : waveform.t_us[frameCount - 1] / 1e6;
+    update['shapes[1].x0']      = hl_t0;
+    update['shapes[1].x1']      = hl_t1;
+    update['shapes[1].visible'] = true;
+  }
+
   // GPIO dots
-  const h = waveform.signals;
   for (const [id, key, isBeam] of GPIO_MAP) {
     const dot = document.getElementById('g-' + id);
-    const val = h[key][n];
+    const val = signalAtFrame(key, n);
     dot.className = 'gpio-dot' + (val
       ? (isBeam ? ' beam-on' : key.startsWith('valve') ? ' valve' : ' on')
       : '');
   }
+
+  highlightActiveState(n);
 
   // JPEG preview
   if (currentBin) {
@@ -375,6 +458,94 @@ document.addEventListener('keydown', e => {
   if (e.key === '+' || e.key === '=') plotZoom(2);
   if (e.key === '-')                   plotZoom(0.5);
 });
+
+// ── Gantt ─────────────────────────────────────────────────────────────────────
+async function buildBottomPanel() {
+  const res = await fetch('/api/timeline?path=' + encodeURIComponent(currentBin));
+  const timeline = await res.json();
+
+  const gantt = document.getElementById('trial-gantt');
+  gantt.innerHTML = '';
+  trialRanges = [];
+
+  let i = 0;
+  while (i < timeline.length) {
+    if (timeline[i].type !== 'trial_header') { i++; continue; }
+
+    const trialNum   = timeline[i].trial_num;
+    const trialFrame = timeline[i].frame;
+    i++;
+
+    const states = [];
+    let iti = null;
+    while (i < timeline.length && timeline[i].type !== 'trial_header') {
+      if (timeline[i].type === 'state') states.push(timeline[i]);
+      if (timeline[i].type === 'iti')   iti = timeline[i];
+      i++;
+    }
+
+    const last = states[states.length - 1];
+    const outcome = (!last) ? null
+      : (last.state === '__correct__' || last.state === '__end__') ? 'correct'
+      : last.state === '__wrong__' ? 'wrong' : null;
+
+    const nextFrame = (i < timeline.length) ? timeline[i].frame : frameCount - 1;
+    const t0_s = waveform.t_us[trialFrame] / 1e6;
+    const t1_s = waveform.t_us[Math.min(nextFrame, frameCount - 1)] / 1e6;
+    const rangeIdx = trialRanges.length;
+    trialRanges.push({ t0_s, t1_s, frame0: trialFrame });
+
+    let segsHtml = '';
+    for (const s of states) {
+      const dur = (s.duration !== null && s.duration > 0) ? s.duration : 0.15;
+      const w   = Math.max(2, Math.round(dur * PX_PER_SEC));
+      const cls = 'gantt-seg' +
+        (s.state === '__correct__' || s.state === '__end__' ? ' correct' :
+         s.state === '__wrong__' ? ' wrong' : '');
+      segsHtml += `<div class="${cls}" data-frame="${s.frame}"
+                       style="width:${w}px"
+                       title="${s.state} (${dur.toFixed(2)}s)"></div>`;
+    }
+
+    const hdrCls = 'gantt-trial-header' + (outcome ? ' ' + outcome : '');
+    gantt.innerHTML +=
+      `<div class="gantt-trial" onclick="zoomToTrial(${rangeIdx})">
+         <div class="${hdrCls}" id="ghdr-${rangeIdx}">T${trialNum}</div>
+         <div class="gantt-states">${segsHtml}</div>
+       </div>`;
+
+    if (iti) {
+      const itiW = Math.max(4, Math.round(iti.duration_s * PX_PER_SEC));
+      gantt.innerHTML +=
+        `<div class="gantt-iti" style="width:${itiW}px"
+              title="ITI ${iti.duration_s}s">${iti.duration_s}s</div>`;
+    }
+  }
+}
+
+function zoomToTrial(idx) {
+  const r = trialRanges[idx];
+  if (!r) return;
+  document.querySelectorAll('.gantt-trial-header').forEach(h => h.classList.remove('zoomed'));
+  document.getElementById('ghdr-' + idx)?.classList.add('zoomed');
+  const span = r.t1_s - r.t0_s;
+  const pad  = Math.max(span * 0.05, 0.1);
+  Plotly.relayout('waveform-plot', {'xaxis.range': [r.t0_s - pad, r.t1_s + pad]});
+  goToFrame(r.frame0);
+}
+
+function highlightActiveState(n) {
+  let active = null;
+  for (const seg of document.querySelectorAll('.gantt-seg')) {
+    if (parseInt(seg.dataset.frame) <= n) active = seg;
+  }
+  if (active?.classList.contains('active')) return;
+  document.querySelectorAll('.gantt-seg.active').forEach(s => s.classList.remove('active'));
+  if (active) {
+    active.classList.add('active');
+    active.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  }
+}
 
 function plotZoom(factor) {
   const plotEl = document.getElementById('waveform-plot');
