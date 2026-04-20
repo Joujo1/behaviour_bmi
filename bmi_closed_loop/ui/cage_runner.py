@@ -15,11 +15,10 @@ import random
 import threading
 import time
 
+import config
 from ui.click_generator import generate_clicks
 
 _log = logging.getLogger("runner")
-
-TRIAL_TIMEOUT_S = 330
 
 
 class CageRunner:
@@ -59,12 +58,8 @@ class CageRunner:
             self.substage_id     = substage_id
             self._started_at     = time.time()
             self._event.clear()
-            self._thread = threading.Thread(
-                target=self._run_loop,
-                args=(trial_definition, sender, base_iti_s, fail_iti_s),
-                daemon=True,
-                name=f"runner-cage{self.cage_id}",
-            )
+            self._thread = threading.Thread(target=self._run_loop, args=(trial_definition, sender, base_iti_s, fail_iti_s),
+                                            daemon=True, name=f"runner-cage{self.cage_id}",)
             self._thread.start()
         return True, "run started"
 
@@ -155,7 +150,7 @@ class CageRunner:
                 _log.error("Cage %d: failed to send trial: %s", self.cage_id, msg)
                 break
 
-            completed = self._event.wait(timeout=TRIAL_TIMEOUT_S)
+            completed = self._event.wait(timeout=config.TRIAL_TIMEOUT_S)
             if not completed:
                 _log.error("Cage %d: timed out waiting for trial completion (trial %d)",
                            self.cage_id, trial_count)

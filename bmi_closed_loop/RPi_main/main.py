@@ -30,7 +30,7 @@ from engine import Engine
 from tcp_command_receiver import TCPCommandReceiver
 from streamer import CameraStreamer
 from udp_sender_pi import UDPSender
-from config import TCP_PORT, UDP_STREAM_PORT
+from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
 
 logging.basicConfig( 
@@ -76,9 +76,11 @@ def main():
     def on_trial_complete(trial_id: str, outcome: str, events: list) -> None:
         """Push a trial_complete or trial_aborted event back to the PC over TCP."""
         nonlocal current_engine
+        trial_start_us = current_engine.trial_start_us if current_engine else None
         current_engine = None
         event = "trial_aborted" if outcome == "aborted" else "trial_complete"
-        payload = json.dumps({"event": event, "trial_id": trial_id, "outcome": outcome, "events": events})
+        payload = json.dumps({"event": event, "trial_id": trial_id, "outcome": outcome,
+                              "events": events, "trial_start_us": trial_start_us})
         logger.info("Trial finished: event=%s  outcome=%s  trial_id=%s  n_events=%d", event, outcome, trial_id, len(events))
         receiver.push(payload)
 
@@ -91,7 +93,7 @@ def main():
                 return False, "already streaming"
             if pc_ip is None:
                 return False, "PC IP not known yet"
-            frame_queue = queue.Queue(maxsize=2)
+            frame_queue = queue.Queue(maxsize=FRAME_QUEUE_MAXSIZE)
             sender = UDPSender(target_ip=pc_ip, target_port=UDP_STREAM_PORT,
                                data_queue=frame_queue)
             sender.start()

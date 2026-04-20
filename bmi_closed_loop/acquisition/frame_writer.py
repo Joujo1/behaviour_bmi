@@ -64,7 +64,7 @@ class FrameWriter:
         self._write_valkey(frame)
 
         now = time.time()
-        if now - self._recording_checked_at >= 1.0:
+        if now - self._recording_checked_at >= config.RECORDING_CHECK_INTERVAL_S:
             was = self._recording
             self._recording = self._valkey.get(f"cage:{self.cage_id}:recording") == b"1"
             self._recording_checked_at = now

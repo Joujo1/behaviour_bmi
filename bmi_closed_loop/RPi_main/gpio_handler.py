@@ -23,7 +23,7 @@ import RPi.GPIO as _GPIO
 from config import (
     LED_PINS, VALVE_PINS, BEAM_PINS, AUDIO_PINS,
     BEAM_ACTIVE_LOW, BEAM_DEBOUNCE_MS,
-    FAN_PIN, STRIP_PIN, FAN_PWM_FREQ,
+    FAN_PIN, STRIP_PIN, FAN_PWM_FREQ, FAN_MIN_DUTY,
 )
 
 # Internal output-state tracking
@@ -116,7 +116,7 @@ def set_fan_pwm(duty: float, freq: float = FAN_PWM_FREQ) -> None:
     global _fan_pwm, _fan_pwm_duty
     duty = max(0.0, min(100.0, float(duty)))
 
-    if duty == 0.0:
+    if duty < FAN_MIN_DUTY:
         set_fan(False)
         return
     if duty >= 100.0:

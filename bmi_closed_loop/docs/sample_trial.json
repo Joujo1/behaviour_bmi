@@ -1,0 +1,48 @@
+{
+  "trial_id": "sample",
+  "side_mode": "random",
+  "base_iti_s": 5.0,
+  "fail_iti_s": 15.0,
+  "initial_state": "stimulus",
+  "states": [
+    {
+      "id": "stimulus",
+      "duration": 10.0,
+      "entry_actions": [
+        { "type": "play_clicks", "left_rate": 80, "right_rate": 20, "click_duration": 2.5 },
+        { "type": "led_on", "target": "high_click_side" }
+      ],
+      "exit_actions": [
+        { "type": "led_off", "target": "high_click_side" }
+      ],
+      "transitions": [
+        { "trigger": "beam_break", "target": "center", "next_state": "choice", "hold_ms": 100 },
+        { "trigger": "timeout", "next_state": "__wrong__" }
+      ]
+    },
+    {
+      "id": "choice",
+      "duration": 5.0,
+      "entry_actions": [],
+      "exit_actions": [],
+      "transitions": [
+        { "trigger": "beam_break", "target": "high_click_side", "next_state": "reward" },
+        { "trigger": "beam_break", "target": "low_click_side",  "next_state": "__wrong__" },
+        { "trigger": "timeout", "next_state": "__wrong__" }
+      ]
+    },
+    {
+      "id": "reward",
+      "duration": 2.0,
+      "entry_actions": [
+        { "type": "valve_open", "target": "high_click_side" }
+      ],
+      "exit_actions": [
+        { "type": "valve_close", "target": "high_click_side" }
+      ],
+      "transitions": [
+        { "trigger": "timeout", "next_state": "__correct__" }
+      ]
+    }
+  ]
+}

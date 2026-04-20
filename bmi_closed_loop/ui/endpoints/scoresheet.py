@@ -1,7 +1,7 @@
 """
 Welfare scoresheet endpoints.
 
-One welfare_entries row is auto-created when a session is opened.
+One scoresheet_entries row is auto-created when a session is opened.
 Researchers fill in scores, weight, and notes via the scoresheet UI.
 Export downloads a filled copy of the .xlsx template.
 """
@@ -28,8 +28,8 @@ def scoresheet_page():
     return render_template("scoresheet.html")
 
 
-@scoresheet_bp.get("/subjects/<int:subject_id>/welfare")
-def list_welfare(subject_id: int):
+@scoresheet_bp.get("/subjects/<int:subject_id>/scoresheet")
+def list_scoresheet(subject_id: int):
     """Return all welfare entries for a subject, newest first."""
     conn = _get_db()
     try:
@@ -41,7 +41,7 @@ def list_welfare(subject_id: int):
                        weight_g, weight_change_pct,
                        score_a, score_b, score_c, score_d,
                        medication, remarks, created_at
-                FROM welfare_entries
+                FROM scoresheet_entries
                 WHERE subject_id = %s
                 ORDER BY entry_date DESC, entry_time DESC
                 """,
@@ -58,14 +58,14 @@ def list_welfare(subject_id: int):
     return jsonify(rows)
 
 
-@scoresheet_bp.post("/subjects/<int:subject_id>/welfare")
-def create_welfare(subject_id: int):
-    """Create a welfare entry manually (auto-creation happens via auto_create_welfare_entry)."""
+@scoresheet_bp.post("/subjects/<int:subject_id>/scoresheet")
+def create_scoresheet(subject_id: int):
+    """Create a welfare entry manually (auto-creation happens via auto_create_scoresheet_entry)."""
     body = request.get_json(force=True) or {}
     conn = _get_db()
     try:
         with conn:
-            entry_id = _insert_welfare_entry(
+            entry_id = _insert_scoresheet_entry(
                 conn, subject_id,
                 session_id=body.get("session_id"),
                 weight_g=body.get("weight_g"),
@@ -75,8 +75,8 @@ def create_welfare(subject_id: int):
     return jsonify({"ok": True, "id": entry_id})
 
 
-@scoresheet_bp.patch("/welfare/<int:entry_id>")
-def patch_welfare(entry_id: int):
+@scoresheet_bp.patch("/scoresheet/<int:entry_id>")
+def patch_scoresheet(entry_id: int):
     """Update editable fields of a welfare entry."""
     body = request.get_json(force=True) or {}
     allowed = {
@@ -94,7 +94,7 @@ def patch_welfare(entry_id: int):
             with conn.cursor() as cur:
                 # Fetch current subject_id + weight for reference_weight logic
                 cur.execute(
-                    "SELECT subject_id, weight_g FROM welfare_entries WHERE id = %s",
+                    "SELECT subject_id, weight_g FROM scoresheet_entries WHERE id = %s",
                     (entry_id,),
                 )
                 row = cur.fetchone()
@@ -107,7 +107,7 @@ def patch_welfare(entry_id: int):
 
                 set_clause = ", ".join(f"{k} = %s" for k in updates)
                 cur.execute(
-                    f"UPDATE welfare_entries SET {set_clause} WHERE id = %s",
+                    f"UPDATE scoresheet_entries SET {set_clause} WHERE id = %s",
                     list(updates.values()) + [entry_id],
                 )
     finally:
@@ -116,8 +116,8 @@ def patch_welfare(entry_id: int):
     return jsonify({"ok": True})
 
 
-@scoresheet_bp.post("/subjects/<int:subject_id>/welfare/export")
-def export_welfare(subject_id: int):
+@scoresheet_bp.post("/subjects/<int:subject_id>/scoresheet/export")
+def export_scoresheet(subject_id: int):
     """Fill the scoresheet template and save it to NAS_BASE_PATH/scoresheets/<code>.xlsx."""
     try:
         import openpyxl
@@ -151,7 +151,7 @@ def export_welfare(subject_id: int):
                        weight_g, weight_change_pct,
                        score_a, score_b, score_c, score_d,
                        medication, remarks
-                FROM welfare_entries
+                FROM scoresheet_entries
                 WHERE subject_id = %s
                 ORDER BY entry_date ASC, entry_time ASC
                 """,
@@ -207,27 +207,27 @@ def export_welfare(subject_id: int):
     return jsonify({"ok": True, "path": out_path})
 
 
-def auto_create_welfare_entry(subject_id: int, session_id: int, conn) -> int:
+def auto_create_scoresheet_entry(subject_id: int, session_id: int, conn) -> int:
     """
     Insert a welfare entry for today if none exists yet for this subject today.
     Called by session.py immediately after INSERT INTO sessions.
     Returns the entry id (new or existing).
     """
-    return _insert_welfare_entry(conn, subject_id, session_id=session_id)
+    return _insert_scoresheet_entry(conn, subject_id, session_id=session_id)
 
 
-def _insert_welfare_entry(conn, subject_id: int, session_id=None, weight_g=None) -> int:
+def _insert_scoresheet_entry(conn, subject_id: int, session_id=None, weight_g=None) -> int:
     today = date.today()
     with conn.cursor() as cur:
         # Deduplicate: one entry per session (if session known), else one per subject per day
         if session_id is not None:
             cur.execute(
-                "SELECT id FROM welfare_entries WHERE session_id = %s LIMIT 1",
+                "SELECT id FROM scoresheet_entries WHERE session_id = %s LIMIT 1",
                 (session_id,),
             )
         else:
             cur.execute(
-                "SELECT id FROM welfare_entries WHERE subject_id = %s AND entry_date = %s AND session_id IS NULL LIMIT 1",
+                "SELECT id FROM scoresheet_entries WHERE subject_id = %s AND entry_date = %s AND session_id IS NULL LIMIT 1",
                 (subject_id, today),
             )
         existing = cur.fetchone()
@@ -247,7 +247,7 @@ def _insert_welfare_entry(conn, subject_id: int, session_id=None, weight_g=None)
 
         cur.execute(
             """
-            INSERT INTO welfare_entries
+            INSERT INTO scoresheet_entries
                 (subject_id, session_id, entry_date, entry_time,
                  days_in_experiment, weight_g, weight_change_pct,
                  procedure_nr, procedure_details, medication, remarks)
@@ -266,7 +266,7 @@ def _insert_welfare_entry(conn, subject_id: int, session_id=None, weight_g=None)
                 (weight_g, subject_id),
             )
 
-        _log.info("Welfare entry %d created for subject %d (session %s)", entry_id, subject_id, session_id)
+        _log.info("Scoresheet entry %d created for subject %d (session %s)", entry_id, subject_id, session_id)
         return entry_id
 
 
@@ -286,6 +286,6 @@ def _update_weight_change(cur, subject_id: int, entry_id: int, weight_g: float) 
         pct = (float(weight_g) - float(reference_weight_g)) / float(reference_weight_g) * 100
 
     cur.execute(
-        "UPDATE welfare_entries SET weight_change_pct = %s WHERE id = %s",
+        "UPDATE scoresheet_entries SET weight_change_pct = %s WHERE id = %s",
         (pct, entry_id),
     )

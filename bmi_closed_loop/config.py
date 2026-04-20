@@ -1,46 +1,36 @@
 N_CAGES = 12
 
-# UDP: Linux machine listens on 5001–5012
-# cage_id is 1-indexed: cage_id 1 = physical cage 1 = port 5001
 # formula: UDP_BASE_PORT + cage_id
 UDP_BASE_PORT = 5000  # cage_id 1 → 5001, cage_id 12 → 5012
 
-# Pi static IPs: cage 1 → 192.168.1.101, cage 2 → 192.168.1.102, ...
 PI_IPS = {cage_id: f"192.168.1.{100 + cage_id}" for cage_id in range(1, N_CAGES + 1)}
 
-# Valkey (Redis-compatible)
 VALKEY_HOST = "localhost"
 VALKEY_PORT = 6379
-VALKEY_FRAME_TTL_SECONDS = 5  # latest_frame key expires if no update for 5s
+VALKEY_FRAME_TTL_SECONDS = 5
 
-# PostgreSQL
 POSTGRES_DSN = "postgresql://bmi:yaniklab@localhost/bmi_closed_loop"
-DB_CHUNK_SIZE = 1000  # commit a recordings row every N frames per camera
+DB_CHUNK_SIZE = 1000
 
-# Storage
 NAS_BASE_PATH = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/NAS"
-SESSION_DIR = ""  # set at session open, left empty until defined
+SESSION_DIR = ""  # set at session open
 
-# Acquisition
-FRAME_QUEUE_MAXSIZE = 60  # per-camera write queue depth
+FRAME_QUEUE_MAXSIZE = 60
 
-# Watchdog
 WATCHDOG_INTERVAL_SECONDS = 1
-WATCHDOG_DEAD_THRESHOLD_SECONDS = 5  # camera flagged dead if silent for this long
+WATCHDOG_DEAD_THRESHOLD_SECONDS = 10
 
-# TCP command channel (PC → Pi)
-TCP_COMMAND_PORT = 6000  # Pi listens on this port; one connection per cage
+RECORDING_CHECK_INTERVAL_S = 1.0
+TRIAL_TIMEOUT_S = 1230
 
-# Fan PWM
-FAN_MIN_DUTY = 30   # %
+TCP_COMMAND_PORT = 6000
 
-# Flask
+FAN_MIN_DUTY = 30
+
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000
 
-# Logging
 LOGGING_DIR = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs"
 LOGGING_LEVEL = "INFO"
 
-# Welfare scoresheet .xlsx template path (set to your actual file location)
 SCORESHEET_TEMPLATE_PATH = ""

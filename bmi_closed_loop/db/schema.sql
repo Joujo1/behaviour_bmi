@@ -122,7 +122,14 @@ END $$;
 -- researchers fill in scores, weight, and notes via the scoresheet UI.
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS welfare_entries (
+-- Rename migration for existing databases (no-op if already renamed)
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'welfare_entries') THEN
+        ALTER TABLE welfare_entries RENAME TO scoresheet_entries;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS scoresheet_entries (
     id                  SERIAL      PRIMARY KEY,
     subject_id          INT         NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
     session_id          INT         REFERENCES sessions(id),
@@ -161,7 +168,8 @@ CREATE TABLE IF NOT EXISTS trial_results (
     correct_side TEXT        CHECK (correct_side IN ('left', 'right')),
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS correct_side TEXT CHECK (correct_side IN ('left', 'right'));
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS correct_side   TEXT   CHECK (correct_side IN ('left', 'right'));
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS trial_start_us BIGINT;
 
 
 -- ---------------------------------------------------------------------------
@@ -195,7 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_subjects_substage        ON subjects (current_sub
 CREATE INDEX IF NOT EXISTS idx_substages_stage          ON training_substages (stage_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_cage          ON recordings (cage_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_subject         ON sessions (subject_id);
-CREATE INDEX IF NOT EXISTS idx_welfare_subject          ON welfare_entries (subject_id);
-CREATE INDEX IF NOT EXISTS idx_welfare_session          ON welfare_entries (session_id);
+CREATE INDEX IF NOT EXISTS idx_scoresheet_subject          ON scoresheet_entries (subject_id);
+CREATE INDEX IF NOT EXISTS idx_scoresheet_session          ON scoresheet_entries (session_id);
 
 

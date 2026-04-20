@@ -7,7 +7,7 @@ from flask import Blueprint, current_app, jsonify, request
 import config
 from ui.cage_runner import runners
 from ui.endpoints.trial import start_runner
-from ui.endpoints.scoresheet import auto_create_welfare_entry
+from ui.endpoints.scoresheet import auto_create_scoresheet_entry
 
 session_bp = Blueprint("session", __name__)
 _log = logging.getLogger("session")
@@ -88,7 +88,7 @@ def open_session():
                 session_id = cur.fetchone()[0]
 
                 if subject_id is not None:
-                    auto_create_welfare_entry(subject_id, session_id, conn)
+                    auto_create_scoresheet_entry(subject_id, session_id, conn)
     finally:
         conn.close()
 

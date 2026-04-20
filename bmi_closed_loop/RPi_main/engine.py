@@ -68,6 +68,10 @@ class Engine:
         self._hold_timers: dict = {}
 
 
+    @property
+    def trial_start_us(self) -> int | None:
+        return int(self._trial_start * 1_000_000) if self._trial_start is not None else None
+
     def load(self, trial_json) -> None:
         """Parse a JSON trial definition and index all states by their id field."""
         if isinstance(trial_json, str):

@@ -126,7 +126,7 @@
         <th class="col-rem">Remarks</th>
       </tr>
     </thead>
-    <tbody id="welfare-body">
+    <tbody id="scoresheet-body">
       <tr class="empty-row"><td colspan="14">Select a subject to view entries.</td></tr>
     </tbody>
   </table>
@@ -159,7 +159,7 @@
       document.getElementById('subject-strip').classList.remove('visible');
       document.getElementById('btn-add').style.display    = 'none';
       document.getElementById('btn-export').style.display = 'none';
-      document.getElementById('welfare-body').innerHTML =
+      document.getElementById('scoresheet-body').innerHTML =
         '<tr class="empty-row"><td colspan="14">Select a subject to view entries.</td></tr>';
       return;
     }
@@ -177,18 +177,18 @@
     document.getElementById('btn-add').style.display    = '';
     document.getElementById('btn-export').style.display = '';
 
-    await loadWelfare();
+    await loadScoresheet();
   }
 
-  async function loadWelfare() {
+  async function loadScoresheet() {
     if (!currentSubjectId) return;
-    const res    = await fetch(`/subjects/${currentSubjectId}/welfare`);
+    const res    = await fetch(`/subjects/${currentSubjectId}/scoresheet`);
     const entries = await res.json();
     renderTable(entries);
   }
 
   function renderTable(entries) {
-    const tbody = document.getElementById('welfare-body');
+    const tbody = document.getElementById('scoresheet-body');
     if (!entries.length) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="14">No entries yet. Entries are created automatically when a session is opened.</td></tr>';
       return;
@@ -237,7 +237,7 @@
 
   async function patchField(entryId, field, value) {
     const body = { [field]: value || null };
-    const res  = await fetch(`/welfare/${entryId}`, {
+    const res  = await fetch(`/scoresheet/${entryId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -248,7 +248,7 @@
 
   async function patchWeight(entryId, value) {
     const weight_g = parseFloat(value) || null;
-    const res = await fetch(`/welfare/${entryId}`, {
+    const res = await fetch(`/scoresheet/${entryId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ weight_g }),
@@ -257,11 +257,11 @@
     if (!data.ok) { toast(`Save failed: ${data.msg || 'unknown'}`); return; }
     // Reload to get updated weight_change_pct and reference_weight
     await refreshSubjectStrip();
-    await loadWelfare();
+    await loadScoresheet();
   }
 
   async function patchScore(entryId, field, value) {
-    const res = await fetch(`/welfare/${entryId}`, {
+    const res = await fetch(`/scoresheet/${entryId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value }),
@@ -282,7 +282,7 @@
 
   async function addEntry() {
     if (!currentSubjectId) return;
-    const res  = await fetch(`/subjects/${currentSubjectId}/welfare`, {
+    const res  = await fetch(`/subjects/${currentSubjectId}/scoresheet`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -290,7 +290,7 @@
     const data = await res.json();
     if (data.ok) {
       toast('Entry added');
-      await loadWelfare();
+      await loadScoresheet();
     } else {
       toast(`Failed: ${data.msg || 'entry may already exist for today'}`);
     }

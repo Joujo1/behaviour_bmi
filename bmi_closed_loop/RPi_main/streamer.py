@@ -4,6 +4,11 @@ from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import Output
 
+from config import (
+    CAMERA_FPS, CAMERA_WIDTH, CAMERA_HEIGHT,
+    CAMERA_BITRATE, CAMERA_EXPOSURE_US, CAMERA_GAIN,
+)
+
 class UDPFrameOutput(Output):
     def __init__(self, data_queue, gpio_controller, fsm_data_cb=None):
         super().__init__()
@@ -64,33 +69,29 @@ class CameraStreamer:
         self.picam2 = Picamera2()
         
         self.stream_output = UDPFrameOutput(data_queue, gpio_controller, fsm_data_cb)
-        self.encoder = MJPEGEncoder(bitrate=8_000_000)
-        
-        fps = 60
-        width = 1080
-        height = 720
+        self.encoder = MJPEGEncoder(bitrate=CAMERA_BITRATE)
 
-        config = self.picam2.create_video_configuration(
+        cam_config = self.picam2.create_video_configuration(
             main={
-                "size": (width, height), 
+                "size": (CAMERA_WIDTH, CAMERA_HEIGHT),
                 "format": "YUV420"
             },
             controls={
-                "FrameDurationLimits": (1000000//fps, 1000000//fps),
-                "ExposureTime": 6000,                 
-                "AeEnable": False,                    
-                "AwbEnable": False,                   
-                "NoiseReductionMode": 0, 
-                "AnalogueGain": 4.0
+                "FrameDurationLimits": (1000000 // CAMERA_FPS, 1000000 // CAMERA_FPS),
+                "ExposureTime": CAMERA_EXPOSURE_US,
+                "AeEnable": False,
+                "AwbEnable": False,
+                "NoiseReductionMode": 0,
+                "AnalogueGain": CAMERA_GAIN,
             }
         )
+
+        if "sensor" not in cam_config:
+            cam_config["sensor"] = {}
+        cam_config["sensor"]["bit_depth"] = 10
+        cam_config["sensor"]["output_size"] = (CAMERA_WIDTH, CAMERA_HEIGHT)
         
-        if "sensor" not in config:
-            config["sensor"] = {}
-        config["sensor"]["bit_depth"] = 10
-        config["sensor"]["output_size"] = (width, height)
-        
-        self.picam2.configure(config)
+        self.picam2.configure(cam_config)
 
     def start(self):
         self.picam2.start()

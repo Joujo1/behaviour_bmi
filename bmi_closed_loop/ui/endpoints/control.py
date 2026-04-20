@@ -31,6 +31,10 @@ def fan_toggle(cage_id: int):
     else:
         duty = 100.0 if body.get("state", False) else 0.0
 
+    # Mirror Pi behaviour: below minimum duty the fan is off
+    if 0 < duty < config.FAN_MIN_DUTY:
+        duty = 0.0
+
     if duty == 0.0:
         ok, msg = _sender(cage_id).send("FAN_OFF")
     else:

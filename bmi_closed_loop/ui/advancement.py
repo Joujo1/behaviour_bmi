@@ -79,12 +79,12 @@ def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
 
 def _meets(criteria: dict, subject_id: int, substage_id: int, conn,
            is_fallback: bool = False) -> bool:
-    """Dispatch to the correct criteria check based on criteria['type']."""
     ctype = criteria.get("type")
-    if ctype == "pct_correct":
-        return _pct_correct(criteria, subject_id, substage_id, conn, is_fallback)
-    _log.warning("Unknown criteria type '%s' — treating as not met", ctype)
-    return False
+    handler = _CRITERIA_HANDLERS.get(ctype)
+    if handler is None:
+        _log.warning("Unknown criteria type '%s' — treating as not met", ctype)
+        return False
+    return handler(criteria, subject_id, substage_id, conn, is_fallback)
 
 
 def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn,
@@ -92,19 +92,11 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn,
     """
     Advance: returns True when correct rate >= threshold over the last `window` trials.
     Fallback: returns True when correct rate <  threshold over the last `window` trials.
-
-    The entry timestamp comes from subjects.substage_entered_at, which apply()
-    stamps on every advance/fallback.  This ensures that after a fallback the
-    window resets — old results from the previous visit to this substage are
-    excluded and cannot immediately re-trigger advancement.
     """
     window    = int(criteria.get("window",    20))
     threshold = float(criteria.get("threshold", 0.80))
 
     # Only count trials completed since the subject last entered this substage.
-    # substage_entered_at is stamped by apply() on every advance/fallback.
-    # If NULL (subject was assigned manually before this column existed) there
-    # is no lower bound and all historical trials on this substage are counted.
     with conn.cursor() as cur:
         cur.execute("""
             SELECT outcome
@@ -133,3 +125,8 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn,
         "pct < threshold (fallback)" if is_fallback else "pct >= threshold (advance)",
     )
     return pct < threshold if is_fallback else pct >= threshold
+
+
+_CRITERIA_HANDLERS = {
+    "pct_correct": _pct_correct,
+}
