@@ -52,6 +52,7 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
     session_id   = ctx.get("session_id")
     substage_id  = ctx.get("substage_id")
     correct_side = ctx.get("correct_side")
+    click_seed   = ctx.get("click_seed")
 
     conn = _get_db()
     try:
@@ -61,11 +62,11 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                     """
                     INSERT INTO trial_results
                         (cage_id, trial_id, outcome, events, session_id, substage_id,
-                         correct_side, trial_start_us, completed_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                         correct_side, trial_start_us, click_seed, completed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     """,
                     (cage_id, trial_id, outcome, psycopg2.extras.Json(events),
-                     session_id, substage_id, correct_side, trial_start_us),
+                     session_id, substage_id, correct_side, trial_start_us, click_seed),
                 )
 
         if session_id is not None and substage_id is not None:

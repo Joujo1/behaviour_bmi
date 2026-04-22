@@ -531,7 +531,7 @@ def main():
     app = create_app(args.root)
     print(f"Bin Viewer  →  http://localhost:{args.port}")
     print(f"Browsing    →  {args.root}")
-    app.run(host="127.0.0.1", port=args.port, threaded=True)
+    app.run(host="0.0.0.0", port=args.port, threaded=True)
 
 
 if __name__ == "__main__":

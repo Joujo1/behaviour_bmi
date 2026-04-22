@@ -309,6 +309,7 @@
         <td style="display:flex;gap:6px">
           <button class="btn small" onclick="openSubstageModal(${s.id}, '${s.code}')">Move substage</button>
           <button class="btn small" onclick="openEditModal(${s.id})">Edit</button>
+          <button class="btn small" style="color:var(--dead)" onclick="deleteSubject(${s.id}, '${s.code.replace(/'/g, "\\'")}')">✕</button>
         </td>
       </tr>`).join('');
   }
@@ -459,6 +460,23 @@
       if (data.ok) {
         toast('Subject updated');
         closeEditModal();
+        loadSubjects();
+      } else {
+        toast(`Failed: ${data.msg}`);
+      }
+    } catch (e) {
+      toast(`Error: ${e.message}`);
+    }
+  }
+
+  // ── Delete subject ────────────────────────────────────────
+  async function deleteSubject(subjectId, code) {
+    if (!confirm(`Delete subject "${code}"?\n\nThis cannot be undone.`)) return;
+    try {
+      const res  = await fetch(`/subjects/${subjectId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        toast(`Subject "${code}" deleted`);
         loadSubjects();
       } else {
         toast(`Failed: ${data.msg}`);

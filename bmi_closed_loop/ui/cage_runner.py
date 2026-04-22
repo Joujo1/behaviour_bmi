@@ -38,6 +38,7 @@ class CageRunner:
         self.substage_id:     int  | None = None
         self._started_at:     float| None = None
         self._correct_side:   str  | None = None
+        self._click_seed:     int  | None = None
 
     @property
     def is_running(self) -> bool:
@@ -93,12 +94,13 @@ class CageRunner:
         return True
 
     def get_context(self) -> dict:
-        """Return {session_id, substage_id, correct_side} for the active run."""
+        """Return {session_id, substage_id, correct_side, click_seed} for the active run."""
         with self._lock:
             return {
                 "session_id":   self.session_id,
                 "substage_id":  self.substage_id,
                 "correct_side": self._correct_side,
+                "click_seed":   self._click_seed,
             }
 
     def get_status(self) -> dict:
@@ -139,9 +141,11 @@ class CageRunner:
             self._event.clear()
 
             resolved, correct_side = _resolve_sides(trial_definition)
-            trial_to_send = _expand_clicks(resolved)
+            click_seed = random.randrange(2**32)
+            trial_to_send = _expand_clicks(resolved, seed=click_seed)
             with self._lock:
                 self._correct_side = correct_side
+                self._click_seed   = click_seed
             _log.info("Cage %d: trial %d — correct_side=%s",
                       self.cage_id, trial_count, correct_side)
 
@@ -239,7 +243,25 @@ def _resolve_sides(trial_definition: dict) -> tuple:
                         transition["target"] = low_side
         return trial, high_side
 
-    # Random mode — coin flip, then swap rates and resolve aliases.
+    # Random mode — coin flip only if the trial uses side-dependent logic
+    # (play_clicks present, or high_click_side/low_click_side aliases used).
+    SIDE_ALIASES = {"high_click_side", "low_click_side"}
+    def _uses_sides(t):
+        for state in t.get("states", []):
+            for phase in ("entry_actions", "exit_actions"):
+                for action in state.get(phase, []):
+                    if action.get("type") == "play_clicks":
+                        return True
+                    if action.get("target") in SIDE_ALIASES:
+                        return True
+            for transition in state.get("transitions", []):
+                if transition.get("target") in SIDE_ALIASES:
+                    return True
+        return False
+
+    if not _uses_sides(trial):
+        return trial, None
+
     correct_side = random.choice(["left", "right"])
     wrong_side   = "right" if correct_side == "left" else "left"
 
@@ -271,7 +293,7 @@ def _resolve_sides(trial_definition: dict) -> tuple:
     return trial, correct_side
 
 
-def _expand_clicks(trial_definition: dict) -> dict:
+def _expand_clicks(trial_definition: dict, seed: int | None = None) -> dict:
     """
     Deep-copy the trial definition and replace any play_clicks action that
     carries rate parameters (left_rate, right_rate, click_duration) with
@@ -288,7 +310,7 @@ def _expand_clicks(trial_definition: dict) -> dict:
                 left_rate  = action.pop("left_rate",      0)
                 right_rate = action.pop("right_rate",     0)
                 duration   = action.pop("click_duration", 1.0)
-                clicks = generate_clicks(left_rate, right_rate, duration)
+                clicks = generate_clicks(left_rate, right_rate, duration, seed=seed)
                 action["left_clicks"]  = clicks["left_clicks"]
                 action["right_clicks"] = clicks["right_clicks"]
     return trial

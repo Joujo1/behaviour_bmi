@@ -80,8 +80,8 @@
     flex-shrink: 0;
     align-self: center;
   }
-  .status-dot.alive    { background: var(--alive); }
   .status-dot.stopped  { background: var(--fg-faint); }
+  .status-dot.alive    { background: var(--alive); }
 
   .cage-img-wrap {
     width: 100%;
@@ -356,9 +356,9 @@
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
           <div class="status-dot" id="dot-${i}"></div>
           <button class="btn small" id="btn-rec-${i}" onclick="toggleRecording(${i})">Rec ▶</button>
-          <div class="status-dot" id="dot-rec-${i}"></div>
+          <div class="status-dot stopped" id="dot-rec-${i}"></div>
           <button class="btn small" id="btn-trial-${i}" onclick="startTrial(${i})">Trial ▶</button>
-          <div class="status-dot" id="dot-trial-${i}"></div>
+          <div class="status-dot stopped" id="dot-trial-${i}"></div>
           <span class="run-timer" id="run-timer-${i}"></span>
           <button class="btn small" onclick="stopTrial(${i})" style="margin-left:auto">Trial ■</button>
         </div>
@@ -443,6 +443,20 @@
       cageState[id].substageId    = res.data.substage_id;
       updateCageSessionUI(id);
       toast(`Cage ${id}: session ${res.data.session_number} opened`);
+      if (res.data.needs_reference_weight) {
+        const subjectCode = allSubjects.find(s => s.id === res.data.subject_id)?.code ?? res.data.subject_id;
+        const raw = prompt(`${subjectCode} — first session. Enter reference weight (g), or cancel to skip.`);
+        if (raw !== null && raw.trim() !== '') {
+          const w = parseFloat(raw);
+          if (!isNaN(w) && w > 0) {
+            await fetch(`/subjects/${res.data.subject_id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference_weight_g: w }),
+            });
+          }
+        }
+      }
     } else {
       toast(`Cage ${id}: ${res.data?.msg || 'failed to open session'}`);
     }
@@ -450,8 +464,8 @@
 
   async function closeCageSession(id) {
     const state = cageState[id];
-    if (!state.sessionId) return;
-    await post(`/session/${state.sessionId}/close`);
+if (!state.sessionId) return;
+    await post(`/session/${state.sessionId}/close`, {});
     toast(`Cage ${id}: session ${state.sessionNumber ?? state.sessionId} closed`);
     cageState[id].sessionId     = null;
     cageState[id].sessionNumber = null;
@@ -704,7 +718,7 @@
   async function closeAllSessions() {
     for (let i = 1; i <= N_CAGES; i++) {
       if (!cageState[i].sessionId) continue;
-      await post(`/session/${cageState[i].sessionId}/close`);
+      await post(`/session/${cageState[i].sessionId}/close`, {});
       cageState[i].sessionId     = null;
       cageState[i].sessionNumber = null;
       updateCageSessionUI(i);
@@ -874,7 +888,24 @@
     toast(res.data?.msg || (res.ok ? 'done' : 'failed'));
   }
 
+  async function restoreActiveSessions() {
+    const res = await fetch('/sessions/active');
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const [cageId, s] of Object.entries(data)) {
+      const id = parseInt(cageId);
+      if (!cageState[id]) continue;
+      cageState[id].sessionId     = s.session_id;
+      cageState[id].sessionNumber = s.session_number;
+      cageState[id].subjectId     = s.subject_id;
+      cageState[id].substageId    = s.substage_id;
+      const sel = document.getElementById(`subject-${id}`);
+      if (sel) sel.value = s.subject_id;
+      updateCageSessionUI(id);
+    }
+  }
+
   // ── Init ─────────────────────────────────────────────────
-  loadSubjects();
+  (async () => { await loadSubjects(); restoreActiveSessions(); })();
 </script>
 {% endblock %}

@@ -33,4 +33,4 @@ FLASK_PORT = 5000
 LOGGING_DIR = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs"
 LOGGING_LEVEL = "INFO"
 
-SCORESHEET_TEMPLATE_PATH = ""
+SCORESHEET_TEMPLATE_PATH = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/Scoresheet_Sample.xlsx"

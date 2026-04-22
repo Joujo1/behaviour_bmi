@@ -306,7 +306,7 @@
 
   async function exportXlsx() {
     if (!currentSubjectId) return;
-    const res  = await fetch(`/subjects/${currentSubjectId}/welfare/export`, { method: 'POST' });
+    const res  = await fetch(`/subjects/${currentSubjectId}/scoresheet/export`, { method: 'POST' });
     const data = await res.json();
     if (data.ok) toast(`Saved to ${data.path}`);
     else toast(`Export failed: ${data.msg}`);

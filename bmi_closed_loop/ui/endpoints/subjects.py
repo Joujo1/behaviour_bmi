@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 import psycopg2
@@ -12,6 +13,13 @@ _log = logging.getLogger("subjects")
 
 def _get_db():
     return psycopg2.connect(config.POSTGRES_DSN)
+
+
+def _serialize(d: dict) -> dict:
+    for k, v in d.items():
+        if isinstance(v, (datetime.date, datetime.datetime)):
+            d[k] = v.isoformat()
+    return d
 
 
 @subjects_bp.get("/subjects-page")
@@ -52,7 +60,7 @@ def list_subjects():
     finally:
         conn.close()
 
-    return jsonify([dict(zip(cols, r)) for r in rows])
+    return jsonify([_serialize(dict(zip(cols, r))) for r in rows])
 
 
 @subjects_bp.post("/subjects")
@@ -141,7 +149,7 @@ def get_subject(subject_id: int):
     finally:
         conn.close()
 
-    return jsonify(subject)
+    return jsonify(_serialize(subject))
 
 
 @subjects_bp.patch("/subjects/<int:subject_id>")
@@ -198,6 +206,29 @@ def set_substage(subject_id: int):
         conn.close()
 
     _log.info("Subject %d manually moved to substage %d", subject_id, substage_id)
+    return jsonify({"ok": True})
+
+
+@subjects_bp.delete("/subjects/<int:subject_id>")
+def delete_subject(subject_id: int):
+    """Delete a subject. Fails if any sessions reference it."""
+    conn = _get_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM sessions WHERE subject_id = %s", (subject_id,))
+                if cur.fetchone()[0] > 0:
+                    return jsonify({
+                        "ok": False,
+                        "msg": "Cannot delete: subject has sessions.",
+                    }), 409
+                cur.execute("DELETE FROM subjects WHERE id = %s RETURNING id", (subject_id,))
+                if cur.fetchone() is None:
+                    abort(404)
+    finally:
+        conn.close()
+
+    _log.info("Subject %d deleted", subject_id)
     return jsonify({"ok": True})
 
 

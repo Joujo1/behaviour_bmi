@@ -1,5 +1,5 @@
 """
-Welfare scoresheet endpoints.
+Scoresheet endpoints.
 
 One scoresheet_entries row is auto-created when a session is opened.
 Researchers fill in scores, weight, and notes via the scoresheet UI.
@@ -30,7 +30,7 @@ def scoresheet_page():
 
 @scoresheet_bp.get("/subjects/<int:subject_id>/scoresheet")
 def list_scoresheet(subject_id: int):
-    """Return all welfare entries for a subject, newest first."""
+    """Return all entries for a subject, newest first."""
     conn = _get_db()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -69,6 +69,7 @@ def create_scoresheet(subject_id: int):
                 conn, subject_id,
                 session_id=body.get("session_id"),
                 weight_g=body.get("weight_g"),
+                allow_duplicate=True,
             )
     finally:
         conn.close()
@@ -164,39 +165,69 @@ def export_scoresheet(subject_id: int):
     wb = openpyxl.load_workbook(template_path)
     ws = wb.active
 
-    # Header row (row 2)
+    def _safe_write(row, col, value):
+        """Write to a cell only if it is not a MergedCell (read-only proxy)."""
+        cell = ws.cell(row=row, column=col)
+        if hasattr(cell, "value") and not isinstance(cell, openpyxl.cell.cell.MergedCell):
+            cell.value = value
+
+    # Row 2: keep exact label text from template, append value after it.
     dob_str = subject["dob"].isoformat() if subject["dob"] else ""
     species_str = "/".join(filter(None, [subject.get("species"), subject.get("strain"), subject.get("sex")]))
-    ws["B2"] = subject["code"]
-    ws["C2"] = dob_str
-    ws["D2"] = subject.get("experiment_nr") or ""
-    ws["E2"] = species_str
+    _safe_write(2, 1,  f"Animal ID & Cage nr: {subject['code']}")
+    _safe_write(2, 6,  f"Date of birth: {dob_str}")
+    _safe_write(2, 9,  f"Experiment Nr: {subject.get('experiment_nr') or ''}")
+    _safe_write(2, 12, f"Species, strain & sex: {species_str}")
+    # E2 (Experimenter) and P2 (Page Nr) left as-is — not in our data
+
+    # F4 = reference weight value; E4 "Reference weight:" label stays untouched
     ref_w = subject.get("reference_weight_g")
     if ref_w is not None:
-        ws["F2"] = float(ref_w)
+        _safe_write(4, 6, float(ref_w))
 
-    # Data rows starting at row 4
-    for i, e in enumerate(entries):
-        row = 4 + i
-        ws.cell(row=row, column=1).value = e["entry_date"].isoformat() if e["entry_date"] else ""
-        ws.cell(row=row, column=2).value = str(e["entry_time"])[:5] if e["entry_time"] else ""
-        ws.cell(row=row, column=3).value = e["days_in_experiment"]
-        ws.cell(row=row, column=4).value = e["procedure_nr"] or ""
-        ws.cell(row=row, column=5).value = e["procedure_details"] or ""
-        # Weight + change %
+    # Data rows start at row 5; row 17 is the divider — skip it.
+    # Column map: A=1 Date, B=2 Time, C=3 Day, D=4 Proc nr, E=5 Details,
+    #   F=6 Weight, G=7 ScoreA, H=8 B, I=9 C, J=10 D, K=11 Total, L=12 Medication
+    # Remarks column varies by row:
+    #   rows 5–16 and 18–21 → P (col 16)
+    #   rows 22–23          → M (col 13, top-left of their respective merges)
+    #   rows 24–30          → not writable (merged into M23:Q30)
+    DIVIDER_ROW = 17
+    row = 5
+    for e in entries:
+        if row == DIVIDER_ROW:
+            row += 1
+
+        d = e["entry_date"]
+        date_str = f"{d.day:02d}/{d.month:02d}/{str(d.year)[2:]}" if d else ""
+        _safe_write(row, 1,  date_str)
+        _safe_write(row, 2,  str(e["entry_time"])[:5] if e["entry_time"] else "")
+        _safe_write(row, 3,  e["days_in_experiment"])
+        _safe_write(row, 4,  e["procedure_nr"] or "")
+        _safe_write(row, 5,  e["procedure_details"] or "")
         weight_str = ""
         if e["weight_g"] is not None:
             weight_str = f"{e['weight_g']}g"
             if e["weight_change_pct"] is not None:
                 weight_str += f" / {float(e['weight_change_pct']):+.1f}%"
-        ws.cell(row=row, column=6).value = weight_str
-        ws.cell(row=row, column=7).value  = int(e["score_a"])
-        ws.cell(row=row, column=8).value  = int(e["score_b"])
-        ws.cell(row=row, column=9).value  = int(e["score_c"])
-        ws.cell(row=row, column=10).value = int(e["score_d"])
-        ws.cell(row=row, column=11).value = int(e["score_a"]) + int(e["score_b"]) + int(e["score_c"]) + int(e["score_d"])
-        ws.cell(row=row, column=12).value = e["medication"] or ""
-        ws.cell(row=row, column=13).value = e["remarks"] or ""
+        _safe_write(row, 6,  weight_str)
+        sa = int(e["score_a"] or 0)
+        sb = int(e["score_b"] or 0)
+        sc = int(e["score_c"] or 0)
+        sd = int(e["score_d"] or 0)
+        _safe_write(row, 7,  sa)
+        _safe_write(row, 8,  sb)
+        _safe_write(row, 9,  sc)
+        _safe_write(row, 10, sd)
+        _safe_write(row, 11, sa + sb + sc + sd)
+        _safe_write(row, 12, e["medication"] or "")
+        remarks = e["remarks"] or ""
+        if row <= 16 or 18 <= row <= 21:
+            _safe_write(row, 16, remarks)   # column P
+        elif row in (22, 23):
+            _safe_write(row, 13, remarks)   # column M (top-left of merge)
+        # rows 24–30: P is merged into M23:Q30 — not writable
+        row += 1
 
     out_dir = os.path.join(config.NAS_BASE_PATH, "scoresheets")
     os.makedirs(out_dir, exist_ok=True)
@@ -208,38 +239,33 @@ def export_scoresheet(subject_id: int):
 
 
 def auto_create_scoresheet_entry(subject_id: int, session_id: int, conn) -> int:
-    """
-    Insert a welfare entry for today if none exists yet for this subject today.
-    Called by session.py immediately after INSERT INTO sessions.
-    Returns the entry id (new or existing).
-    """
     return _insert_scoresheet_entry(conn, subject_id, session_id=session_id)
 
 
-def _insert_scoresheet_entry(conn, subject_id: int, session_id=None, weight_g=None) -> int:
+def _insert_scoresheet_entry(conn, subject_id: int, session_id=None,
+                              weight_g=None, allow_duplicate: bool = False) -> int:
     today = date.today()
     with conn.cursor() as cur:
-        # Deduplicate: one entry per session (if session known), else one per subject per day
-        if session_id is not None:
-            cur.execute(
-                "SELECT id FROM scoresheet_entries WHERE session_id = %s LIMIT 1",
-                (session_id,),
-            )
-        else:
-            cur.execute(
-                "SELECT id FROM scoresheet_entries WHERE subject_id = %s AND entry_date = %s AND session_id IS NULL LIMIT 1",
-                (subject_id, today),
-            )
-        existing = cur.fetchone()
-        if existing:
-            return existing[0]
+        if not allow_duplicate:
+            if session_id is not None:
+                cur.execute(
+                    "SELECT id FROM scoresheet_entries WHERE session_id = %s LIMIT 1",
+                    (session_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT id FROM scoresheet_entries WHERE subject_id = %s AND entry_date = %s AND session_id IS NULL LIMIT 1",
+                    (subject_id, today),
+                )
+            existing = cur.fetchone()
+            if existing:
+                return existing[0]
 
-        # Compute days_in_experiment from enrolled_at
         cur.execute("SELECT enrolled_at, reference_weight_g FROM subjects WHERE id = %s", (subject_id,))
         srow = cur.fetchone()
         enrolled_at = srow[0] if srow else None
         reference_weight_g = srow[1] if srow else None
-        days = (today - enrolled_at.date()).days if enrolled_at else None
+        days = (today - enrolled_at.date()).days + 1 if enrolled_at else None
 
         weight_change_pct = None
         if weight_g is not None and reference_weight_g is not None and float(reference_weight_g) != 0:
@@ -259,7 +285,6 @@ def _insert_scoresheet_entry(conn, subject_id: int, session_id=None, weight_g=No
         )
         entry_id = cur.fetchone()[0]
 
-        # If first entry ever and weight provided → set reference_weight_g
         if weight_g is not None and reference_weight_g is None:
             cur.execute(
                 "UPDATE subjects SET reference_weight_g = %s WHERE id = %s",
@@ -277,7 +302,6 @@ def _update_weight_change(cur, subject_id: int, entry_id: int, weight_g: float) 
     reference_weight_g = row[0] if row else None
 
     if reference_weight_g is None:
-        # First weight recorded → becomes the reference
         cur.execute("UPDATE subjects SET reference_weight_g = %s WHERE id = %s", (weight_g, subject_id))
         reference_weight_g = weight_g
 

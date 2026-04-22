@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS trial_results (
 );
 ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS correct_side   TEXT   CHECK (correct_side IN ('left', 'right'));
 ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS trial_start_us BIGINT;
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS click_seed     BIGINT;
 
 
 -- ---------------------------------------------------------------------------

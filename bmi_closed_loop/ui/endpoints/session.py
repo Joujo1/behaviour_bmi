@@ -1,3 +1,4 @@
+import json
 import logging
 
 import psycopg2
@@ -27,10 +28,11 @@ def open_session():
     """
     body = request.get_json(force=True) or {}
 
-    subject_id  = body.get("subject_id")
-    cage_id     = body.get("cage_id")
-    substage_id = None
-    task_config = None
+    subject_id         = body.get("subject_id")
+    cage_id            = body.get("cage_id")
+    substage_id        = None
+    task_config        = None
+    reference_weight_g = None
 
     if subject_id is not None:
         conn = _get_db()
@@ -38,7 +40,7 @@ def open_session():
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT s.current_substage_id, ts.task_config
+                    SELECT s.current_substage_id, ts.task_config, s.reference_weight_g
                     FROM subjects s
                     LEFT JOIN training_substages ts ON ts.id = s.current_substage_id
                     WHERE s.id = %s
@@ -51,8 +53,9 @@ def open_session():
 
         if row is None:
             return jsonify({"ok": False, "msg": f"subject {subject_id} not found"}), 404
-        substage_id = row[0]
-        task_config = row[1]
+        substage_id       = row[0]
+        task_config       = row[1]
+        reference_weight_g = row[2]
 
     conn = _get_db()
     try:
@@ -92,6 +95,15 @@ def open_session():
     finally:
         conn.close()
 
+    # Store active session state for UI restoration on page reload
+    if cage_id is not None:
+        _valkey.set(f"cage:{cage_id}:active_session", json.dumps({
+            "session_id":     session_id,
+            "session_number": session_number,
+            "subject_id":     subject_id,
+            "substage_id":    substage_id,
+        }))
+
     # Enable recording and start streaming for the cage
     if cage_id is not None:
         _valkey.set(f"cage:{cage_id}:recording", "1")
@@ -114,13 +126,20 @@ def open_session():
         "Session %d opened (cage=%s subject=%s substage=%s session_number=%s trials_started=%s)",
         session_id, cage_id, subject_id, substage_id, session_number, trials_started,
     )
+    needs_ref_weight = (
+        subject_id is not None
+        and session_number == 1
+        and reference_weight_g is None
+    )
     return jsonify({
-        "ok":            True,
-        "session_id":    session_id,
-        "session_number": session_number,
-        "substage_id":   substage_id,
-        "trials_started": trials_started,
-        "trials_msg":    trials_msg,
+        "ok":                  True,
+        "session_id":          session_id,
+        "session_number":      session_number,
+        "substage_id":         substage_id,
+        "trials_started":      trials_started,
+        "trials_msg":          trials_msg,
+        "needs_reference_weight": needs_ref_weight,
+        "subject_id":          subject_id,
     })
 
 
@@ -139,6 +158,7 @@ def close_session(session_id: int):
 
     values.append(session_id)
     cage_id = None
+    _log.info("close_session called: session_id=%s body=%s", session_id, body)
     conn = _get_db()
     try:
         with conn:
@@ -148,19 +168,42 @@ def close_session(session_id: int):
                     values,
                 )
                 row = cur.fetchone()
+                _log.info("close_session UPDATE returned row=%s", row)
                 if row:
                     cage_id = row[0]
+    except Exception as e:
+        _log.error("close_session DB error: %s", e)
+        raise
     finally:
         conn.close()
 
     if cage_id is not None:
+        # Clear Valkey state before any potentially blocking calls
+        _valkey.delete(f"cage:{cage_id}:active_session")
         _valkey.set(f"cage:{cage_id}:recording", "0")
         runner = runners.get(cage_id)
         if runner:
             runner.stop()
+        sender = current_app.config["COMMAND_SENDERS"].get(cage_id)
+        if sender:
+            sender.send("STOP_TRIAL")
 
     _log.info("Session %d closed (cage=%s)", session_id, cage_id)
     return jsonify({"ok": True})
+
+
+@session_bp.get("/sessions/active")
+def active_sessions():
+    """Return active session state per cage from Valkey (set on open, deleted on close)."""
+    result = {}
+    for cage_id in range(1, config.N_CAGES + 1):
+        raw = _valkey.get(f"cage:{cage_id}:active_session")
+        if raw:
+            try:
+                result[cage_id] = json.loads(raw)
+            except Exception:
+                pass
+    return jsonify(result)
 
 
 @session_bp.get("/sessions")
