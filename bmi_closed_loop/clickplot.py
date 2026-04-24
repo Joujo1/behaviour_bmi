@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-srate  = 200_000                                    # audio sample rate (Hz)
+srate  = 48_000                                    # audio sample rate (Hz)
 width  = 0.003                                      # bup_width = 3 ms
 ramp   = 0.002                                      # bup_ramp  = 2 ms
-tones  = np.array([2000, 4000, 8000, 16000, 32000]) # Hz
+tones  = np.array([2000, 4000, 8000, 16000]) # Hz
 att_db = 40                                         # attenuation in dB
 
 t = np.arange(0, width + 1/srate, 1/srate)

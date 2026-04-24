@@ -16,7 +16,6 @@ Hardware:
 
 import argparse
 
-import matplotlib.pyplot as plt
 import numpy as np
 import sounddevice as sd
 
@@ -69,33 +68,6 @@ def main():
           f"{WIDTH*1000:.0f} ms wide, {ATT_DB} dB att")
     print(f"Rate:  {1/ici:.1f} clicks/s  (ICI {ici*2000:.0f} ms)")
     print("Playing — Ctrl+C to stop\n")
-
-    # ── Plot waveform + power spectrum ────────────────────────────────────────
-    t_ms = np.arange(len(click)) / SRATE * 1000
-    N = 1 << 15
-    spectrum    = np.abs(np.fft.rfft(click, N)) ** 2
-    freqs       = np.fft.rfftfreq(N, 1 / SRATE)
-    spectrum_db = 10 * np.log10(spectrum / spectrum.max() + 1e-12)
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-    fig.suptitle(f"Click  (tones={[f//1000 for f in TONES]} kHz, "
-                 f"width={WIDTH*1000:.0f} ms, ramp={RAMP*1000:.0f} ms, att={ATT_DB} dB)")
-    ax1.plot(t_ms, click, color="#1f77b4", linewidth=1)
-    ax1.set_xlabel("Time (ms)"); ax1.set_ylabel("Amplitude")
-    ax1.axhline(0, color="k", linewidth=0.5, alpha=0.3)
-    ax1.grid(alpha=0.3); ax1.set_title("Waveform")
-
-    ax2.plot(freqs / 1000, spectrum_db, color="#d62728", linewidth=1.2)
-    for f in TONES:
-        ax2.axvline(f / 1000, color="k", linestyle="--", linewidth=0.6, alpha=0.4)
-        ax2.text(f / 1000, 3, f"{f//1000:.0f}", ha="center", fontsize=8)
-    ax2.set_xlabel("Frequency (kHz)"); ax2.set_ylabel("Power (dB, normalised)")
-    ax2.set_xscale("log"); ax2.set_xlim(0.5, SRATE / 2000)
-    ax2.set_ylim(-80, 10); ax2.grid(alpha=0.3, which="both")
-    ax2.set_title("Power spectrum")
-
-    plt.tight_layout()
-    plt.show(block=False)
 
     # Build one ICI-length period: click followed by silence
     ici_samples = int(round(ici * SRATE))
