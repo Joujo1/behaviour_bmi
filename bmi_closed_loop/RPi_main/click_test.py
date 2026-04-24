@@ -1,17 +1,8 @@
 """
-Standalone click test — plays the Brody-style broadband click continuously
-via the Pi 4 3.5mm audio jack (sounddevice / ALSA).
-
-Usage:
-    python click_test.py              # 10 clicks/s
-    python click_test.py --rate 5     # 5 clicks/s
-    python click_test.py --ici 0.2    # 200 ms inter-click interval
-Requirements:
-    pip install sounddevice numpy
-
-Hardware:
-    PAM8302 IN+ → Pi 4 3.5mm tip (left channel)
-    PAM8302 IN- → Pi 4 3.5mm sleeve (ground)
+    python click_test.py                          # 10 clicks/s mono
+    python click_test.py --rate 5                 # 5 clicks/s mono
+    python click_test.py --ici 0.2                # 200 ms ICI mono
+    python click_test.py --left 40 --right 10     # stereo Poisson
 """
 
 import argparse
@@ -26,7 +17,8 @@ RAMP    = 0.002                         # 2 ms cosine-squared fade in/out
 TONES   = [2000, 4000, 8000, 16000]     # Hz — 32kHz dropped (aliases at 48kHz)
 ATT_DB  = 40                            # dB attenuation
 
-sd.default.device = 1
+BUFFER_S = 2.0                          # seconds of audio pre-generated per chunk
+
 
 def build_click(srate=SRATE, width=WIDTH, ramp=RAMP,
                 tones=TONES, att_db=ATT_DB) -> np.ndarray:
@@ -50,36 +42,83 @@ def build_click(srate=SRATE, width=WIDTH, ramp=RAMP,
     return snd.astype(np.float32)
 
 
+def generate_poisson_buffer(click: np.ndarray, left_rate: float,
+                             right_rate: float, duration: float) -> np.ndarray:
+    """Generate a stereo buffer with independent Poisson click trains per channel."""
+    n_samples = int(duration * SRATE)
+    buf = np.zeros((n_samples, 2), dtype=np.float32)
+    click_len = len(click)
+
+    for ch, rate in enumerate([left_rate, right_rate]):
+        t = 0.0
+        while t < duration:
+            t += np.random.exponential(1.0 / rate)
+            i = int(t * SRATE)
+            if i + click_len <= n_samples:
+                buf[i:i + click_len, ch] += click
+
+    np.clip(buf, -1.0, 1.0, out=buf)
+    return buf
+
+
 def main():
     parser = argparse.ArgumentParser()
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--rate",  type=float, default=10.0,
-                       help="clicks per second (default 10)")
-    group.add_argument("--ici",   type=float,
-                       help="inter-click interval in seconds (overrides --rate)")
+    mono_group = parser.add_mutually_exclusive_group()
+    mono_group.add_argument("--rate", type=float, default=None,
+                            help="mono clicks per second (default 10)")
+    mono_group.add_argument("--ici",  type=float,
+                            help="mono inter-click interval in seconds")
+    parser.add_argument("--left",    type=float, default=None,
+                        help="left clicks per trial (Poisson mean)")
+    parser.add_argument("--right",   type=float, default=None,
+                        help="right clicks per trial (Poisson mean)")
+    parser.add_argument("--seconds", type=float, default=1.0,
+                        help="trial duration in seconds (default 1.0)")
+    parser.add_argument("--gap",     type=float, default=0.0,
+                        help="silence between trials in seconds (default 0)")
     args = parser.parse_args()
 
-    ici = args.ici if args.ici is not None else 1.0 / args.rate
-
     click = build_click()
-    click_duration = len(click) / SRATE
+    stereo_mode = args.left is not None or args.right is not None
 
-    print(f"Click: {len(TONES)} tones {[t//1000 for t in TONES]} kHz, "
-          f"{WIDTH*1000:.0f} ms wide, {ATT_DB} dB att")
-    print(f"Rate:  {1/ici:.1f} clicks/s  (ICI {ici*2000:.0f} ms)")
-    print("Playing — Ctrl+C to stop\n")
+    if stereo_mode:
+        duration   = args.seconds
+        left_rate  = (args.left  or 0.0) / duration
+        right_rate = (args.right or 0.0) / duration
+        print(f"Stereo Poisson — left: {args.left or 0:.1f} clicks  "
+              f"right: {args.right or 0:.1f} clicks  over {duration:.1f}s")
+        print("Playing — Ctrl+C to stop\n")
 
-    # Build one ICI-length period: click followed by silence
-    ici_samples = int(round(ici * SRATE))
-    period = np.zeros(ici_samples, dtype=np.float32)
-    period[:len(click)] = click
+        gap_samples = int(args.gap * SRATE)
+        silence = np.zeros((gap_samples, 2), dtype=np.float32)
 
-    try:
-        with sd.OutputStream(samplerate=SRATE, channels=1, device=1, dtype='float32') as stream:
-            while True:
-                stream.write(period)
-    except KeyboardInterrupt:
-        print("\nStopped.")
+        try:
+            with sd.OutputStream(samplerate=SRATE, channels=2,
+                                  device=1, dtype='float32') as stream:
+                while True:
+                    buf = generate_poisson_buffer(click, left_rate, right_rate, duration)
+                    stream.write(buf)
+                    if gap_samples:
+                        stream.write(silence)
+        except KeyboardInterrupt:
+            print("\nStopped.")
+
+    else:
+        ici = args.ici if args.ici is not None else 1.0 / (args.rate or 10.0)
+        print(f"Mono — rate: {1/ici:.1f} clicks/s  ICI: {ici*1000:.0f} ms")
+        print("Playing — Ctrl+C to stop\n")
+
+        ici_samples = int(round(ici * SRATE))
+        period = np.zeros(ici_samples, dtype=np.float32)
+        period[:len(click)] = click
+
+        try:
+            with sd.OutputStream(samplerate=SRATE, channels=1,
+                                  device=1, dtype='float32') as stream:
+                while True:
+                    stream.write(period)
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
 
 if __name__ == "__main__":
