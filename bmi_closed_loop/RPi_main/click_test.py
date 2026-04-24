@@ -15,7 +15,6 @@ Hardware:
 """
 
 import argparse
-import time
 
 import numpy as np
 import sounddevice as sd
@@ -70,18 +69,16 @@ def main():
     print(f"Rate:  {1/ici:.1f} clicks/s  (ICI {ici*2000:.0f} ms)")
     print("Playing — Ctrl+C to stop\n")
 
-    sd.default.samplerate = SRATE
-    sd.default.channels   = 1
+    # Build one ICI-length period: click followed by silence
+    ici_samples = int(round(ici * SRATE))
+    period = np.zeros(ici_samples, dtype=np.float32)
+    period[:len(click)] = click
 
     try:
-        while True:
-            t0 = time.monotonic()
-            sd.play(click, blocking=False)
-            elapsed = time.monotonic() - t0
-            sleep_s = max(0.0, ici - elapsed)
-            time.sleep(sleep_s)
+        with sd.OutputStream(samplerate=SRATE, channels=1, device=1, dtype='float32') as stream:
+            while True:
+                stream.write(period)
     except KeyboardInterrupt:
-        sd.stop()
         print("\nStopped.")
 
 
