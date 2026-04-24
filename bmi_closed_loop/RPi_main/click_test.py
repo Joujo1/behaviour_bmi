@@ -27,6 +27,7 @@ RAMP    = 0.002                         # 2 ms cosine-squared fade in/out
 TONES   = [2000, 4000, 8000, 16000]     # Hz — 32kHz dropped (aliases at 48kHz)
 ATT_DB  = 40                            # dB attenuation
 
+sd.default.device = 1
 
 def build_click(srate=SRATE, width=WIDTH, ramp=RAMP,
                 tones=TONES, att_db=ATT_DB) -> np.ndarray:
