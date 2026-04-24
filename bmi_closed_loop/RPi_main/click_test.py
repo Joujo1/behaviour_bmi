@@ -43,11 +43,12 @@ def build_click(srate=SRATE, width=WIDTH, ramp=RAMP,
 
 
 def generate_poisson_buffer(click: np.ndarray, left_rate: float,
-                             right_rate: float, duration: float) -> np.ndarray:
+                             right_rate: float, duration: float):
     """Generate a stereo buffer with independent Poisson click trains per channel."""
     n_samples = int(duration * SRATE)
     buf = np.zeros((n_samples, 2), dtype=np.float32)
     click_len = len(click)
+    times = [[], []]
 
     for ch, rate in enumerate([left_rate, right_rate]):
         t = 0.0
@@ -56,9 +57,10 @@ def generate_poisson_buffer(click: np.ndarray, left_rate: float,
             i = int(t * SRATE)
             if i + click_len <= n_samples:
                 buf[i:i + click_len, ch] += click
+                times[ch].append(round(t, 4))
 
     np.clip(buf, -1.0, 1.0, out=buf)
-    return buf
+    return buf, times[0], times[1]
 
 
 def main():
@@ -83,10 +85,10 @@ def main():
 
     if stereo_mode:
         duration   = args.seconds
-        left_rate  = (args.left  or 0.0) / duration
-        right_rate = (args.right or 0.0) / duration
-        print(f"Stereo Poisson — left: {args.left or 0:.1f} clicks  "
-              f"right: {args.right or 0:.1f} clicks  over {duration:.1f}s")
+        left_rate  = args.left  or 0.0
+        right_rate = args.right or 0.0
+        print(f"Stereo Poisson — left: {left_rate:.1f} Hz  right: {right_rate:.1f} Hz  "
+              f"duration: {duration:.1f}s  (expected ~{left_rate*duration:.0f}L / {right_rate*duration:.0f}R clicks)")
         print("Playing — Ctrl+C to stop\n")
 
         gap_samples = int(args.gap * SRATE)
@@ -95,8 +97,13 @@ def main():
         try:
             with sd.OutputStream(samplerate=SRATE, channels=2,
                                   device=1, dtype='float32') as stream:
+                trial = 0
                 while True:
-                    buf = generate_poisson_buffer(click, left_rate, right_rate, duration)
+                    trial += 1
+                    buf, left_times, right_times = generate_poisson_buffer(
+                        click, left_rate, right_rate, duration)
+                    print(f"Trial {trial}  L={len(left_times)} clicks: {[f'{t:.3f}' for t in left_times]}")
+                    print(f"         R={len(right_times)} clicks: {[f'{t:.3f}' for t in right_times]}")
                     stream.write(buf)
                     if gap_samples:
                         stream.write(silence)
