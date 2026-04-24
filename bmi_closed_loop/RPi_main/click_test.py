@@ -71,13 +71,15 @@ def main():
     mono_group.add_argument("--ici",  type=float,
                             help="mono inter-click interval in seconds")
     parser.add_argument("--left",    type=float, default=None,
-                        help="left clicks per trial (Poisson mean)")
+                        help="left channel Poisson rate (clicks/s)")
     parser.add_argument("--right",   type=float, default=None,
-                        help="right clicks per trial (Poisson mean)")
+                        help="right channel Poisson rate (clicks/s)")
     parser.add_argument("--seconds", type=float, default=1.0,
                         help="trial duration in seconds (default 1.0)")
     parser.add_argument("--gap",     type=float, default=0.0,
                         help="silence between trials in seconds (default 0)")
+    parser.add_argument("--shuffle", type=int,   default=0,
+                        help="if 1, randomly swap left/right each trial")
     args = parser.parse_args()
 
     click = build_click()
@@ -100,10 +102,15 @@ def main():
                 trial = 0
                 while True:
                     trial += 1
-                    buf, left_times, right_times = generate_poisson_buffer(
-                        click, left_rate, right_rate, duration)
-                    print(f"Trial {trial}  L={len(left_times)} clicks: {[f'{t:.3f}' for t in left_times]}")
-                    print(f"         R={len(right_times)} clicks: {[f'{t:.3f}' for t in right_times]}")
+                    l, r = left_rate, right_rate
+                    if args.shuffle and np.random.randint(2):
+                        l, r = r, l
+                        side = "R>L"
+                    else:
+                        side = "L>R"
+                    buf, left_times, right_times = generate_poisson_buffer(click, l, r, duration)
+                    print(f"Trial {trial} [{side}]  L={len(left_times)} clicks: {[f'{t:.3f}' for t in left_times]}")
+                    print(f"              R={len(right_times)} clicks: {[f'{t:.3f}' for t in right_times]}")
                     stream.write(buf)
                     if gap_samples:
                         stream.write(silence)
