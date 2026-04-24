@@ -43,7 +43,8 @@ def build_click(srate=SRATE, width=WIDTH, ramp=RAMP,
 
 
 def generate_poisson_buffer(click: np.ndarray, left_rate: float,
-                             right_rate: float, duration: float):
+                             right_rate: float, duration: float,
+                             min_ici: float = 0.0):
     """Generate a stereo buffer with independent Poisson click trains per channel."""
     n_samples = int(duration * SRATE)
     buf = np.zeros((n_samples, 2), dtype=np.float32)
@@ -52,12 +53,20 @@ def generate_poisson_buffer(click: np.ndarray, left_rate: float,
 
     for ch, rate in enumerate([left_rate, right_rate]):
         t = 0.0
+        last_t = -np.inf
+        dropped = 0
         while t < duration:
             t += np.random.exponential(1.0 / rate)
+            if t - last_t < min_ici:
+                dropped += 1
+                continue
             i = int(t * SRATE)
             if i + click_len <= n_samples:
                 buf[i:i + click_len, ch] += click
                 times[ch].append(round(t, 4))
+                last_t = t
+        if dropped:
+            print(f"  ch{'LR'[ch]}: dropped {dropped} clicks (min_ici={min_ici*1000:.1f}ms)")
 
     np.clip(buf, -1.0, 1.0, out=buf)
     return buf, times[0], times[1]
@@ -78,8 +87,10 @@ def main():
                         help="trial duration in seconds (default 1.0)")
     parser.add_argument("--gap",     type=float, default=0.0,
                         help="silence between trials in seconds (default 0)")
-    parser.add_argument("--shuffle", type=int,   default=0,
+    parser.add_argument("--shuffle",  type=int,   default=0,
                         help="if 1, randomly swap left/right each trial")
+    parser.add_argument("--min-ici", type=float, default=0.0,
+                        help="minimum inter-click interval in seconds (drops overlapping clicks)")
     args = parser.parse_args()
 
     click = build_click()
@@ -108,7 +119,7 @@ def main():
                         side = "R>L"
                     else:
                         side = "L>R"
-                    buf, left_times, right_times = generate_poisson_buffer(click, l, r, duration)
+                    buf, left_times, right_times = generate_poisson_buffer(click, l, r, duration, args.min_ici)
                     print(f"Trial {trial} [{side}]  L={len(left_times)} clicks: {[f'{t:.3f}' for t in left_times]}")
                     print(f"              R={len(right_times)} clicks: {[f'{t:.3f}' for t in right_times]}")
                     stream.write(buf)
