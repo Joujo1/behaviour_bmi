@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -24,28 +25,27 @@ def main():
 
     import config
     session_dir = os.path.join(config.NAS_BASE_PATH, session_name)
-    stress_log  = os.path.join(session_dir, "stress_log.csv")
+
+    log_dir = os.path.join(
+        "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs",
+        f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_{session_name}",
+    )
+    os.makedirs(log_dir, exist_ok=True)
+    env = {**os.environ, "BMI_LOG_DIR": log_dir}
 
     procs["acquisition"] = subprocess.Popen(
         [sys.executable, "-m", "acquisition.acquisition_main", session_name],
-        cwd=PROJECT_ROOT,
+        cwd=PROJECT_ROOT, env=env,
     )
     procs["ui"] = subprocess.Popen(
         [sys.executable, "-m", "ui.ui_main"],
-        cwd=PROJECT_ROOT,
+        cwd=PROJECT_ROOT, env=env,
     )
-    time.sleep(3)  # wait for Flask to be ready before stress logger starts polling
-    procs["stress"] = subprocess.Popen(
-        [sys.executable, os.path.join(PROJECT_ROOT, "debug", "stress_logger.py"), stress_log],
-        cwd=PROJECT_ROOT,
-    )
-
     deadline = time.time() + duration_s
     h = int(duration_s // 3600)
     m = int((duration_s % 3600) // 60)
     print(f"\n  Session  : {session_name}")
     print(f"  UI       : http://localhost:5000")
-    print(f"  Stress   : {stress_log}")
     print(f"  Auto-stop: {h}h{m:02d}m  (Ctrl-C to stop earlier)\n")
 
     def _timer():

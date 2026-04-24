@@ -1,3 +1,5 @@
+import os
+
 N_CAGES = 12
 
 # formula: UDP_BASE_PORT + cage_id
@@ -30,7 +32,10 @@ FAN_MIN_DUTY = 30
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000
 
-LOGGING_DIR = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs"
+LOGGING_DIR = os.environ.get(
+    "BMI_LOG_DIR",
+    "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs"
+)
 LOGGING_LEVEL = "INFO"
 
 SCORESHEET_TEMPLATE_PATH = "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/Scoresheet_Sample.xlsx"

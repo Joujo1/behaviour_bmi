@@ -17,22 +17,8 @@ from ui.endpoints.trial import trial_bp
 from ui.event_handler import handle_trial_event
 
 app = Flask(__name__)
-
-import os
-from datetime import datetime
-_log_dir = os.path.join(config.LOGGING_DIR, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-os.makedirs(_log_dir, exist_ok=True)
-_log_file = os.path.join(_log_dir, "ui.log")
-
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(_log_file),
-    ],
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 # Clear stale streaming state from previous sessions
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)

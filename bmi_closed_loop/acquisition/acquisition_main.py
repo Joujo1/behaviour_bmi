@@ -8,7 +8,6 @@ from acquisition.frame_writer import FrameWriter
 from acquisition.packet_parser import parse_packet
 from acquisition.udp_receiver import UDPreceiver
 from acquisition.watchdog import Watchdog
-from acquisition.drift_logger import DriftLogger  # DRIFT
 from shared.logger import get_logger
 
 log = get_logger("acquisition", config.LOGGING_DIR, config.LOGGING_LEVEL)
@@ -21,7 +20,7 @@ def _make_stats() -> dict:
     }
 
 
-def _make_callback(writer: FrameWriter, cage_id: int, stats: dict, drift: DriftLogger):  # DRIFT
+def _make_callback(writer: FrameWriter, cage_id: int, stats: dict):
     last_frame_num = 0
 
     def callback(data: bytes, ip: str, _port: int, arrival_time: float):
@@ -41,7 +40,6 @@ def _make_callback(writer: FrameWriter, cage_id: int, stats: dict, drift: DriftL
         last_frame_num = frame.pi_seq
 
         stats[cage_id]["last_seen"] = time.time()
-        drift.record(cage_id, frame.network_arrival_time, frame.timestamp, frame.pi_seq)  # DRIFT
         writer.write_frame(frame)
     return callback
 
@@ -50,8 +48,6 @@ def main():
     session_dir = os.path.join(config.NAS_BASE_PATH, sys.argv[1])
 
     camera_stats = _make_stats()
-
-    drift = DriftLogger(session_dir, config.N_CAGES)  # DRIFT
 
     writers = []
     listeners = []
@@ -64,7 +60,7 @@ def main():
         port = config.UDP_BASE_PORT + cage_id
         listener = UDPreceiver(
             port,
-            _make_callback(writer, cage_id, camera_stats, drift),
+            _make_callback(writer, cage_id, camera_stats),
             on_drop=lambda cid=cage_id: camera_stats[cid].__setitem__("drop_count", camera_stats[cid]["drop_count"] + 1),
         )
         listener.start()
@@ -82,7 +78,6 @@ def main():
             l.stop()
         for w in writers:
             w.stop()
-        drift.stop()  # DRIFT
         watchdog.stop()
         sys.exit(0)
 
