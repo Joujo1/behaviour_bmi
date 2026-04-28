@@ -50,7 +50,8 @@ UDP_STREAM_PORT = 5002
 CAMERA_FPS          = 60
 CAMERA_WIDTH        = 1080
 CAMERA_HEIGHT       = 720
-CAMERA_BITRATE      = 8_000_000
+CAMERA_BITRATE      = 2_000_000   # H264 — keeps I-frames well under UDP 65507 limit
+CAMERA_H264_IPERIOD = 60          # I-frame every 1 s at 60 fps
 CAMERA_EXPOSURE_US  = 6000
 CAMERA_GAIN         = 4.0
 

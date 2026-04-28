@@ -1,12 +1,12 @@
 import time
 import queue
 from picamera2 import Picamera2
-from picamera2.encoders import MJPEGEncoder
+from picamera2.encoders import H264Encoder
 from picamera2.outputs import Output
 
 from config import (
     CAMERA_FPS, CAMERA_WIDTH, CAMERA_HEIGHT,
-    CAMERA_BITRATE, CAMERA_EXPOSURE_US, CAMERA_GAIN,
+    CAMERA_BITRATE, CAMERA_H264_IPERIOD, CAMERA_EXPOSURE_US, CAMERA_GAIN,
 )
 
 class UDPFrameOutput(Output):
@@ -69,7 +69,7 @@ class CameraStreamer:
         self.picam2 = Picamera2()
         
         self.stream_output = UDPFrameOutput(data_queue, gpio_controller, fsm_data_cb)
-        self.encoder = MJPEGEncoder(bitrate=CAMERA_BITRATE)
+        self.encoder = H264Encoder(bitrate=CAMERA_BITRATE, iperiod=CAMERA_H264_IPERIOD)
 
         cam_config = self.picam2.create_video_configuration(
             main={
