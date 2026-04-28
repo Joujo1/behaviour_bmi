@@ -13,13 +13,16 @@ Pi one-time setup:
   1. raspi-config → Interface Options → Serial Port
        → login shell over serial: No
        → serial port hardware enabled: Yes
-  2. Add to /boot/config.txt:
+  2. Add to /boot/firmware/config.txt:
        dtoverlay=pps-gpio,gpiopin=18
   3. Optionally disable Bluetooth for the full UART (better accuracy):
        dtoverlay=disable-bt
        then use GPS_UART_PORT = '/dev/ttyAMA0'
-  4. pip install pyserial
-  5. Reboot
+  4. pip install pyserial --break-system-packages
+  5. udev rule for /dev/pps0:
+       echo 'KERNEL=="pps0", GROUP="dialout", MODE="0660"' | sudo tee /etc/udev/rules.d/99-pps.rules
+       sudo udevadm control --reload-rules && sudo udevadm trigger /dev/pps0
+  6. Reboot
 
 How timestamps are taken:
   The pps-gpio kernel driver hooks into the GPIO interrupt handler and calls
@@ -39,8 +42,8 @@ Output CSV columns:
 
 import csv
 import ctypes
+import ctypes.util
 import errno
-import fcntl
 import os
 import queue
 import threading
@@ -52,6 +55,13 @@ import serial
 from config import GPS_PPS_DEV, GPS_UART_PORT, GPS_UART_BAUD, GPS_LOG_DIR
 
 
+# ── libc ioctl (bypasses Python fcntl integer-conversion quirks) ──────────────
+
+_libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+_libc.ioctl.restype  = ctypes.c_int
+_libc.ioctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
+
+
 # ── Linux PPS API (linux/pps.h) ───────────────────────────────────────────────
 
 class _PpsKtime(ctypes.Structure):
@@ -59,6 +69,14 @@ class _PpsKtime(ctypes.Structure):
         ('sec',   ctypes.c_int64),
         ('nsec',  ctypes.c_int32),
         ('flags', ctypes.c_uint32),
+    ]
+
+class _PpsKparams(ctypes.Structure):
+    _fields_ = [
+        ('api_version',   ctypes.c_int32),
+        ('mode',          ctypes.c_int32),
+        ('assert_off_tu', _PpsKtime),
+        ('clear_off_tu',  _PpsKtime),
     ]
 
 class _PpsKinfo(ctypes.Structure):
@@ -76,14 +94,23 @@ class _PpsFdata(ctypes.Structure):
         ('timeout', _PpsKtime),
     ]
 
-# _IOWR('p', 0xa4, struct pps_fdata)  — computed from actual struct size so it
-# stays correct regardless of compiler padding on this platform.
+# Ioctl numbers — computed from actual struct sizes so they stay correct
+# regardless of compiler padding on this platform.
+_PPS_SETPARAMS = (
+    (1 << 30) |                             # _IOC_WRITE
+    (ctypes.sizeof(_PpsKparams) << 16) |
+    (ord('p') << 8) |
+    0xa2
+)
 _PPS_FETCH = (
-    (3 << 30) |                          # _IOC_READ | _IOC_WRITE
+    (3 << 30) |                             # _IOC_READ | _IOC_WRITE
     (ctypes.sizeof(_PpsFdata) << 16) |
     (ord('p') << 8) |
     0xa4
 )
+
+_PPS_API_VERS       = 1
+_PPS_CAPTUREASSERT  = 0x01
 
 
 # ── Clock offset ──────────────────────────────────────────────────────────────
@@ -161,25 +188,33 @@ class GPSPPSLogger:
             fd = os.open(GPS_PPS_DEV, os.O_RDWR)
         except OSError as e:
             print(f"GPS PPS: cannot open {GPS_PPS_DEV}: {e}")
-            print("  → Is dtoverlay=pps-gpio,gpiopin=18 in /boot/config.txt?")
+            print("  → Is dtoverlay=pps-gpio,gpiopin=18 in /boot/firmware/config.txt?")
             return
 
-        buf       = bytearray(ctypes.sizeof(_PpsFdata))
-        last_seq  = None
+        # Enable assert-edge capture — mirrors what ppstest does before PPS_FETCH.
+        params = _PpsKparams()
+        params.api_version = _PPS_API_VERS
+        params.mode        = _PPS_CAPTUREASSERT
+        ret = _libc.ioctl(fd, _PPS_SETPARAMS, ctypes.byref(params))
+        if ret == -1:
+            err = ctypes.get_errno()
+            print(f"GPS PPS: PPS_SETPARAMS failed: errno={err} ({os.strerror(err)}) — continuing anyway")
+
+        fdata    = _PpsFdata()
+        last_seq = None
 
         try:
             while self._running:
-                fdata = _PpsFdata.from_buffer(buf)
                 fdata.timeout.sec   = 2   # block up to 2 s for the next pulse
                 fdata.timeout.nsec  = 0
                 fdata.timeout.flags = 0   # 0 = valid timeout (not PPS_TIME_INVALID)
 
-                try:
-                    fcntl.ioctl(fd, _PPS_FETCH, buf)
-                except OSError as e:
-                    if e.errno in (errno.ETIMEDOUT, errno.ETIME):
+                ret = _libc.ioctl(fd, _PPS_FETCH, ctypes.byref(fdata))
+                if ret == -1:
+                    err = ctypes.get_errno()
+                    if err in (errno.ETIMEDOUT, errno.ETIME):
                         continue   # no pulse within 2 s — loop and check _running
-                    print(f"GPS PPS: ioctl error: {e}")
+                    print(f"GPS PPS: ioctl error: errno={err} ({os.strerror(err)})")
                     break
 
                 seq = fdata.info.assert_sequence
