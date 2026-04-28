@@ -57,7 +57,10 @@ class UDPFrameOutput(Output):
         recent_events = []
 
         if self.fsm_data_cb is not None:
-            _, recent_events = self.fsm_data_cb(abs_ts)
+            # Subtract one frame period: picamera2's H264 PTS runs one frame ahead
+            # of the actual capture time, so we correct for that here.
+            frame_period_us = 1_000_000 // CAMERA_FPS
+            _, recent_events = self.fsm_data_cb(abs_ts - frame_period_us)
 
         trial_state = 0
 
