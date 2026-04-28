@@ -85,9 +85,17 @@ class FrameWriter:
         self._current_byte_offset += 4 + len(packet)
 
     def _write_valkey(self, frame: ParsedFrame):
-        key = f"cage:{self.cage_id}:latest_frame"
-        jpeg = frame.raw_packet[HEADER_SIZE + frame.events_size:]
-        self._valkey.set(key, jpeg, ex=config.VALKEY_FRAME_TTL_SECONDS)
+        img_bytes = frame.raw_packet[HEADER_SIZE + frame.events_size:]
+        if img_bytes[:2] == b'\xff\xd8':
+            # MJPEG: store for legacy polling endpoint
+            self._valkey.set(f"cage:{self.cage_id}:latest_frame", img_bytes,
+                             ex=config.VALKEY_FRAME_TTL_SECONDS)
+        elif img_bytes[:4] == b'\x00\x00\x00\x01':
+            # H264 Annex-B: publish for WebSocket streaming.
+            # SPS NAL (type 7) is the first NAL in every keyframe group.
+            is_key = len(img_bytes) > 4 and (img_bytes[4] & 0x1F) == 7
+            meta = bytes([1 if is_key else 0]) + frame.timestamp.to_bytes(8, 'little')
+            self._valkey.publish(f"cage:{self.cage_id}:h264_stream", meta + img_bytes)
 
     def _write_postgres(self, frame: ParsedFrame):
         if self._chunk_frame_count == 0:

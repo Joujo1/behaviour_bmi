@@ -19,7 +19,7 @@ import os
 import struct
 import sys
 
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, abort, jsonify, make_response, render_template, request, send_file
 
 # ── Packet format (must match udp_sender_pi.py and packet_parser.py) ─────────
 
@@ -56,6 +56,7 @@ def index_bin(path: str) -> tuple:
     current_state = None
     state_changes = []
     raw_timeline  = []
+    last_kf_idx   = 0
 
     with open(path, "rb") as f:
         while True:
@@ -81,7 +82,13 @@ def index_bin(path: str) -> tuple:
                 except Exception:
                     pass
 
-            frame_idx = len(index)
+            frame_idx  = len(index)
+            img_start  = HEADER_SIZE + events_size
+            img_header = packet[img_start : img_start + 5]
+            is_h264    = img_header[:4] == b'\x00\x00\x00\x01'
+            if is_h264 and len(img_header) == 5 and (img_header[4] & 0x1F) == 7:
+                last_kf_idx = frame_idx
+
             for e in events:
                 if "to" in e:
                     current_state = e["to"]
@@ -94,11 +101,13 @@ def index_bin(path: str) -> tuple:
                     })
 
             index.append({
-                "header":        header,
-                "events":        events,
-                "jpeg_offset":   packet_start + HEADER_SIZE + events_size,
-                "jpeg_size":     jpeg_size,
-                "current_state": current_state,
+                "header":            header,
+                "events":            events,
+                "jpeg_offset":       packet_start + HEADER_SIZE + events_size,
+                "jpeg_size":         jpeg_size,
+                "current_state":     current_state,
+                "is_h264":           is_h264,
+                "last_keyframe_idx": last_kf_idx,
             })
 
     TERMINALS = {"__correct__", "__wrong__", "__end__", "aborted"}
@@ -500,10 +509,30 @@ def create_app(root: str) -> Flask:
         if not (0 <= frame < len(frames)):
             abort(404)
         f = frames[frame]
+
+        if not f["is_h264"]:
+            with open(abs_path, "rb") as fh:
+                fh.seek(f["jpeg_offset"])
+                img_bytes = fh.read(f["jpeg_size"])
+            return send_file(io.BytesIO(img_bytes), mimetype="image/jpeg")
+
+        # H264: return framed NAL sequence from last keyframe through target frame.
+        # Format per frame: [4-byte LE NAL length][1-byte keyframe flag][NAL bytes]
+        # Client uses WebCodecs to decode and renders the last frame.
+        key_idx = f["last_keyframe_idx"]
+        buf = io.BytesIO()
         with open(abs_path, "rb") as fh:
-            fh.seek(f["jpeg_offset"])
-            jpeg_bytes = fh.read(f["jpeg_size"])
-        return send_file(io.BytesIO(jpeg_bytes), mimetype="image/jpeg")
+            for i in range(key_idx, frame + 1):
+                fi = frames[i]
+                fh.seek(fi["jpeg_offset"])
+                nal = fh.read(fi["jpeg_size"])
+                is_key = i == key_idx
+                buf.write(struct.pack("<IB", len(nal), 1 if is_key else 0))
+                buf.write(nal)
+        buf.seek(0)
+        response = make_response(send_file(buf, mimetype="application/octet-stream"))
+        response.headers["X-Codec"] = "h264"
+        return response
 
     return app
 

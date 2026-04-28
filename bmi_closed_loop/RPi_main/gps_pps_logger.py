@@ -128,6 +128,7 @@ class GPSPPSLogger:
         self._file   = open(self._log_path, 'w', newline='')
         self._writer = csv.writer(self._file)
         self._writer.writerow(['pulse_idx', 'monotonic_us', 'utc_hhmmss'])
+        self._file.flush()
 
         self._running = True
         self._pps_thread  = threading.Thread(target=self._pps_loop,
@@ -157,7 +158,7 @@ class GPSPPSLogger:
         the interrupt handler. We convert to CLOCK_MONOTONIC and enqueue it.
         """
         try:
-            fd = os.open(GPS_PPS_DEV, os.O_RDONLY)
+            fd = os.open(GPS_PPS_DEV, os.O_RDWR)
         except OSError as e:
             print(f"GPS PPS: cannot open {GPS_PPS_DEV}: {e}")
             print("  → Is dtoverlay=pps-gpio,gpiopin=18 in /boot/config.txt?")

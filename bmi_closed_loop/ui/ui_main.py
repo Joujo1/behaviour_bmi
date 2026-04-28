@@ -3,6 +3,7 @@ import config
 import valkey as valkey_client
 from command.tcp_command_sender import TCPCommandSender
 from flask import Flask, render_template
+from flask_sock import Sock
 from ui.cage_runner import CageRunner, runners
 from ui.endpoints.builder import builder_bp
 from ui.endpoints.control import control_bp
@@ -17,6 +18,7 @@ from ui.endpoints.trial import trial_bp
 from ui.event_handler import handle_trial_event
 
 app = Flask(__name__)
+sock = Sock(app)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
@@ -53,6 +55,12 @@ app.register_blueprint(session_bp)
 app.register_blueprint(subjects_bp)
 app.register_blueprint(curriculum_bp)
 app.register_blueprint(control_bp)
+
+
+@sock.route("/cage/<int:cage_id>/ws/video")
+def cage_video_ws(ws, cage_id):
+    from ui.endpoints.stream import video_ws_handler
+    video_ws_handler(ws, cage_id)
 
 
 @app.get("/")

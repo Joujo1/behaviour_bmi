@@ -66,6 +66,21 @@ def latest_frame(cage_id: int):
     return response
 
 
+def video_ws_handler(ws, cage_id: int):
+    """Called from ui_main.py @sock.route — streams H264 NAL units to the browser."""
+    pubsub = _valkey.pubsub()
+    pubsub.subscribe(f"cage:{cage_id}:h264_stream")
+    try:
+        for message in pubsub.listen():
+            if message["type"] == "message":
+                ws.send(message["data"])
+    except Exception:
+        pass
+    finally:
+        pubsub.unsubscribe()
+        pubsub.close()
+
+
 @stream_bp.get("/cameras/status")
 def camera_status():
     status = _valkey.hgetall("camera_status")

@@ -112,7 +112,8 @@
   }
   .camera-lost.visible { display: flex; }
 
-  .cage-img-wrap img {
+  .cage-img-wrap img,
+  .cage-img-wrap canvas {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -591,40 +592,103 @@ if (!state.sessionId) return;
     toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'stop requested' : 'failed')}`);
   }
 
-  // ── Live image refresh ───────────────────────────────────
-  const refreshTimers = {};
+  // ── Live H264 stream via WebSocket + WebCodecs ──────────
+  const videoSockets  = {};
+  const videoDecoders = {};
+  const videoTsBase   = {};
+
+  function _stopStream(id) {
+    const ws = videoSockets[id];
+    if (ws) { try { ws.close(); } catch (_) {} delete videoSockets[id]; }
+    const dec = videoDecoders[id];
+    if (dec) { try { dec.close(); } catch (_) {} delete videoDecoders[id]; }
+    delete videoTsBase[id];
+    const canvas = document.getElementById(`canvas-${id}`);
+    if (canvas) canvas.remove();
+    const wrap = document.getElementById(`wrap-${id}`);
+    const noFeed = wrap?.querySelector('.no-feed');
+    if (noFeed) noFeed.style.display = '';
+  }
 
   function startImageRefresh(id) {
+    _stopStream(id);
+
     const wrap = document.getElementById(`wrap-${id}`);
     const noFeed = wrap.querySelector('.no-feed');
     if (noFeed) noFeed.style.display = 'none';
 
-    let img = document.getElementById(`img-${id}`);
-    if (!img) {
-      img = document.createElement('img');
-      img.id = `img-${id}`;
-      img.alt = `cage ${id}`;
-      img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
-      wrap.insertBefore(img, wrap.querySelector('.camera-lost'));
-    }
+    const canvas = document.createElement('canvas');
+    canvas.id = `canvas-${id}`;
+    wrap.insertBefore(canvas, wrap.querySelector('.camera-lost'));
+    const ctx = canvas.getContext('2d');
 
-    function refresh() {
-      const next = new Image();
-      next.onload = () => { img.src = next.src; };
-      next.src = `/cage/${id}/frame?t=${Date.now()}`;
-    }
-    refresh();
-    refreshTimers[id] = setInterval(refresh, 33);
+    const ws = new WebSocket(`ws://${location.host}/cage/${id}/ws/video`);
+    ws.binaryType = 'arraybuffer';
+    videoSockets[id] = ws;
+
+    ws.onmessage = (e) => {
+      const buf = e.data;
+      if (buf.byteLength < 9) return;
+      const view   = new DataView(buf);
+      const isKey  = view.getUint8(0) === 1;
+      const tsRaw  = Number(view.getBigUint64(1, true));
+      const nalData = new Uint8Array(buf, 9);
+
+      // On the first keyframe, extract codec string from the SPS NAL and configure decoder.
+      // SPS layout after start code (00 00 00 01 67): [5]=profile [6]=constraints [7]=level
+      if (isKey && !videoDecoders[id]) {
+        const p = nalData[5].toString(16).padStart(2, '0');
+        const c = nalData[6].toString(16).padStart(2, '0');
+        const l = nalData[7].toString(16).padStart(2, '0');
+        const dec = new VideoDecoder({
+          output: (frame) => {
+            if (canvas.width !== frame.codedWidth)  canvas.width  = frame.codedWidth;
+            if (canvas.height !== frame.codedHeight) canvas.height = frame.codedHeight;
+            ctx.drawImage(frame, 0, 0);
+            frame.close();
+          },
+          error: (err) => {
+            console.warn(`[cage ${id}] VideoDecoder error — waiting for next keyframe`, err);
+            try { videoDecoders[id]?.close(); } catch (_) {}
+            delete videoDecoders[id];
+            delete videoTsBase[id];
+          },
+        });
+        dec.configure({
+          codec: `avc1.${p}${c}${l}`,
+          optimizeForLatency: true,
+        });
+        videoDecoders[id] = dec;
+        videoTsBase[id] = tsRaw;
+      }
+
+      const dec = videoDecoders[id];
+      if (!dec || dec.state !== 'configured') return;
+
+      try {
+        dec.decode(new EncodedVideoChunk({
+          type: isKey ? 'key' : 'delta',
+          timestamp: tsRaw - videoTsBase[id],
+          data: nalData,
+        }));
+      } catch (err) {
+        console.warn(`[cage ${id}] decode error — waiting for next keyframe`, err);
+        try { dec.close(); } catch (_) {}
+        delete videoDecoders[id];
+        delete videoTsBase[id];
+      }
+    };
+
+    ws.onclose = () => {
+      if (videoSockets[id] !== ws) return;  // superseded by a newer stream
+      const dec = videoDecoders[id];
+      if (dec) { try { dec.close(); } catch (_) {} delete videoDecoders[id]; }
+      delete videoTsBase[id];
+    };
   }
 
   function stopImageRefresh(id) {
-    clearInterval(refreshTimers[id]);
-    delete refreshTimers[id];
-    const img = document.getElementById(`img-${id}`);
-    if (img) img.remove();
-    const wrap = document.getElementById(`wrap-${id}`);
-    const noFeed = wrap.querySelector('.no-feed');
-    if (noFeed) noFeed.style.display = '';
+    _stopStream(id);
   }
 
   // ── Advancement notifications ────────────────────────────

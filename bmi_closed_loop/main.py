@@ -8,7 +8,7 @@ from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-RUN_DURATION_S = 4 * 3600  # 4 hours
+RUN_DURATION_S = 24 * 3600  # 4 hours
 
 
 def main():
@@ -72,7 +72,8 @@ def main():
     while True:
         for name, p in procs.items():
             if p.poll() is not None:
-                print(f"[main] Process '{name}' exited with code {p.returncode}")
+                print(f"[main] Process '{name}' exited with code {p.returncode} — shutting down")
+                shutdown(None, None)
         time.sleep(1)
 
 

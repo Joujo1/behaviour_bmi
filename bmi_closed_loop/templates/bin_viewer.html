@@ -67,7 +67,7 @@
     /* ── Sidebar ── */
     #sidebar { width: 260px; flex-shrink: 0; border-left: 2px solid var(--fg); display: flex; flex-direction: column; overflow: hidden; }
     #frame-preview { flex-shrink: 0; background: #111; aspect-ratio: 4/3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-    #frame-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    #frame-preview img, #frame-preview canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
     #frame-info { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
     .info-section { display: flex; flex-direction: column; gap: 3px; }
     .info-title { font-size: 0.57rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
@@ -163,7 +163,8 @@
 
     <div id="sidebar">
       <div id="frame-preview">
-        <img id="prev-img" src="" alt="" style="display:none"/>
+        <img    id="prev-img"    src="" alt="" style="display:none"/>
+        <canvas id="prev-canvas"              style="display:none"></canvas>
       </div>
       <div id="frame-info">
         <div class="info-section">
@@ -392,13 +393,85 @@ async function goToFrame(n, autoPan = false) {
 
   highlightActiveState(n);
 
-  // JPEG preview
-  if (currentBin) {
-    const img = document.getElementById('prev-img');
-    img.src   = `/api/frame/image?path=${encodeURIComponent(currentBin)}&frame=${n}&t=${Date.now()}`;
-    img.style.display = '';
-  }
+  // Frame preview (JPEG or H264 via WebCodecs)
+  if (currentBin) fetchFramePreview(n);
 
+}
+
+// ── Frame preview ─────────────────────────────────────────────────────────────
+let _previewAbort = null;
+
+async function fetchFramePreview(n) {
+  if (_previewAbort) _previewAbort.abort();
+  const ctrl = new AbortController();
+  _previewAbort = ctrl;
+
+  const img    = document.getElementById('prev-img');
+  const canvas = document.getElementById('prev-canvas');
+
+  try {
+    const res = await fetch(
+      `/api/frame/image?path=${encodeURIComponent(currentBin)}&frame=${n}&t=${Date.now()}`,
+      { signal: ctrl.signal }
+    );
+    if (!res.ok) return;
+
+    if (res.headers.get('X-Codec') === 'h264') {
+      // H264: parse framed sequence and decode with WebCodecs
+      const buf = await res.arrayBuffer();
+      const frames = [];
+      let offset = 0;
+      while (offset + 5 <= buf.byteLength) {
+        const view   = new DataView(buf, offset);
+        const nalLen = view.getUint32(0, true);
+        const isKey  = view.getUint8(4) === 1;
+        frames.push({ isKey, data: new Uint8Array(buf, offset + 5, nalLen) });
+        offset += 5 + nalLen;
+      }
+      if (!frames.length) return;
+
+      // Extract codec string from SPS (first frame, bytes [5][6][7])
+      const sps = frames[0].data;
+      const codec = `avc1.${sps[5].toString(16).padStart(2,'0')}${sps[6].toString(16).padStart(2,'0')}${sps[7].toString(16).padStart(2,'0')}`;
+
+      let lastFrame = null;
+      const decoder = new VideoDecoder({
+        output: (f) => { if (lastFrame) lastFrame.close(); lastFrame = f; },
+        error:  (e) => console.warn('bin_viewer decode error', e),
+      });
+      decoder.configure({ codec, optimizeForLatency: false });
+
+      frames.forEach((f, i) => {
+        decoder.decode(new EncodedVideoChunk({
+          type: f.isKey ? 'key' : 'delta',
+          timestamp: i * 16667,
+          data: f.data,
+        }));
+      });
+      await decoder.flush();
+      decoder.close();
+
+      if (lastFrame && !ctrl.signal.aborted) {
+        canvas.width  = lastFrame.codedWidth;
+        canvas.height = lastFrame.codedHeight;
+        canvas.getContext('2d').drawImage(lastFrame, 0, 0);
+        lastFrame.close();
+        img.style.display    = 'none';
+        canvas.style.display = '';
+      }
+    } else {
+      // JPEG: blob URL → img element
+      const blob = await res.blob();
+      if (ctrl.signal.aborted) return;
+      const url = URL.createObjectURL(blob);
+      img.onload = () => URL.revokeObjectURL(url);
+      img.src = url;
+      canvas.style.display = 'none';
+      img.style.display    = '';
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('preview fetch error', e);
+  }
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────
