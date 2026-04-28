@@ -43,3 +43,9 @@ sudo systemctl restart cage_controller.service
 
 # Stop
 sudo systemctl stop cage_controller.service
+
+
+
+echo 'KERNEL=="pps0", GROUP="dialout", MODE="0660"' | sudo tee /etc/udev/rules.d/99-pps.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger /dev/pps0
