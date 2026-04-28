@@ -9,8 +9,11 @@ import logging
 import threading
 import time
 
+import sounddevice as sd
+
+import audio
 import gpio_handler
-from config import LED_PINS, VALVE_PINS, AUDIO_PINS, CLICK_PULSE_US
+from config import LED_PINS, VALVE_PINS, AUDIO_PINS, CLICK_PULSE_US, AUDIO_DEVICE, AUDIO_SRATE
 
 logger = logging.getLogger(__name__)
 
@@ -36,67 +39,52 @@ def _valve_close(target: str) -> None:
 
 
 def _play_audio(target: str) -> None:
-    """Emit a single click on the given audio channel via a GPIO pulse."""
-    gpio_handler.set_audio(target, True)
-    time.sleep(CLICK_PULSE_US / 1_000_000)
-    gpio_handler.set_audio(target, False)
+    """No-op — audio output is now via the audio jack (sounddevice)."""
+    # gpio_handler.set_audio(target, True)
+    # time.sleep(CLICK_PULSE_US / 1_000_000)
+    # gpio_handler.set_audio(target, False)
 
 
 def _stop_audio(target: str) -> None:
-    """No-op for GPIO-based audio — clicks are instantaneous pulses."""
+    """No-op — audio output is now via the audio jack (sounddevice)."""
     pass
 
 # Module-level stop event; replaced each time _play_clicks() is called.
-# Setting it stops all click threads that share a reference to the same event.
+# Setting it signals the watcher not to fire on_complete after sd.stop().
 _click_stop: threading.Event = threading.Event()
 _click_stop.set()   # start in the "stopped / idle" state
 
-
-def _click_loop(side: str, click_times: list, stop_event: threading.Event) -> None:
-    """Play pre-computed click times for one side, interruptible via stop_event."""
-    t0 = time.monotonic()
-    for click_t in click_times:
-        remaining = click_t - (time.monotonic() - t0)
-        if remaining > 0:
-            if stop_event.wait(timeout=remaining):
-                return
-        if stop_event.is_set():
-            return
-        _play_audio(side)
+# Pre-built click waveform — constructed once at import time.
+_CLICK = audio.build_click(srate=AUDIO_SRATE)
 
 
 def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
                  log_cb=None) -> None:
     """
-    Play two independent Poisson click trains (one per ear) in background threads.
+    Render both click trains into a stereo float32 buffer and play via sounddevice.
 
-    When both threads finish naturally (i.e. stop_clicks() was NOT called),
+    When playback ends naturally (i.e. stop_clicks() was NOT called),
     on_complete() is fired so the engine can trigger the clicks_done transition.
     """
     global _click_stop
-    _click_stop.set()               # cancel any previous playback
-    _click_stop = threading.Event() # fresh event for this run
-    stop = _click_stop              # local ref shared by all threads below
+    _click_stop.set()                # cancel any previous watcher
+    _click_stop = threading.Event()  # fresh stop event for this run
+    stop = _click_stop
 
     if log_cb:
         log_cb("clicks", True)
 
-    t_left  = threading.Thread(target=_click_loop,
-                               args=("left",  left_clicks,  stop),
-                               daemon=True, name="clicks-left")
-    t_right = threading.Thread(target=_click_loop,
-                               args=("right", right_clicks, stop),
-                               daemon=True, name="clicks-right")
+    buf = audio.build_buffer_from_times(_CLICK, left_clicks, right_clicks,
+                                        srate=AUDIO_SRATE)
+    sd.stop()
+    sd.play(buf, samplerate=AUDIO_SRATE, device=AUDIO_DEVICE, blocking=False)
 
     def _watcher():
-        t_left.join()
-        t_right.join()
+        sd.wait()   # returns when playback ends or sd.stop() is called
         if not stop.is_set() and on_complete is not None:
             logger.info("Click trains finished — firing on_complete")
             on_complete()
 
-    t_left.start()
-    t_right.start()
     threading.Thread(target=_watcher, daemon=True, name="clicks-watcher").start()
     logger.info("Click trains started: %d left, %d right", len(left_clicks), len(right_clicks))
 
@@ -145,6 +133,7 @@ def _play_birthday(target: str) -> None:
 def stop_clicks() -> None:
     """Interrupt any in-progress click train playback immediately."""
     _click_stop.set()
+    sd.stop()
     logger.info("Click trains stopped")
 
 
@@ -199,6 +188,7 @@ def safety_sweep() -> None:
         gpio_handler.set_led(target, False)
     for target in VALVE_PINS:
         gpio_handler.set_valve(target, False)
-    for target in AUDIO_PINS:
-        gpio_handler.set_audio(target, False)
+    # Audio pins not driven — output via audio jack now
+    # for target in AUDIO_PINS:
+    #     gpio_handler.set_audio(target, False)
     logger.info("actions.safety_sweep complete")

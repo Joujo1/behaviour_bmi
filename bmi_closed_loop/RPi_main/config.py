@@ -39,7 +39,7 @@ FAN_MIN_DUTY  = 30    # % — below this the fan turns off instead of running at
 CLICK_PULSE_US = 100
 
 VALVE_OPEN_DEFAULT_MS = 150
-BEAM_DEBOUNCE_MS      = 50
+BEAM_DEBOUNCE_MS      = 1    # IR sensors have no mechanical bounce; 1ms filters electrical glitches only
 
 TRIAL_WATCHDOG_S = 1200
 
@@ -57,12 +57,18 @@ CAMERA_GAIN         = 4.0
 
 FRAME_QUEUE_MAXSIZE = 30
 
+# Audio (sounddevice)
+AUDIO_DEVICE = 1        # Pi 4 audio jack (run `python -m sounddevice` to list)
+AUDIO_SRATE  = 48_000
+
 # GPS / PPS
 # Wiring: GPS TX → GPIO15 (Pi UART RX), GPS PPS → GPIO18, VIN → 3.3 V
-# Enable serial: raspi-config → Interface Options → Serial Port
-#   → disable login shell, enable hardware serial
-# For best accuracy disable Bluetooth and use /dev/ttyAMA0 instead of /dev/ttyS0
-GPS_PPS_PIN   = 18
-GPS_UART_PORT = '/dev/ttyS0'   # change to /dev/ttyAMA0 if BT is disabled
+# Pi one-time setup:
+#   raspi-config → Interface Options → Serial Port → login shell: No, hardware: Yes
+#   Add to /boot/config.txt: dtoverlay=pps-gpio,gpiopin=18
+#   Disable Bluetooth for full UART: dtoverlay=disable-bt in /boot/config.txt → use /dev/ttyAMA0
+GPS_PPS_PIN   = 18             # wiring reference — owned by pps-gpio kernel driver at runtime
+GPS_PPS_DEV   = '/dev/pps0'   # kernel PPS device created by dtoverlay=pps-gpio
+GPS_UART_PORT = '/dev/ttyAMA0'  # full UART (BT disabled via dtoverlay=disable-bt)
 GPS_UART_BAUD = 9600
 GPS_LOG_DIR   = '/home/pi/gps_logs'

@@ -52,8 +52,9 @@ def setup() -> None:
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
     for pin in VALVE_PINS.values():
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
-    for pin in AUDIO_PINS.values():
-        _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
+    # Audio pins left unconfigured — output now via audio jack (sounddevice)
+    # for pin in AUDIO_PINS.values():
+    #     _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
     _GPIO.setup(FAN_PIN,   _GPIO.OUT, initial=_GPIO.LOW)
     _GPIO.setup(STRIP_PIN, _GPIO.OUT, initial=_GPIO.LOW)
 
@@ -62,7 +63,8 @@ def setup() -> None:
         _GPIO.setup(pin, _GPIO.IN, pull_up_down=pull)
 
     all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
-                       list(AUDIO_PINS.values()) + [FAN_PIN, STRIP_PIN])
+                       # list(AUDIO_PINS.values()) +   # audio via jack now
+                       [FAN_PIN, STRIP_PIN])
     with _output_lock:
         for pin in all_output_pins:
             _output_state[pin] = False
@@ -88,8 +90,8 @@ def set_valve(target: str, state: bool) -> None:
 
 
 def set_audio(target: str, state: bool) -> None:
-    """Drive an audio output pin high or low; a brief pulse produces a click."""
-    _drive(AUDIO_PINS[target], state)
+    """No-op — audio output is now via the audio jack (sounddevice)."""
+    # _drive(AUDIO_PINS[target], state)
 
 
 def _stop_fan_pwm() -> None:
@@ -155,8 +157,9 @@ def safety_sweep() -> None:
         set_led(target, False)
     for target in VALVE_PINS:
         set_valve(target, False)
-    for target in AUDIO_PINS:
-        set_audio(target, False)
+    # Audio pins not driven — output via audio jack now
+    # for target in AUDIO_PINS:
+    #     set_audio(target, False)
     set_fan(False)   # set_fan() stops PWM then drives pin low
     set_strip(False)
     logger.info("Safety sweep complete")
@@ -216,7 +219,7 @@ def get_snapshot() -> dict:
     all_output_pins = {
         "led":   LED_PINS,
         "valve": VALVE_PINS,
-        "audio": AUDIO_PINS,
+        # "audio": AUDIO_PINS,   # audio via jack now
     }
     with _output_lock:
         for prefix, pins in all_output_pins.items():

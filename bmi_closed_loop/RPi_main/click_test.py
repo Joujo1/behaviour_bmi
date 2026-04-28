@@ -10,36 +10,9 @@ import argparse
 import numpy as np
 import sounddevice as sd
 
-# ── Click parameters (match clickplot.py / Brody lab spec) ──────────────────
-SRATE   = 48_000                        # Hz — Pi 4 audio jack max
-WIDTH   = 0.003                         # 3 ms click duration
-RAMP    = 0.002                         # 2 ms cosine-squared fade in/out
-TONES   = [2000, 4000, 8000, 16000]     # Hz — 32kHz dropped (aliases at 48kHz)
-ATT_DB  = 40                            # dB attenuation
+from audio import build_click, SRATE
 
 BUFFER_S = 2.0                          # seconds of audio pre-generated per chunk
-
-
-def build_click(srate=SRATE, width=WIDTH, ramp=RAMP,
-                tones=TONES, att_db=ATT_DB) -> np.ndarray:
-    t   = np.arange(0, width + 1 / srate, 1 / srate)
-    amp = 10 ** (-att_db / 20)
-
-    snd = np.zeros(len(t))
-    for f in tones:
-        snd += amp * np.sin(2 * np.pi * f * t)
-
-    ramp_t  = np.arange(0, ramp + 1 / srate, 1 / srate)
-    edge    = np.cos(ramp_t * np.pi / (2 * ramp)) ** 2
-    n_edge  = len(edge)
-    snd[:n_edge]  *= edge[::-1]
-    snd[-n_edge:] *= edge
-
-    peak = np.max(np.abs(snd))
-    if peak > 0:
-        snd /= peak
-
-    return snd.astype(np.float32)
 
 
 def generate_poisson_buffer(click: np.ndarray, left_rate: float,
