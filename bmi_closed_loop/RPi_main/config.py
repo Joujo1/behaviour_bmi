@@ -56,3 +56,13 @@ CAMERA_EXPOSURE_US  = 6000
 CAMERA_GAIN         = 4.0
 
 FRAME_QUEUE_MAXSIZE = 30
+
+# GPS / PPS
+# Wiring: GPS TX → GPIO15 (Pi UART RX), GPS PPS → GPIO18, VIN → 3.3 V
+# Enable serial: raspi-config → Interface Options → Serial Port
+#   → disable login shell, enable hardware serial
+# For best accuracy disable Bluetooth and use /dev/ttyAMA0 instead of /dev/ttyS0
+GPS_PPS_PIN   = 18
+GPS_UART_PORT = '/dev/ttyS0'   # change to /dev/ttyAMA0 if BT is disabled
+GPS_UART_BAUD = 9600
+GPS_LOG_DIR   = '/home/pi/gps_logs'

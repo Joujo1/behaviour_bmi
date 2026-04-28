@@ -111,10 +111,17 @@ class Engine:
         actions.safety_sweep()
         logger.info("Trial '%s' aborted", self._trial_id)
 
-    def pop_frame_events(self) -> tuple:
-        """Drain the event buffer and return (current_state_id, events) for the current frame."""
+    def pop_frame_events(self, frame_ts_us: int = None) -> tuple:
+        """Return events whose timestamp <= frame_ts_us; hold the rest for future frames.
+        The buffer is an unbounded list so any encoder backlog is preserved without loss.
+        Pass frame_ts_us=None (no active trial) to drain everything."""
         with self._event_lock:
-            events, self._event_buffer = self._event_buffer, []
+            if frame_ts_us is None or self._trial_start is None:
+                events, self._event_buffer = self._event_buffer, []
+            else:
+                cutoff_t = frame_ts_us / 1_000_000 - self._trial_start
+                events             = [e for e in self._event_buffer if e["t"] <= cutoff_t]
+                self._event_buffer = [e for e in self._event_buffer if e["t"] >  cutoff_t]
         return self._current_state_id, events
 
 

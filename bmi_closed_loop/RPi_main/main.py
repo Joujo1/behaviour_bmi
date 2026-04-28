@@ -30,6 +30,7 @@ from engine import Engine
 from tcp_command_receiver import TCPCommandReceiver
 from streamer import CameraStreamer
 from udp_sender_pi import UDPSender
+from gps_pps_logger import GPSPPSLogger
 from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
 
@@ -61,6 +62,9 @@ class _GPIOAdapter:
 def main():
     gpio_handler.setup()
     logger.info("GPIO ready")
+
+    gps_logger = GPSPPSLogger()
+    gps_logger.start()
 
     current_engine: Engine = None
     frame_queue: queue.Queue = None
@@ -99,8 +103,8 @@ def main():
             sender.start()
             camera = CameraStreamer(data_queue=frame_queue,
                                     gpio_controller=gpio_adapter,
-                                    fsm_data_cb=lambda: current_engine.pop_frame_events()
-                                                        if current_engine else (0, []))
+                                    fsm_data_cb=lambda ts: current_engine.pop_frame_events(ts)
+                                                           if current_engine else (0, []))
             camera.start()
             is_streaming = True
             logger.info("Streaming started → %s:%d", pc_ip, UDP_STREAM_PORT)
@@ -191,6 +195,7 @@ def main():
             if camera: camera.stop()
             if sender:  sender.stop()
         receiver.stop()
+        gps_logger.stop()
         gpio_handler.cleanup()
         logger.info("Shutdown complete")
         sys.exit(0)

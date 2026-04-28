@@ -57,7 +57,7 @@ class UDPFrameOutput(Output):
         recent_events = []
 
         if self.fsm_data_cb is not None:
-            _, recent_events = self.fsm_data_cb()
+            _, recent_events = self.fsm_data_cb(abs_ts)
 
         trial_state = 0
 
