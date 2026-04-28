@@ -49,3 +49,24 @@ sudo systemctl stop cage_controller.service
 echo 'KERNEL=="pps0", GROUP="dialout", MODE="0660"' | sudo tee /etc/udev/rules.d/99-pps.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger /dev/pps0
+
+
+
+
+sudo apt install pps-tools strace
+sudo strace ppstest /dev/pps0 2>&1 | grep ioctl | head -20
+
+
+
+python3 -c "
+import ctypes
+class K(ctypes.Structure):
+    _fields_ = [('sec', ctypes.c_int64), ('nsec', ctypes.c_int32), ('flags', ctypes.c_uint32)]
+class I(ctypes.Structure):
+    _fields_ = [('aseq', ctypes.c_uint32), ('cseq', ctypes.c_uint32),
+                ('atu', K), ('ctu', K), ('mode', ctypes.c_int32)]
+class F(ctypes.Structure):
+    _fields_ = [('info', I), ('timeout', K)]
+print('K=%d I=%d F=%d ioctl=%s' % (ctypes.sizeof(K), ctypes.sizeof(I), ctypes.sizeof(F),
+    hex((3<<30)|(ctypes.sizeof(F)<<16)|(ord('p')<<8)|0xa4)))
+"
