@@ -19,6 +19,8 @@ class UDPFrameOutput(Output):
         self.frame_count = 0
         self.start_time = time.time()
         self.fps = 0
+        self._iframe_sizes = []
+        self._pframe_sizes = []
         # K (set on first frame): CLOCK_MONOTONIC − cam_ts, converts camera-relative
         # timestamps to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
         self._mono_at_start_us = None
@@ -27,12 +29,21 @@ class UDPFrameOutput(Output):
         self.frame_count += 1
         elapsed_time = time.time() - self.start_time
 
+        if keyframe:
+            self._iframe_sizes.append(len(frame_bytes))
+        else:
+            self._pframe_sizes.append(len(frame_bytes))
+
         if elapsed_time >= 60.0:
             self.fps = self.frame_count / elapsed_time
-            print(f"{self.fps:.2f} fps | {len(frame_bytes)/1024:.1f} KB")
-
+            avg_i = sum(self._iframe_sizes) / len(self._iframe_sizes) / 1024 if self._iframe_sizes else 0
+            avg_p = sum(self._pframe_sizes) / len(self._pframe_sizes) / 1024 if self._pframe_sizes else 0
+            max_i = max(self._iframe_sizes) / 1024 if self._iframe_sizes else 0
+            print(f"{self.fps:.2f} fps | I-frame: avg={avg_i:.1f}KB max={max_i:.1f}KB | P-frame: avg={avg_p:.1f}KB")
             self.frame_count = 0
             self.start_time = time.time()
+            self._iframe_sizes = []
+            self._pframe_sizes = []
 
         current_gpio = self.gpio.get_current_state()
         mono_now_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
