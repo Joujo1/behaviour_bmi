@@ -30,10 +30,9 @@ Wiring (Adafruit Ultimate GPS breakout):
 Pi one-time setup:
   1. raspi-config → Interface Options → Serial Port
        → login shell over serial: No
-       → serial port hardware enabled: Yes   (needed for UART, ignored if BT disabled)
+       → serial port hardware enabled: Yes
   2. Add to /boot/firmware/config.txt:
        dtoverlay=pps-gpio,gpiopin=18
-       dtoverlay=disable-bt          (frees full UART; not required for PPS-only use)
   3. udev rule for /dev/pps0:
        echo 'KERNEL=="pps0", GROUP="dialout", MODE="0660"' | sudo tee /etc/udev/rules.d/99-pps.rules
        sudo udevadm control --reload-rules && sudo udevadm trigger /dev/pps0
@@ -44,10 +43,10 @@ here confirms the GPS had a valid fix at that moment — no NMEA parsing needed.
 """
 
 import csv
-import ctypes
-import ctypes.util
 import errno
+import fcntl
 import os
+import struct
 import threading
 import time
 from datetime import datetime, timezone
@@ -55,65 +54,39 @@ from datetime import datetime, timezone
 from config import GPS_PPS_DEV, GPS_LOG_DIR
 
 
-# ── libc ioctl ────────────────────────────────────────────────────────────────
-
-_libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-_libc.ioctl.restype  = ctypes.c_int
-_libc.ioctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
-
-
 # ── Linux PPS API (linux/pps.h) ───────────────────────────────────────────────
+#
+# Ioctl numbers are hardcoded from the kernel ABI (verified by running the
+# Python struct-size check and comparing with ppstest via strace on this Pi).
+#   _IOW ('p', 0xa2, struct pps_kparams)  — sizeof = 40 → 0x402870a2
+#   _IOWR('p', 0xa4, struct pps_fdata)    — sizeof = 64 → 0xc04070a4
 
-class _PpsKtime(ctypes.Structure):
-    _fields_ = [
-        ('sec',   ctypes.c_longlong),  # __s64 — c_longlong is 8-byte aligned on ARM (32 and 64-bit)
-        ('nsec',  ctypes.c_int32),
-        ('flags', ctypes.c_uint32),
-    ]
-
-class _PpsKparams(ctypes.Structure):
-    _fields_ = [
-        ('api_version',   ctypes.c_int32),
-        ('mode',          ctypes.c_int32),
-        ('assert_off_tu', _PpsKtime),
-        ('clear_off_tu',  _PpsKtime),
-    ]
-
-class _PpsKinfo(ctypes.Structure):
-    _fields_ = [
-        ('assert_sequence', ctypes.c_uint32),
-        ('clear_sequence',  ctypes.c_uint32),
-        ('assert_tu',       _PpsKtime),
-        ('clear_tu',        _PpsKtime),
-        ('current_mode',    ctypes.c_int32),
-        ('_pad',            ctypes.c_uint32),  # explicit tail pad — kernel aligns to 8 bytes
-    ]
-
-class _PpsFdata(ctypes.Structure):
-    _fields_ = [
-        ('info',    _PpsKinfo),
-        ('timeout', _PpsKtime),
-    ]
-
-# Sanity check at import time — catches any future struct-layout regression.
-assert ctypes.sizeof(_PpsKparams) == 40, f"_PpsKparams size {ctypes.sizeof(_PpsKparams)} != 40"
-assert ctypes.sizeof(_PpsFdata)   == 64, f"_PpsFdata size {ctypes.sizeof(_PpsFdata)} != 64"
-
-_PPS_SETPARAMS = (
-    (1 << 30) |
-    (ctypes.sizeof(_PpsKparams) << 16) |
-    (ord('p') << 8) |
-    0xa2
-)
-_PPS_FETCH = (
-    (3 << 30) |
-    (ctypes.sizeof(_PpsFdata) << 16) |
-    (ord('p') << 8) |
-    0xa4
-)
+_PPS_SETPARAMS = 0x402870a2
+_PPS_FETCH     = 0xc04070a4
 
 _PPS_API_VERS      = 1
 _PPS_CAPTUREASSERT = 0x01
+
+# struct pps_kparams (40 bytes, little-endian, no implicit padding needed):
+#   int32  api_version
+#   int32  mode
+#   int64  assert_off_tu.sec,  int32 .nsec,  uint32 .flags
+#   int64  clear_off_tu.sec,   int32 .nsec,  uint32 .flags
+_KPARAMS_PACK = '<iiqIIqII'
+
+# struct pps_fdata (64 bytes):
+#   uint32 assert_sequence,  uint32 clear_sequence
+#   int64  assert_tu.sec,    int32 .nsec,  uint32 .flags   (offset  8)
+#   int64  clear_tu.sec,     int32 .nsec,  uint32 .flags   (offset 24)
+#   int32  current_mode,     uint32 _pad                   (offset 40)
+#   int64  timeout.sec,      int32 .nsec,  uint32 .flags   (offset 48)
+_FDATA_PACK = '<IIqIIqIIiIqII'
+_FDATA_SIZE = struct.calcsize(_FDATA_PACK)   # must be 64
+
+assert _FDATA_SIZE == 64, f"pps_fdata size mismatch: {_FDATA_SIZE} != 64"
+
+_FDATA_TIMEOUT_OFFSET     = 48   # byte offset of the timeout field in pps_fdata
+_FDATA_ASSERT_SEQ_OFFSET  = 0    # byte offset of assert_sequence
 
 
 # ── Logger ────────────────────────────────────────────────────────────────────
@@ -133,7 +106,6 @@ class GPSPPSLogger:
         utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         self._file = open(self._log_path, 'w', newline='')
-        # First line: UTC anchor as a comment so the CSV is still machine-readable
         self._file.write(f"# session_start_utc={utc_now}\n")
         self._writer = csv.writer(self._file)
         self._writer.writerow(['pulse_idx', 'monotonic_us'])
@@ -161,37 +133,36 @@ class GPSPPSLogger:
             print("  → Is dtoverlay=pps-gpio,gpiopin=18 in /boot/firmware/config.txt?")
             return
 
-        params = _PpsKparams()
-        params.api_version = _PPS_API_VERS
-        params.mode        = _PPS_CAPTUREASSERT
-        ret = _libc.ioctl(fd, _PPS_SETPARAMS, ctypes.byref(params))
-        if ret == -1:
-            err = ctypes.get_errno()
-            print(f"GPS PPS: PPS_SETPARAMS failed: errno={err} ({os.strerror(err)}) — continuing anyway")
+        # Enable assert-edge capture.
+        params = struct.pack(_KPARAMS_PACK,
+                             _PPS_API_VERS, _PPS_CAPTUREASSERT,
+                             0, 0, 0,   # assert_off_tu
+                             0, 0, 0)   # clear_off_tu
+        try:
+            fcntl.ioctl(fd, _PPS_SETPARAMS, params)
+        except OSError as e:
+            print(f"GPS PPS: PPS_SETPARAMS failed: {e} — continuing anyway")
 
-        fdata    = _PpsFdata()
+        buf      = bytearray(_FDATA_SIZE)
         last_seq = None
 
         try:
             while self._running:
-                fdata.timeout.sec   = 2
-                fdata.timeout.nsec  = 0
-                fdata.timeout.flags = 0
+                # Write 2-second timeout into fdata.timeout before each call.
+                struct.pack_into('<qII', buf, _FDATA_TIMEOUT_OFFSET, 2, 0, 0)
 
-                ret = _libc.ioctl(fd, _PPS_FETCH, ctypes.byref(fdata))
-
-                # Sample CLOCK_MONOTONIC immediately after the ioctl unblocks.
-                # Scheduling latency here is negligible vs. the 1 Hz pulse period.
-                mono_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1_000_000)
-
-                if ret == -1:
-                    err = ctypes.get_errno()
-                    if err in (errno.ETIMEDOUT, errno.ETIME):
+                try:
+                    fcntl.ioctl(fd, _PPS_FETCH, buf, True)
+                except OSError as e:
+                    if e.errno in (errno.ETIMEDOUT, errno.ETIME):
                         continue
-                    print(f"GPS PPS: ioctl error: errno={err} ({os.strerror(err)})")
+                    print(f"GPS PPS: PPS_FETCH failed: {e}")
                     break
 
-                seq = fdata.info.assert_sequence
+                # Sample CLOCK_MONOTONIC immediately after the ioctl unblocks.
+                mono_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1_000_000)
+
+                seq = struct.unpack_from('<I', buf, _FDATA_ASSERT_SEQ_OFFSET)[0]
                 if seq == last_seq:
                     continue
                 last_seq = seq
