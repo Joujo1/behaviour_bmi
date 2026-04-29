@@ -21,8 +21,8 @@ class UDPFrameOutput(Output):
         self.fps = 0
         self._iframe_sizes = []
         self._pframe_sizes = []
-        # K (set on first frame): CLOCK_MONOTONIC − cam_ts, converts camera-relative
-        # timestamps to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
+        # Set on first frame: CLOCK_MONOTONIC − cam_pts anchors camera-relative
+        # PTS to absolute CLOCK_MONOTONIC, matching engine.py event timestamps.
         self._mono_at_start_us = None
 
     def outputframe(self, frame_bytes, keyframe=True, timestamp=None, packet=None, *args, **kwargs):
@@ -52,15 +52,17 @@ class UDPFrameOutput(Output):
             self._mono_at_start_us = mono_now_us - (timestamp if timestamp is not None else 0)
 
         abs_ts = (self._mono_at_start_us + timestamp) if timestamp is not None else mono_now_us
-        current_timestamp = abs_ts
+        # picamera2 delivers the H264 callback one frame late: the PTS it provides
+        # is the capture time of the *next* frame. Subtract one frame period to get
+        # the true capture time of this frame, used both as the stored timestamp and
+        # as the event-drain cutoff so they stay in sync.
+        frame_period_us = 1_000_000 // CAMERA_FPS
+        current_timestamp = abs_ts - frame_period_us
 
         recent_events = []
 
         if self.fsm_data_cb is not None:
-            # Subtract one frame period: picamera2's H264 PTS runs one frame ahead
-            # of the actual capture time, so we correct for that here.
-            frame_period_us = 1_000_000 // CAMERA_FPS
-            _, recent_events = self.fsm_data_cb(abs_ts - frame_period_us)
+            _, recent_events = self.fsm_data_cb(current_timestamp)
 
         trial_state = 0
 
