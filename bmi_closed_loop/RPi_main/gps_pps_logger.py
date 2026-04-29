@@ -2,55 +2,39 @@
 GPS PPS logger — records CLOCK_MONOTONIC timestamps of each PPS pulse for
 post-session clock-drift correction.
 
-How it works:
-  The pps-gpio kernel driver implements both an ioctl API and standard poll/read
-  vfs operations. We use select() + read() instead of the PPS_FETCH ioctl because
-  on 64-bit kernels with a 32-bit Python process, the ioctl compat path returns
-  ENOTTY (pps_core does not register a compat_ioctl handler). select() and read()
-  are not affected by this — they go through a separate vfs path.
+Uses the canonical Linux PPS character-device API (linux/pps.h) via
+fcntl.ioctl + struct — no ctypes, no libc lookup, no select/read tricks.
 
-  select.select() blocks on /dev/pps0 until the fd becomes readable, which the
-  kernel marks at the moment the GPIO interrupt fires. We sample CLOCK_MONOTONIC
-  immediately after select() returns. Scheduling latency (typically < 100 µs) is
-  small, constant, and irrelevant for characterising ~100 ppm crystal drift.
-
-  Post-processing: fit a line through (pulse_idx, monotonic_us) with
-  numpy.polyfit. The slope gives the true oscillator period (should be very
-  close to 1 000 000 µs/pulse). Use it to correct any stored timestamp for
-  cumulative drift over a 2-hour session.
+Rationale for PPS_FETCH over select()+read():
+  • PPS_FETCH blocks inside the kernel until the next rising edge increments
+    the assert_sequence counter, then returns immediately. Same scheduling
+    cost as select(), but it's the documented API contract.
+  • read() on /dev/pps0 is not part of the documented API. Some kernel
+    versions return data, others return -EINVAL — relying on it is fragile.
+  • PPS_FETCH gives us assert_sequence, so missed pulses are visible in the
+    CSV as gaps in the seq column. select() can't tell us this.
 
 CSV columns:
-  pulse_idx     — 0-based index of the PPS rising edge
-  monotonic_us  — CLOCK_MONOTONIC sampled immediately after select() returns
+  seq        — kernel-side rising-edge counter (gaps = dropped pulses)
+  mono_us    — CLOCK_MONOTONIC sampled in userspace right after the ioctl
+               returns, so it shares the time domain of the rest of the rig
 
-The session-start UTC is written once as a comment on line 1 of the CSV so the
-pulse stream can be anchored to wall-clock time without NMEA parsing.
+Note on time domains: the kernel also fills in assert_tu (sec, nsec) at IRQ
+time with sub-µs precision, but it's CLOCK_REALTIME — not directly comparable
+with CLOCK_MONOTONIC samples elsewhere. We ignore it on purpose. The ~tens-of-
+µs scheduling jitter on the userspace timestamp averages out completely in a
+2-hour polyfit over 7200 pulses.
 
-Wiring (Adafruit Ultimate GPS breakout):
-  GPS PPS → Pi GPIO18  (physical pin 12)
-  GPS VIN → 3.3 V
-  GPS GND → GND
-
-Pi one-time setup:
-  1. raspi-config → Interface Options → Serial Port
-       → login shell over serial: No
-       → serial port hardware enabled: Yes
-  2. Add to /boot/firmware/config.txt:
-       dtoverlay=pps-gpio,gpiopin=18
-  3. Add pps-gpio to /etc/modules:
-       echo 'pps-gpio' | sudo tee -a /etc/modules
-  4. udev rule for /dev/pps0:
-       echo 'KERNEL=="pps0", GROUP="dialout", MODE="0660"' | sudo tee /etc/udev/rules.d/99-pps.rules
-       sudo udevadm control --reload-rules && sudo udevadm trigger /dev/pps0
-  5. Reboot
-
-Note: the Adafruit MTK3339 only outputs PPS after a 3D fix, so any pulse logged
-here confirms the GPS had a valid fix at that moment — no NMEA parsing needed.
+Important: NTP/timesyncd must be disabled during the session, otherwise the
+local clock is being slewed against the same GPS reference we're measuring,
+and the drift fit becomes a tautology. `sudo systemctl stop systemd-timesyncd`.
 """
 
 import csv
+import errno
+import fcntl
 import os
-import select
+import struct
 import threading
 import time
 from datetime import datetime, timezone
@@ -58,16 +42,58 @@ from datetime import datetime, timezone
 from config import GPS_PPS_DEV, GPS_LOG_DIR
 
 
+# ── Linux PPS API (from <linux/pps.h>) ────────────────────────────────────────
+#
+# struct pps_ktime  { __s64 sec; __s32 nsec; __u32 flags; }                 16 B
+# struct pps_kparams{ s32 api_version; s32 mode;
+#                     pps_ktime assert_off_tu; pps_ktime clear_off_tu; }   40 B
+# struct pps_kinfo  { __u32 assert_sequence; __u32 clear_sequence;
+#                     pps_ktime assert_tu;    pps_ktime clear_tu;
+#                     s32 current_mode; }                                  48 B
+# struct pps_fdata  { pps_kinfo info; pps_ktime timeout; }                 64 B
+#
+# Format strings use '=' (standard sizes, no native alignment) plus an
+# explicit '4x' to match the kernel's 4-byte trailing pad on pps_kinfo.
+
+_KPARAMS_FMT = '=iiqiIqiI'         # 40 B  (matches kernel sizeof)
+_FDATA_FMT   = '=IIqiIqiIi4xqiI'   # 64 B  (info + timeout)
+assert struct.calcsize(_KPARAMS_FMT) == 40
+assert struct.calcsize(_FDATA_FMT)   == 64
+
+_PPS_API_VERS_1    = 1
+_PPS_CAPTUREASSERT = 0x01
+
+# Replicate the _IOC encoding from <asm-generic/ioctl.h>:
+#   bits 31..30 = direction, 29..16 = size, 15..8 = type, 7..0 = nr
+def _IOC(direction, type_char, nr, size):
+    return (direction << 30) | (size << 16) | (ord(type_char) << 8) | nr
+
+_PPS_SETPARAMS = _IOC(1,     'p', 0xa2, struct.calcsize(_KPARAMS_FMT))  # _IOW
+_PPS_FETCH     = _IOC(1 | 2, 'p', 0xa4, struct.calcsize(_FDATA_FMT))    # _IOWR
+
+# Pre-built pps_fdata template with a 2-second timeout. Re-packed each
+# iteration because PPS_FETCH overwrites the buffer with the result.
+_FETCH_TEMPLATE = struct.pack(
+    _FDATA_FMT,
+    0, 0,           # assert_sequence, clear_sequence
+    0, 0, 0,        # assert_tu  (sec, nsec, flags)
+    0, 0, 0,        # clear_tu
+    0,              # current_mode
+    2, 0, 0,        # timeout    (sec=2, nsec=0, flags=0)
+)
+
+
+# ── Logger ────────────────────────────────────────────────────────────────────
+
 class GPSPPSLogger:
     def __init__(self):
         os.makedirs(GPS_LOG_DIR, exist_ok=True)
-        stamp          = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self._log_path = os.path.join(GPS_LOG_DIR, f"gps_pps_{stamp}.csv")
-        self._running  = False
-        self._pulse_idx = 0
-        self._thread   = None
-        self._file     = None
-        self._writer   = None
+        stamp           = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self._log_path  = os.path.join(GPS_LOG_DIR, f"gps_pps_{stamp}.csv")
+        self._running   = False
+        self._thread    = None
+        self._file      = None
+        self._writer    = None
 
     def start(self):
         utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -75,7 +101,7 @@ class GPSPPSLogger:
         self._file = open(self._log_path, 'w', newline='')
         self._file.write(f"# session_start_utc={utc_now}\n")
         self._writer = csv.writer(self._file)
-        self._writer.writerow(['pulse_idx', 'monotonic_us'])
+        self._writer.writerow(['seq', 'mono_us'])
         self._file.flush()
 
         self._running = True
@@ -94,32 +120,54 @@ class GPSPPSLogger:
 
     def _pps_loop(self):
         try:
-            fd = os.open(GPS_PPS_DEV, os.O_RDONLY)
+            fd = os.open(GPS_PPS_DEV, os.O_RDWR)
         except OSError as e:
             print(f"GPS PPS: cannot open {GPS_PPS_DEV}: {e}")
             print("  → Is dtoverlay=pps-gpio,gpiopin=18 in /boot/firmware/config.txt?")
             return
 
         try:
+            # Configure capture mode: rising edges, no offset corrections.
+            params = struct.pack(_KPARAMS_FMT,
+                                 _PPS_API_VERS_1,    # api_version
+                                 _PPS_CAPTUREASSERT, # mode
+                                 0, 0, 0,            # assert_off_tu (sec, nsec, flags)
+                                 0, 0, 0)            # clear_off_tu
+            try:
+                fcntl.ioctl(fd, _PPS_SETPARAMS, params)
+            except OSError as e:
+                # Some pps-gpio versions don't honour SETPARAMS but still
+                # capture correctly with default settings. Don't bail.
+                print(f"GPS PPS: PPS_SETPARAMS failed ({e}) — continuing")
+
+            last_seq = None
             while self._running:
-                # Block until /dev/pps0 is readable (a PPS pulse has arrived)
-                # or the 2-second timeout expires.
-                r, _, _ = select.select([fd], [], [], 2.0)
-                if not r:
-                    continue  # timeout — no pulse, check _running and loop
-
-                # Sample CLOCK_MONOTONIC immediately when select() returns.
-                # The fd becomes readable the moment the kernel GPIO interrupt fires.
-                mono_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1_000_000)
-
-                # Drain the readable event so the next select() blocks correctly.
+                # Fresh buffer each iteration: PPS_FETCH writes the result
+                # into the buffer, clobbering the timeout fields.
+                buf = bytearray(_FETCH_TEMPLATE)
                 try:
-                    os.read(fd, 32)
-                except OSError:
+                    fcntl.ioctl(fd, _PPS_FETCH, buf, True)
+                except OSError as e:
+                    if e.errno in (errno.ETIMEDOUT, errno.ETIME):
+                        continue                # no pulse in 2 s — keep waiting
+                    print(f"GPS PPS: PPS_FETCH failed: {e}")
                     break
 
-                self._writer.writerow([self._pulse_idx, mono_us])
+                # Sample CLOCK_MONOTONIC immediately after the ioctl unblocks,
+                # in the same time domain as everything else in the rig.
+                mono_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1_000_000)
+
+                # Only the first uint32 of the fdata buffer (assert_sequence)
+                # matters for our purposes — pull it out without unpacking the
+                # full 64 bytes.
+                seq = struct.unpack_from('=I', buf, 0)[0]
+                if seq == last_seq:
+                    # Spurious wake (shouldn't happen on PPS_FETCH, but cheap
+                    # to guard against).
+                    continue
+                last_seq = seq
+
+                self._writer.writerow([seq, mono_us])
                 self._file.flush()
-                self._pulse_idx += 1
         finally:
             os.close(fd)
