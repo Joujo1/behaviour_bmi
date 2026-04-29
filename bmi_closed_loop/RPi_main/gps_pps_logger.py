@@ -66,7 +66,7 @@ _libc.ioctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
 
 class _PpsKtime(ctypes.Structure):
     _fields_ = [
-        ('sec',   ctypes.c_int64),
+        ('sec',   ctypes.c_longlong),  # __s64 — c_longlong is 8-byte aligned on ARM (32 and 64-bit)
         ('nsec',  ctypes.c_int32),
         ('flags', ctypes.c_uint32),
     ]
@@ -86,6 +86,7 @@ class _PpsKinfo(ctypes.Structure):
         ('assert_tu',       _PpsKtime),
         ('clear_tu',        _PpsKtime),
         ('current_mode',    ctypes.c_int32),
+        ('_pad',            ctypes.c_uint32),  # explicit tail pad — kernel aligns to 8 bytes
     ]
 
 class _PpsFdata(ctypes.Structure):
@@ -93,6 +94,10 @@ class _PpsFdata(ctypes.Structure):
         ('info',    _PpsKinfo),
         ('timeout', _PpsKtime),
     ]
+
+# Sanity check at import time — catches any future struct-layout regression.
+assert ctypes.sizeof(_PpsKparams) == 40, f"_PpsKparams size {ctypes.sizeof(_PpsKparams)} != 40"
+assert ctypes.sizeof(_PpsFdata)   == 64, f"_PpsFdata size {ctypes.sizeof(_PpsFdata)} != 64"
 
 _PPS_SETPARAMS = (
     (1 << 30) |
