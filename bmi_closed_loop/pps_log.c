@@ -17,14 +17,12 @@ int main(void)
         perror("time_pps_create"); return 1;
     }
 
-    /* Check the device can capture the assert (rising) edge */
     int cap = 0;
     time_pps_getcap(handle, &cap);
     if (!(cap & PPS_CAPTUREASSERT)) {
         fprintf(stderr, "Device cannot capture assert edge\n"); return 1;
     }
 
-    /* Enable assert capture */
     pps_params_t params;
     time_pps_getparams(handle, &params);
     params.mode |= PPS_CAPTUREASSERT | PPS_TSFMT_TSPEC;
@@ -41,11 +39,9 @@ int main(void)
         int ret = time_pps_fetch(handle, PPS_TSFMT_TSPEC, &info, &timeout);
         if (ret < 0) { perror("pps_fetch"); continue; }
 
-        /* Skip if no new pulse arrived */
         if (info.assert_sequence == last_seq) continue;
         last_seq = info.assert_sequence;
 
-        /* Read CLOCK_MONOTONIC as close as possible after the pulse */
         struct timespec mono;
         clock_gettime(CLOCK_MONOTONIC, &mono);
 
