@@ -60,15 +60,3 @@ FRAME_QUEUE_MAXSIZE = 30
 # Audio (sounddevice)
 AUDIO_DEVICE = 1        # Pi 4 audio jack (run `python -m sounddevice` to list)
 AUDIO_SRATE  = 48_000
-
-# GPS / PPS
-# Wiring: GPS TX → GPIO15 (Pi UART RX), GPS PPS → GPIO18, VIN → 3.3 V
-# Pi one-time setup:
-#   raspi-config → Interface Options → Serial Port → login shell: No, hardware: Yes
-#   Add to /boot/config.txt: dtoverlay=pps-gpio,gpiopin=18
-#   Disable Bluetooth for full UART: dtoverlay=disable-bt in /boot/config.txt → use /dev/ttyAMA0
-GPS_PPS_PIN   = 18             # wiring reference — owned by pps-gpio kernel driver at runtime
-GPS_PPS_DEV   = '/dev/pps0'   # kernel PPS device created by dtoverlay=pps-gpio
-GPS_UART_PORT = '/dev/ttyAMA0'  # full UART (BT disabled via dtoverlay=disable-bt)
-GPS_UART_BAUD = 9600
-GPS_LOG_DIR   = '/home/pi/gps_logs'
