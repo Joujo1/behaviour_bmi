@@ -32,6 +32,8 @@ FAN_MIN_DUTY = 30
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000
 
+CLICK_WIDTH_S = 0.003   # seconds — must match CLICK_WIDTH_S in RPi_main/config.py
+
 LOGGING_DIR = os.environ.get(
     "BMI_LOG_DIR",
     "/home/sentinel/Desktop/bmi/behaviour_bmi/bmi_closed_loop/logs"

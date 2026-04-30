@@ -34,29 +34,28 @@ BEAM_ACTIVE_LOW = {
 FAN_PIN       = 8
 STRIP_PIN     = 25
 FAN_PWM_FREQ  = 200.0
-FAN_MIN_DUTY  = 30    # % — below this the fan turns off instead of running at low speed
+FAN_MIN_DUTY  = 30
 
 CLICK_PULSE_US = 100
 
 VALVE_OPEN_DEFAULT_MS = 150
-BEAM_DEBOUNCE_MS      = 1    # IR sensors have no mechanical bounce; 1ms filters electrical glitches only
+BEAM_DEBOUNCE_MS      = 1
 
 TRIAL_WATCHDOG_S = 1200
 
 TCP_PORT        = 6000
 UDP_STREAM_PORT = 5002
 
-# Camera
 CAMERA_FPS          = 60
 CAMERA_WIDTH        = 1080
 CAMERA_HEIGHT       = 720
-CAMERA_BITRATE      = 2_000_000   # H264 — keeps I-frames well under UDP 65507 limit
-CAMERA_H264_IPERIOD = 60          # I-frame every 1 s at 60 fps
+CAMERA_BITRATE      = 2_000_000 
+CAMERA_H264_IPERIOD = 60
 CAMERA_EXPOSURE_US  = 6000
 CAMERA_GAIN         = 4.0
 
 FRAME_QUEUE_MAXSIZE = 30
 
-# Audio (sounddevice)
-AUDIO_DEVICE = 1        # Pi 4 audio jack (run `python -m sounddevice` to list)
-AUDIO_SRATE  = 48_000
+AUDIO_DEVICE  = 1
+AUDIO_SRATE   = 48_000
+CLICK_WIDTH_S = 0.003

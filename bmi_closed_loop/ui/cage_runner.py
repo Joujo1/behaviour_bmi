@@ -310,7 +310,9 @@ def _expand_clicks(trial_definition: dict, seed: int | None = None) -> dict:
                 left_rate  = action.pop("left_rate",      0)
                 right_rate = action.pop("right_rate",     0)
                 duration   = action.pop("click_duration", 1.0)
-                clicks = generate_clicks(left_rate, right_rate, duration, seed=seed)
+                min_ici    = action.pop("min_ici", None)   # None → generator default (click width)
+                kw = {} if min_ici is None else {"min_ici": min_ici}
+                clicks = generate_clicks(left_rate, right_rate, duration, seed=seed, **kw)
                 action["left_clicks"]  = clicks["left_clicks"]
                 action["right_clicks"] = clicks["right_clicks"]
     return trial

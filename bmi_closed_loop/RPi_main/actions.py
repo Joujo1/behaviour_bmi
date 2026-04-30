@@ -50,25 +50,49 @@ def _stop_audio(target: str) -> None:
     pass
 
 # Module-level stop event; replaced each time _play_clicks() is called.
-# Setting it signals the watcher not to fire on_complete after sd.stop().
+# Setting it signals the player thread to stop feeding the stream.
 _click_stop: threading.Event = threading.Event()
 _click_stop.set()   # start in the "stopped / idle" state
 
 # Pre-built click waveform — constructed once at import time.
 _CLICK = audio.build_click(srate=AUDIO_SRATE)
 
+# Persistent OutputStream — opened once, kept alive between trials so there
+# is no per-trial stream startup transient.
+_stream: sd.OutputStream | None = None
+_CHUNK = 512    # samples per write (~10 ms at 48 kHz); stop flag checked between chunks
+
+
+def _open_stream() -> sd.OutputStream:
+    """Return the running OutputStream, (re-)opening it if necessary."""
+    global _stream
+    if _stream is not None and _stream.active:
+        return _stream
+    if _stream is not None:
+        try:
+            _stream.close()
+        except Exception:
+            pass
+    _stream = sd.OutputStream(samplerate=AUDIO_SRATE, channels=2,
+                               device=AUDIO_DEVICE, dtype='float32')
+    _stream.start()
+    logger.info("Audio OutputStream opened")
+    return _stream
+
 
 def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
                  log_cb=None) -> None:
     """
-    Render both click trains into a stereo float32 buffer and play via sounddevice.
+    Render both click trains into a stereo float32 buffer and stream it via
+    a persistent OutputStream.
 
+    The buffer is fed in small chunks so the stop flag is checked frequently.
     When playback ends naturally (i.e. stop_clicks() was NOT called),
     on_complete() is fired so the engine can trigger the clicks_done transition.
     """
     global _click_stop
-    _click_stop.set()                # cancel any previous watcher
-    _click_stop = threading.Event()  # fresh stop event for this run
+    _click_stop.set()                # signal any running player to stop
+    _click_stop = threading.Event()  # fresh event for this run
     stop = _click_stop
 
     if log_cb:
@@ -76,16 +100,21 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
 
     buf = audio.build_buffer_from_times(_CLICK, left_clicks, right_clicks,
                                         srate=AUDIO_SRATE)
-    sd.stop()
-    sd.play(buf, samplerate=AUDIO_SRATE, device=AUDIO_DEVICE, blocking=False)
 
-    def _watcher():
-        sd.wait()   # returns when playback ends or sd.stop() is called
+    def _player():
+        stream = _open_stream()
+        i = 0
+        try:
+            while i < len(buf) and not stop.is_set():
+                stream.write(buf[i:i + _CHUNK])
+                i += _CHUNK
+        except Exception as e:
+            logger.warning("Click player error: %s", e)
         if not stop.is_set() and on_complete is not None:
             logger.info("Click trains finished — firing on_complete")
             on_complete()
 
-    threading.Thread(target=_watcher, daemon=True, name="clicks-watcher").start()
+    threading.Thread(target=_player, daemon=True, name="clicks-player").start()
     logger.info("Click trains started: %d left, %d right", len(left_clicks), len(right_clicks))
 
 
@@ -133,7 +162,6 @@ def _play_birthday(target: str) -> None:
 def stop_clicks() -> None:
     """Interrupt any in-progress click train playback immediately."""
     _click_stop.set()
-    sd.stop()
     logger.info("Click trains stopped")
 
 
