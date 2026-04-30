@@ -3,10 +3,20 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 # --- Load data ---
-data = np.loadtxt("pps_log.txt", skiprows=1, usecols=(0, 1, 2))
-pps_ns  = data[:, 0]
-mono_ns = data[:, 1]
-seq     = data[:, 2].astype(int)
+pps_ns, mono_ns, seq = [], [], []
+with open("pps_log.txt", "r") as f:
+    f.readline()  # skip header
+    for line in f:
+        parts = line.split()
+        if len(parts) != 3:
+            continue
+        pps_ns.append(int(parts[0]))
+        mono_ns.append(int(parts[1]))
+        seq.append(int(parts[2]))
+
+pps_ns  = np.array(pps_ns,  dtype=np.float64)
+mono_ns = np.array(mono_ns, dtype=np.float64)
+seq     = np.array(seq,     dtype=int)
 
 # Detect dropped pulses and warn
 gaps = np.diff(seq)
