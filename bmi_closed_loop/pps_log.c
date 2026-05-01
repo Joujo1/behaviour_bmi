@@ -42,15 +42,22 @@ int main(void)
         if (info.assert_sequence == last_seq) continue;
         last_seq = info.assert_sequence;
 
-        struct timespec mono;
-        clock_gettime(CLOCK_MONOTONIC, &mono);
+        // Read both clocks back-to-back so their offset is accurate.
+        // With NTP disabled, rt - mono is constant throughout the run,
+        // letting us project the kernel PPS realtime stamp onto MONOTONIC.
+        struct timespec rt_now, mono_now;
+        clock_gettime(CLOCK_REALTIME,  &rt_now);
+        clock_gettime(CLOCK_MONOTONIC, &mono_now);
 
-        long long pps_ns  = (long long)info.assert_timestamp.tv_sec * 1000000000LL
-                          + info.assert_timestamp.tv_nsec;
-        long long mono_ns = (long long)mono.tv_sec * 1000000000LL
-                          + mono.tv_nsec;
+        long long pps_rt_ns  = (long long)info.assert_timestamp.tv_sec * 1000000000LL
+                             + info.assert_timestamp.tv_nsec;
+        long long rt_now_ns  = (long long)rt_now.tv_sec  * 1000000000LL + rt_now.tv_nsec;
+        long long mono_now_ns= (long long)mono_now.tv_sec* 1000000000LL + mono_now.tv_nsec;
 
-        printf("%-20lld  %-20lld  %u\n", pps_ns, mono_ns, last_seq);
+        // CLOCK_MONOTONIC equivalent at the exact PPS edge
+        long long mono_at_edge = pps_rt_ns - (rt_now_ns - mono_now_ns);
+
+        printf("%-20lld  %-20lld  %u\n", pps_rt_ns, mono_at_edge, last_seq);
         fflush(stdout);
     }
 
