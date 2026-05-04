@@ -1,3 +1,28 @@
+//sudo wget https://raw.githubusercontent.com/redlab-i/pps-tools/master/timepps.h -O /usr/local/include/timepps.h
+
+//gcc -O2 -I/usr/local/include -o debug/pps_log debug/pps_log.c
+
+/*
+python3 -c "
+import queue, time
+from streamer import CameraStreamer
+
+class G:
+def get_current_state(self): return {}
+
+q = queue.Queue(maxsize=2)
+cam = CameraStreamer(q, G())
+cam.start()
+print('running — Ctrl-C to stop')
+try:
+while True:
+try: q.get(timeout=0.1)
+except queue.Empty: pass
+except KeyboardInterrupt:
+cam.stop()
+"
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>

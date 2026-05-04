@@ -26,6 +26,7 @@ import time
 import sys
 
 import gpio_handler
+import actions as _actions
 from engine import Engine
 from tcp_command_receiver import TCPCommandReceiver
 from streamer import CameraStreamer
@@ -33,7 +34,7 @@ from udp_sender_pi import UDPSender
 from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
 
-logging.basicConfig( 
+logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
     datefmt="%H:%M:%S",
@@ -72,7 +73,6 @@ def main():
     receiver: TCPCommandReceiver = None
     gpio_adapter = _GPIOAdapter()
 
-
     def on_trial_complete(trial_id: str, outcome: str, events: list) -> None:
         """Push a trial_complete or trial_aborted event back to the PC over TCP."""
         nonlocal current_engine
@@ -81,7 +81,8 @@ def main():
         event = "trial_aborted" if outcome == "aborted" else "trial_complete"
         payload = json.dumps({"event": event, "trial_id": trial_id, "outcome": outcome,
                               "events": events, "trial_start_us": trial_start_us})
-        logger.info("Trial finished: event=%s  outcome=%s  trial_id=%s  n_events=%d", event, outcome, trial_id, len(events))
+        logger.info("Trial finished: event=%s  outcome=%s  trial_id=%s  n_events=%d",
+                    event, outcome, trial_id, len(events))
         receiver.push(payload)
 
     def handle_command(command: str):
@@ -161,7 +162,6 @@ def main():
 
         current_engine.start()
         return True, "ok"
-
 
     def on_connect(ip: str) -> None:
         """Record the PC's IP address so the UDP stream knows where to send frames."""

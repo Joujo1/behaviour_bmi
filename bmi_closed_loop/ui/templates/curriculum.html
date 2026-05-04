@@ -346,10 +346,14 @@
           <input id="bldr-fail-iti" class="bldr-input" type="number" min="0" step="0.5" style="width:60px" placeholder="15" />
         </span>
         <span class="bldr-label">Click Side
-          <select id="bldr-side-mode" class="bldr-input" onchange="updateJSONPreview()">
+          <select id="bldr-side-mode" class="bldr-input" onchange="onSideModeChange()">
             <option value="random">Random</option>
             <option value="fixed">Fixed</option>
+            <option value="weighted">Weighted</option>
           </select>
+        </span>
+        <span class="bldr-label" id="bldr-left-prob-wrap" style="display:none">Left prob (%)
+          <input id="bldr-left-prob" class="bldr-input" type="number" min="1" max="99" step="1" style="width:55px" placeholder="50" oninput="updateJSONPreview()" />
         </span>
         <button class="btn small" onclick="addState()">+ State</button>
         <button class="btn accent small" onclick="saveTaskConfig()" style="margin-left:auto">Save trial definition</button>
@@ -742,11 +746,25 @@
       : '<option value="">—</option>';
   }
 
+  function onSideModeChange() {
+    const weighted = document.getElementById('bldr-side-mode').value === 'weighted';
+    document.getElementById('bldr-left-prob-wrap').style.display = weighted ? '' : 'none';
+    updateJSONPreview();
+  }
+
   function buildTrialJSON() {
-    return {
+    const sideMode = document.getElementById('bldr-side-mode').value;
+    const def = {
       trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
       initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
-      side_mode:     document.getElementById('bldr-side-mode').value,
+      side_mode:     sideMode,
+    };
+    if (sideMode === 'weighted') {
+      const pct = parseFloat(document.getElementById('bldr-left-prob').value);
+      def.left_probability = isNaN(pct) ? 0.5 : Math.round(pct) / 100;
+    }
+    return {
+      ...def,
       states: bldrStates.map(s => {
         const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
         const mapActions = actions => actions.map(a => {
@@ -818,6 +836,9 @@
     document.getElementById('bldr-base-iti').value  = def.base_iti_s ?? '';
     document.getElementById('bldr-fail-iti').value  = def.fail_iti_s ?? '';
     document.getElementById('bldr-side-mode').value = def.side_mode  || 'random';
+    const leftProb = def.left_probability != null ? Math.round(def.left_probability * 100) : 50;
+    document.getElementById('bldr-left-prob').value = leftProb;
+    document.getElementById('bldr-left-prob-wrap').style.display = def.side_mode === 'weighted' ? '' : 'none';
     bldrStateCount = 1;
     bldrStates = (def.states || []).map(s => {
       const timeoutT = (s.transitions || []).find(t => t.trigger === 'timeout');

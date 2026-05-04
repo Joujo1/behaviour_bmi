@@ -4,6 +4,34 @@ Trial state machine engine.
 Interprets a JSON trial definition and drives hardware via actions.py and
 gpio_handler. All transitions are event-driven (GPIO interrupts + timers).
 
+Architecture
+------------
+The Engine owns a single dedicated FSM thread (_run). Every external source
+that wants to trigger a transition posts a tuple to _event_queue and returns
+immediately:
+
+    GPIO interrupt thread  →  _on_beam_event()    →  queue.put(('beam', ...))
+    threading.Timer        →  _on_timeout()        →  queue.put(('timeout',))
+    threading.Timer        →  _on_watchdog()       →  queue.put(('watchdog',))
+    threading.Timer        →  _on_hold_complete()  →  queue.put(('hold', ...))
+    click-player thread    →  _on_clicks_done()    →  queue.put(('clicks_done',))
+
+The FSM thread is the sole consumer. State transitions, hardware writes, and
+event logging all happen exclusively in that thread, so no lock is needed on
+_current_state_id or the transition logic.
+
+_event_lock is still used for _event_buffer / _trial_events because
+pop_frame_events() is called from the picamera2 encoder thread.
+
+Timestamp policy
+----------------
+- Sensor inputs  : stamped inside _on_beam_event() at interrupt-callback time,
+                   before the tuple enters the queue, so latency from queue
+                   processing does not affect the recorded time.
+- Hardware outputs: stamped in _dispatch_action() *after* actions.dispatch()
+                   returns, so t reflects when the GPIO pin actually changed.
+- State transitions: stamped in transition_to() at decision time (FSM thread).
+
 Expected JSON format:
 {
     "trial_id": "example",
@@ -16,7 +44,7 @@ Expected JSON format:
             "exit_actions":  [{ "type": "led_off", "target": "center" }],
             "transitions": [
                 { "trigger": "beam_break", "target": "center", "next_state": "reward" },
-                { "trigger": "timeout",                       "next_state": "iti" }
+                { "trigger": "timeout",                        "next_state": "iti" }
             ]
         }
     ]
@@ -25,6 +53,7 @@ Expected JSON format:
 
 import json
 import logging
+import queue
 import threading
 import time
 
@@ -36,37 +65,40 @@ logger = logging.getLogger(__name__)
 
 
 class Engine:
-    """Loads a JSON trial definition and runs it as an interrupt-driven state machine."""
+    """Loads a JSON trial definition and runs it via a dedicated FSM thread."""
 
     def __init__(self, on_complete=None):
         """
         Args:
-            on_complete: callable(trial_id, aborted, events) fired when the trial finishes
-                         or is killed by the watchdog.
+            on_complete: callable(trial_id, outcome, events) fired when the
+                         trial finishes naturally or is killed by the watchdog.
+                         Not called on external stop() (STOP_TRIAL command).
         """
         self._on_complete = on_complete
 
-        self._states: dict        = {}
-        self._trial_id: str       = None
-        self._initial_state: str  = None
+        self._states: dict          = {}
+        self._trial_id: str         = None
+        self._initial_state: str    = None
         self._current_state_id: str = None
 
         self._timeout_timer:  threading.Timer = None
         self._watchdog_timer: threading.Timer = None
+        self._hold_timers:    dict            = {}
 
-        self._lock = threading.Lock()
+        # FSM thread and its event queue
+        self._event_queue: queue.Queue    = queue.Queue()
+        self._fsm_thread:  threading.Thread = None
+        self._running:     bool           = False
 
         self._trial_start:  float = None
-        self._event_buffer: list  = []   # drained every frame by pop_frame_events()
-        self._trial_events: list  = []   # full trial log, sent at completion
+        self._event_buffer: list  = []   # drained each frame by pop_frame_events()
+        self._trial_events: list  = []   # full log, sent at trial completion
         self._event_lock = threading.Lock()
         self._clicks_active = False
 
-        # Per-sensor hold timers: sensor_target → threading.Timer
-        # A hold timer is armed on beam-break and cancelled on beam-restore.
-        # The transition only fires after the beam has been held for hold_ms.
-        self._hold_timers: dict = {}
-
+    # ------------------------------------------------------------------ #
+    # Public interface                                                     #
+    # ------------------------------------------------------------------ #
 
     @property
     def trial_start_us(self) -> int | None:
@@ -79,42 +111,56 @@ class Engine:
         else:
             data = trial_json
 
-        self._trial_id     = data.get("trial_id", "unknown")
+        self._trial_id      = data.get("trial_id", "unknown")
         self._initial_state = data["initial_state"]
-        self._states       = {s["id"]: s for s in data["states"]}
+        self._states        = {s["id"]: s for s in data["states"]}
         logger.info("Trial '%s' loaded — %d states", self._trial_id, len(self._states))
 
     def start(self) -> None:
-        """Arm the watchdog, start beam monitoring, and enter the initial state."""
+        """Launch the FSM thread, arm the watchdog, and start beam monitoring."""
         if not self._states:
             raise RuntimeError("call load() before start()")
 
         self._trial_start = time.clock_gettime(time.CLOCK_MONOTONIC)
+        self._running     = True
+
+        self._fsm_thread = threading.Thread(target=self._run, daemon=True, name="fsm")
+        self._fsm_thread.start()
 
         self._watchdog_timer = threading.Timer(TRIAL_WATCHDOG_S, self._on_watchdog)
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
 
         gpio_handler.start_monitoring(self._on_beam_event)
-        self.enter_state(self._initial_state)
+        self._event_queue.put(('enter', self._initial_state))
 
     def stop(self) -> None:
-        """Abort the trial immediately: cancel all timers, sweep outputs, stop monitoring."""
+        """Abort the trial from an external thread (e.g. the TCP command thread).
+
+        Cancels all timers and stops GPIO monitoring immediately, then waits
+        for the FSM thread to finish its current event before sweeping all
+        hardware outputs low. This ordering guarantees that no action runs
+        after safety_sweep().
+        """
+        self._running = False
+        self._event_queue.put(('stop',))   # wake the FSM thread immediately
         self._cancel_timeout()
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
-        if self._clicks_active:
-            self._log_output("clicks", False)
-            self._clicks_active = False
         actions.stop_clicks()
         gpio_handler.stop_monitoring()
+        if self._fsm_thread and self._fsm_thread.is_alive():
+            self._fsm_thread.join(timeout=1.0)
         actions.safety_sweep()
         logger.info("Trial '%s' aborted", self._trial_id)
 
     def pop_frame_events(self, frame_ts_us: int = None) -> tuple:
         """Return events whose timestamp <= frame_ts_us; hold the rest for future frames.
-        The buffer is an unbounded list so any encoder backlog is preserved without loss.
-        Pass frame_ts_us=None (no active trial) to drain everything."""
+
+        Called from the picamera2 encoder thread. _event_lock protects the
+        shared buffer against concurrent writes from the FSM thread.
+        Pass frame_ts_us=None to drain everything (e.g. no trial active).
+        """
         with self._event_lock:
             if frame_ts_us is None or self._trial_start is None:
                 events, self._event_buffer = self._event_buffer, []
@@ -124,18 +170,167 @@ class Engine:
                 self._event_buffer = [e for e in self._event_buffer if e["t"] >  cutoff_t]
         return self._current_state_id, events
 
+    # ------------------------------------------------------------------ #
+    # FSM thread                                                           #
+    # ------------------------------------------------------------------ #
+
+    def _run(self) -> None:
+        """FSM thread main loop. Sole consumer of _event_queue."""
+        while self._running:
+            try:
+                event = self._event_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            kind = event[0]
+            if kind == 'stop':
+                break
+            elif kind == 'enter':
+                self.enter_state(event[1])
+            elif kind == 'beam':
+                self._handle_beam(event[1], event[2], event[3])
+            elif kind == 'timeout':
+                self._handle_timeout()
+            elif kind == 'hold':
+                self._handle_hold_complete(event[1], event[2], event[3])
+            elif kind == 'clicks_done':
+                self._handle_clicks_done()
+            elif kind == 'watchdog':
+                self._handle_watchdog()
+
+    # ------------------------------------------------------------------ #
+    # External event sources — post to queue, return immediately          #
+    # ------------------------------------------------------------------ #
+
+    def _on_beam_event(self, target: str, is_active: bool) -> None:
+        """GPIO interrupt callback. Stamps the event at detection time before queuing."""
+        t = time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start
+        self._event_queue.put(('beam', target, is_active, t))
+
+    def _on_timeout(self) -> None:
+        """State timeout timer callback."""
+        self._event_queue.put(('timeout',))
+
+    def _on_clicks_done(self) -> None:
+        """Click-player thread callback — fires when audio finishes naturally."""
+        self._event_queue.put(('clicks_done',))
+
+    def _on_watchdog(self) -> None:
+        """Watchdog timer callback."""
+        self._event_queue.put(('watchdog',))
+
+    def _on_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
+        """Hold timer callback."""
+        self._event_queue.put(('hold', target, next_state, expected_state))
+
+    # ------------------------------------------------------------------ #
+    # FSM handlers — run exclusively in the FSM thread                    #
+    # ------------------------------------------------------------------ #
+
+    def _handle_beam(self, target: str, is_active: bool, t: float) -> None:
+        """Process a beam sensor edge. t was captured at interrupt time."""
+        logger.info("Beam event  target=%-6s  active=%s", target, is_active)
+
+        if self._current_state_id is None:
+            return
+
+        state = self._states.get(self._current_state_id)
+        if state is None:
+            return
+
+        with self._event_lock:
+            entry = {"t": t, "sensor": target, "active": is_active}
+            self._event_buffer.append(entry)
+            self._trial_events.append(entry)
+
+        if not is_active:
+            self._cancel_hold_timer(target)
+            return
+
+        for tr in state.get("transitions", []):
+            if tr.get("trigger") == "beam_break" and tr.get("target") == target:
+                hold_ms = tr.get("hold_ms", 0) or 0
+                if hold_ms > 0:
+                    logger.info("Beam break on '%s' — starting hold timer %.0fms", target, hold_ms)
+                    self._start_hold_timer(target, tr["next_state"], hold_ms)
+                else:
+                    self.transition_to(tr["next_state"])
+                return  # first matching transition wins
+
+        logger.info("Beam break on '%s' — no transition in state '%s' (recorded only)",
+                    target, self._current_state_id)
+
+    def _handle_timeout(self) -> None:
+        """Process a state timeout."""
+        if self._current_state_id is None:
+            return
+
+        state = self._states.get(self._current_state_id)
+        if state is None:
+            return
+
+        for tr in state.get("transitions", []):
+            if tr.get("trigger") == "timeout":
+                logger.info("Timeout in state '%s' → '%s'", self._current_state_id, tr["next_state"])
+                self.transition_to(tr["next_state"])
+                return
+
+        logger.warning("Timeout in state '%s' but no timeout transition defined — aborting",
+                       self._current_state_id)
+        self._finish_trial_from_fsm("aborted")
+
+    def _handle_clicks_done(self) -> None:
+        """Process click train completion."""
+        if self._current_state_id is None:
+            return
+
+        state = self._states.get(self._current_state_id)
+        if state is None:
+            return
+
+        for tr in state.get("transitions", []):
+            if tr.get("trigger") == "clicks_done":
+                logger.info("Clicks done in state '%s' → '%s'",
+                            self._current_state_id, tr["next_state"])
+                self.transition_to(tr["next_state"])
+                return
+
+        if self._clicks_active:
+            self._log_output("clicks", False)
+            self._clicks_active = False
+        logger.info("Clicks done in state '%s' — no clicks_done transition (ignoring)",
+                    self._current_state_id)
+
+    def _handle_watchdog(self) -> None:
+        """Process watchdog expiry."""
+        logger.warning("Watchdog fired — trial '%s' exceeded %ds limit",
+                       self._trial_id, TRIAL_WATCHDOG_S)
+        self._finish_trial_from_fsm("aborted")
+
+    def _handle_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
+        """Process hold timer expiry."""
+        if self._current_state_id != expected_state:
+            logger.info("Hold complete for '%s' but state changed — ignoring", target)
+            return
+        self._hold_timers.pop(target, None)
+        logger.info("Hold complete for '%s' — transitioning to '%s'", target, next_state)
+        self.transition_to(next_state)
+
+    # ------------------------------------------------------------------ #
+    # State machine core — run in FSM thread                              #
+    # ------------------------------------------------------------------ #
 
     def enter_state(self, state_id: str) -> None:
-        """Run entry_actions for the new state and arm its timeout timer if duration is set."""
+        """Run entry_actions for the new state and arm its timeout timer."""
         if state_id in ("__end__", "__correct__", "__wrong__"):
             outcome_map = {"__correct__": "correct", "__wrong__": "wrong", "__end__": "correct"}
-            self._end_trial(outcome=outcome_map[state_id])
+            self._finish_trial_from_fsm(outcome=outcome_map[state_id])
             return
 
         state = self._states.get(state_id)
         if state is None:
             logger.error("Unknown state '%s' — aborting trial", state_id)
-            self.stop()
+            self._finish_trial_from_fsm("aborted")
             return
 
         self._current_state_id = state_id
@@ -151,35 +346,8 @@ class Engine:
             self._timeout_timer.daemon = True
             self._timeout_timer.start()
 
-    def _log_output(self, name: str, active: bool) -> None:
-        """Append a GPIO output event to the frame buffer and trial log."""
-        with self._event_lock:
-            entry = {
-                "t":      time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
-                "output": name,
-                "active": active,
-            }
-            self._event_buffer.append(entry)
-            self._trial_events.append(entry)
-
-    def _dispatch_action(self, action: dict) -> None:
-        """Log GPIO-affecting actions then dispatch them."""
-        atype = action.get("type")
-        if atype == "led_on":
-            self._log_output(f"led_{action.get('target', '?')}", True)
-        elif atype == "led_off":
-            self._log_output(f"led_{action.get('target', '?')}", False)
-        elif atype == "valve_open":
-            self._log_output(f"valve_{action.get('target', '?')}", True)
-        elif atype == "valve_close":
-            self._log_output(f"valve_{action.get('target', '?')}", False)
-        elif atype == "play_clicks":
-            self._clicks_active = True
-        actions.dispatch(action, on_complete=self._on_clicks_done,
-                         log_cb=self._log_output if atype == "play_clicks" else None)
-
     def transition_to(self, next_state_id: str) -> None:
-        """Cancel the running timer, run exit_actions of current state, enter the next state."""
+        """Cancel the running timer, run exit_actions, log the transition, enter next state."""
         self._cancel_timeout()
         self._cancel_all_hold_timers()
         if self._clicks_active:
@@ -202,140 +370,73 @@ class Engine:
             self._event_buffer.append(entry)
             self._trial_events.append(entry)
         self.enter_state(next_state_id)
-        
 
-    def _on_beam_event(self, target: str, is_active: bool) -> None:
+    def _dispatch_action(self, action: dict) -> None:
+        """Dispatch a hardware action and stamp output events after the write."""
+        atype = action.get("type")
+        if atype == "play_clicks":
+            self._clicks_active = True
+        actions.dispatch(action, on_complete=self._on_clicks_done,
+                         log_cb=self._log_output if atype == "play_clicks" else None)
+        # Stamp after dispatch so t reflects when the hardware actually changed
+        if atype == "led_on":
+            self._log_output(f"led_{action.get('target', '?')}", True)
+        elif atype == "led_off":
+            self._log_output(f"led_{action.get('target', '?')}", False)
+        elif atype == "valve_open":
+            self._log_output(f"valve_{action.get('target', '?')}", True)
+        elif atype == "valve_close":
+            self._log_output(f"valve_{action.get('target', '?')}", False)
+
+    def _log_output(self, name: str, active: bool) -> None:
+        """Append a hardware output event to both the frame buffer and trial log."""
+        with self._event_lock:
+            entry = {
+                "t":      time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
+                "output": name,
+                "active": active,
+            }
+            self._event_buffer.append(entry)
+            self._trial_events.append(entry)
+
+    # ------------------------------------------------------------------ #
+    # Trial lifecycle                                                      #
+    # ------------------------------------------------------------------ #
+
+    def _finish_trial_from_fsm(self, outcome: str) -> None:
+        """Clean up and notify the caller. Must only be called from the FSM thread.
+
+        Sets _running=False so the _run loop exits after this event completes.
+        Does not join the FSM thread (that would deadlock).
         """
-        Fired by gpio_handler on any beam sensor edge (both entry and exit).
-
-        All events are logged regardless of the current state. A transition is
-        only triggered on beam-break (is_active=True) if the current state has
-        a matching beam_break transition for this target.
-        """
-        logger.info("Beam event  target=%-6s  active=%s", target, is_active)
-
-        with self._lock:
-            if self._current_state_id is None:
-                return
-
-            state = self._states.get(self._current_state_id)
-            if state is None:
-                return
-
-            with self._event_lock:
-                entry = {
-                    "t":      time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
-                    "sensor": target,
-                    "active": is_active,
-                }
-                self._event_buffer.append(entry)
-                self._trial_events.append(entry)
-
-            # Beam restore: cancel any pending hold timer for this sensor
-            if not is_active:
-                self._cancel_hold_timer(target)
-                return
-
-            for t in state.get("transitions", []):
-                if t.get("trigger") == "beam_break" and t.get("target") == target:
-                    hold_ms = t.get("hold_ms", 0) or 0
-                    if hold_ms > 0:
-                        logger.info("Beam break on '%s' — starting hold timer %.0fms", target, hold_ms)
-                        self._start_hold_timer(target, t["next_state"], hold_ms)
-                    else:
-                        self.transition_to(t["next_state"])
-                    return  # first matching transition wins
-
-            logger.info("Beam break on '%s' — no transition defined in state '%s' (recorded only)",
-                        target, self._current_state_id)
-
-    def _on_timeout(self) -> None:
-        """Fire when the current state's duration expires and execute its timeout transition."""
-        with self._lock:
-            if self._current_state_id is None:
-                return
-
-            state = self._states.get(self._current_state_id)
-            if state is None:
-                return
-
-            for t in state.get("transitions", []):
-                if t.get("trigger") == "timeout":
-                    logger.info("Timeout in state '%s' → '%s'", self._current_state_id, t["next_state"])
-                    self.transition_to(t["next_state"])
-                    return
-
-            logger.warning(
-                "Timeout in state '%s' but no timeout transition defined — aborting",
-                self._current_state_id,
-            )
-            self.stop()
-
-    def _on_clicks_done(self) -> None:
-        """
-        Fired by the click-watcher thread when both click trains finish naturally.
-        Executes the 'clicks_done' transition of the current state, if one exists.
-        """
-        with self._lock:
-            if self._current_state_id is None:
-                return
-
-            state = self._states.get(self._current_state_id)
-            if state is None:
-                return
-
-            for t in state.get("transitions", []):
-                if t.get("trigger") == "clicks_done":
-                    logger.info("Clicks done in state '%s' → '%s'",
-                                self._current_state_id, t["next_state"])
-                    self.transition_to(t["next_state"])
-                    return
-
-            if self._clicks_active:
-                self._log_output("clicks", False)
-                self._clicks_active = False
-            logger.info("Clicks done in state '%s' — no clicks_done transition (ignoring)",
-                        self._current_state_id)
-
-    def _on_watchdog(self) -> None:
-        """Fire if the total trial duration exceeds TRIAL_WATCHDOG_S; aborts and notifies caller."""
-        logger.warning(
-            "Watchdog fired — trial '%s' exceeded %ds limit",
-            self._trial_id, TRIAL_WATCHDOG_S,
-        )
-        with self._lock:
-            self.stop()
-
-        if self._on_complete:
-            with self._event_lock:
-                events = list(self._trial_events)
-            self._on_complete(self._trial_id, outcome="aborted", events=events)
-
-    def _end_trial(self, outcome: str = "correct") -> None:
-        """Shut down cleanly and notify the caller of the trial outcome."""
+        self._running = False
+        self._cancel_timeout()
         self._cancel_watchdog()
+        self._cancel_all_hold_timers()
+        actions.stop_clicks()
         gpio_handler.stop_monitoring()
         actions.safety_sweep()
-        logger.info("Trial '%s' complete — outcome: %s", self._trial_id, outcome)
+        logger.info("Trial '%s' finished — outcome: %s", self._trial_id, outcome)
         if self._on_complete:
             with self._event_lock:
                 events = list(self._trial_events)
             self._on_complete(self._trial_id, outcome=outcome, events=events)
 
+    # ------------------------------------------------------------------ #
+    # Timer helpers                                                        #
+    # ------------------------------------------------------------------ #
+
     def _cancel_timeout(self) -> None:
-        """Cancel the per-state timeout timer if one is armed."""
         if self._timeout_timer is not None:
             self._timeout_timer.cancel()
             self._timeout_timer = None
 
     def _cancel_watchdog(self) -> None:
-        """Cancel the global trial watchdog timer."""
         if self._watchdog_timer is not None:
             self._watchdog_timer.cancel()
             self._watchdog_timer = None
 
     def _start_hold_timer(self, target: str, next_state: str, hold_ms: float) -> None:
-        """Arm a hold timer for a sensor. Cancels any existing timer for that sensor first."""
         self._cancel_hold_timer(target)
         timer = threading.Timer(
             hold_ms / 1000.0,
@@ -347,26 +448,11 @@ class Engine:
         timer.start()
 
     def _cancel_hold_timer(self, target: str) -> None:
-        """Cancel the hold timer for a specific sensor if one is armed."""
         timer = self._hold_timers.pop(target, None)
         if timer is not None:
             timer.cancel()
             logger.info("Hold timer cancelled for sensor '%s'", target)
 
     def _cancel_all_hold_timers(self) -> None:
-        """Cancel all pending hold timers (called on state transition or abort)."""
         for target in list(self._hold_timers):
             self._cancel_hold_timer(target)
-
-    def _on_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
-        """
-        Fired when a sensor has been held for the required hold_ms duration.
-        Checks we are still in the same state before triggering the transition.
-        """
-        with self._lock:
-            if self._current_state_id != expected_state:
-                logger.info("Hold complete for '%s' but state changed — ignoring", target)
-                return
-            self._hold_timers.pop(target, None)
-            logger.info("Hold complete for '%s' — transitioning to '%s'", target, next_state)
-            self.transition_to(next_state)

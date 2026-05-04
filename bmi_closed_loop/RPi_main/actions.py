@@ -81,7 +81,7 @@ def _open_stream() -> sd.OutputStream:
 
 
 def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
-                 log_cb=None) -> None:
+                 log_cb=None, latency_cb=None) -> None:
     """
     Render both click trains into a stereo float32 buffer and stream it via
     a persistent OutputStream.
@@ -89,11 +89,18 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
     The buffer is fed in small chunks so the stop flag is checked frequently.
     When playback ends naturally (i.e. stop_clicks() was NOT called),
     on_complete() is fired so the engine can trigger the clicks_done transition.
+
+    latency_cb(t_scheduled, t_buffer): optional; called from the player thread
+    just before the first stream.write(). t_scheduled is captured here (caller's
+    thread), t_buffer is captured inside _player() immediately before the write.
+    Both are CLOCK_MONOTONIC seconds.
     """
     global _click_stop
     _click_stop.set()                # signal any running player to stop
     _click_stop = threading.Event()  # fresh event for this run
     stop = _click_stop
+
+    t_scheduled = time.clock_gettime(time.CLOCK_MONOTONIC)
 
     if log_cb:
         log_cb("clicks", True)
@@ -103,6 +110,9 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
 
     def _player():
         stream = _open_stream()
+        t_buffer = time.clock_gettime(time.CLOCK_MONOTONIC)
+        if latency_cb is not None:
+            latency_cb(t_scheduled, t_buffer)
         i = 0
         try:
             while i < len(buf) and not stop.is_set():
@@ -177,11 +187,11 @@ ACTIONS: dict = {
 }
 
 
-def dispatch(action_dict: dict, on_complete=None, log_cb=None) -> None:
+def dispatch(action_dict: dict, on_complete=None, log_cb=None, latency_cb=None) -> None:
     """
     Look up the action type, pass remaining fields as kwargs, and execute it.
 
-    on_complete and log_cb are forwarded only for the 'play_clicks' action type.
+    on_complete, log_cb, and latency_cb are forwarded only for play_clicks.
     """
     action_dict = dict(action_dict)
     action_type = action_dict.pop("type", None)
@@ -200,6 +210,8 @@ def dispatch(action_dict: dict, on_complete=None, log_cb=None) -> None:
             action_dict["on_complete"] = on_complete
         if log_cb is not None:
             action_dict["log_cb"] = log_cb
+        if latency_cb is not None:
+            action_dict["latency_cb"] = latency_cb
 
     try:
         logger.info("Action  %s  %s", action_type, action_dict)

@@ -195,15 +195,19 @@ def _resolve_sides(trial_definition: dict) -> tuple:
     Resolve click-side assignment for one trial.
 
     side_mode = "random" (default):
-        Coin-flip each trial. high_rate = max(left_rate, right_rate) goes to
-        the winning side; low_rate to the other.  high_click_side /
-        low_click_side aliases in actions and transitions are replaced with
-        the concrete side string.
+        Fair coin-flip each trial. high_rate goes to the winning side,
+        low_rate to the other. high_click_side / low_click_side aliases
+        are replaced with the concrete side string.
 
     side_mode = "fixed":
         Rates stay exactly as written (left_rate → left speaker, right_rate →
-        right speaker).  Aliases are still resolved by scanning all states for
-        the play_clicks action and checking which side has the higher rate.
+        right speaker). Aliases are resolved by checking which side has the
+        higher rate. correct_side is None.
+
+    side_mode = "weighted":
+        Biased coin-flip using left_probability (0–1) from the trial definition.
+        Useful for correcting side bias: set left_probability > 0.5 to push
+        more trials to the left side. Alias resolution identical to "random".
 
     Returns (resolved_trial_dict, correct_side_str).
     correct_side is None when side_mode is "fixed".
@@ -211,7 +215,7 @@ def _resolve_sides(trial_definition: dict) -> tuple:
     side_mode = trial_definition.get("side_mode", "random")
     trial = copy.deepcopy(trial_definition)
 
-    if side_mode != "random":
+    if side_mode == "fixed":
         # Pass 1 — determine high/low side from the play_clicks action.
         high_side = None
         low_side  = None
@@ -243,8 +247,8 @@ def _resolve_sides(trial_definition: dict) -> tuple:
                         transition["target"] = low_side
         return trial, high_side
 
-    # Random mode — coin flip only if the trial uses side-dependent logic
-    # (play_clicks present, or high_click_side/low_click_side aliases used).
+    # Random and weighted modes — coin flip only if the trial uses
+    # side-dependent logic (play_clicks present, or aliases used).
     SIDE_ALIASES = {"high_click_side", "low_click_side"}
     def _uses_sides(t):
         for state in t.get("states", []):
@@ -262,8 +266,12 @@ def _resolve_sides(trial_definition: dict) -> tuple:
     if not _uses_sides(trial):
         return trial, None
 
-    correct_side = random.choice(["left", "right"])
-    wrong_side   = "right" if correct_side == "left" else "left"
+    if side_mode == "weighted":
+        left_prob    = max(0.0, min(1.0, float(trial_definition.get("left_probability", 0.5))))
+        correct_side = "left" if random.random() < left_prob else "right"
+    else:
+        correct_side = random.choice(["left", "right"])
+    wrong_side = "right" if correct_side == "left" else "left"
 
     for state in trial.get("states", []):
         for phase in ("entry_actions", "exit_actions"):

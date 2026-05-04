@@ -24,6 +24,7 @@ from config import (
     LED_PINS, VALVE_PINS, BEAM_PINS, AUDIO_PINS,
     BEAM_ACTIVE_LOW, BEAM_DEBOUNCE_MS,
     FAN_PIN, STRIP_PIN, FAN_PWM_FREQ, FAN_MIN_DUTY,
+    AUDIO_LOOPBACK_PIN,
 )
 
 # Internal output-state tracking
@@ -170,6 +171,27 @@ def _read_active(target: str, pin: int) -> bool:
     """Return the normalised logical state of a beam sensor (True = beam broken)."""
     raw = _GPIO.input(pin)
     return (raw == _GPIO.LOW) if BEAM_ACTIVE_LOW[target] else (raw == _GPIO.HIGH)
+
+
+def setup_loopback_monitor(callback) -> None:
+    """Arm rising-edge detection on the audio loopback pin (internal pull-down)."""
+    _GPIO.setup(AUDIO_LOOPBACK_PIN, _GPIO.IN, pull_up_down=_GPIO.PUD_DOWN)
+    try:
+        _GPIO.remove_event_detect(AUDIO_LOOPBACK_PIN)
+    except Exception:
+        pass
+    # bouncetime = click width (3 ms): suppresses within-click re-triggers while
+    # still resolving consecutive clicks separated by the min_ici.
+    _GPIO.add_event_detect(AUDIO_LOOPBACK_PIN, _GPIO.RISING, callback=callback, bouncetime=3)
+    logger.info("Audio loopback monitor armed on BCM pin %d", AUDIO_LOOPBACK_PIN)
+
+
+def remove_loopback_monitor() -> None:
+    """Remove edge detection from the audio loopback pin."""
+    try:
+        _GPIO.remove_event_detect(AUDIO_LOOPBACK_PIN)
+    except Exception:
+        pass
 
 
 def start_monitoring(on_event) -> None:
