@@ -113,7 +113,7 @@ def _play_and_measure(left_clicks: list, duration: float) -> tuple:
 
     t_play = time.clock_gettime(time.CLOCK_MONOTONIC)
     with sd.OutputStream(samplerate=AUDIO_SRATE, channels=2, device=AUDIO_DEVICE,
-                         blocksize=_CHUNK, callback=_callback, dtype='float32'):
+                         blocksize=_CHUNK, callback=_callback, dtype='int16'):
         done.wait(timeout=duration + 1.5)
 
     return t_play, block_dac_mono
