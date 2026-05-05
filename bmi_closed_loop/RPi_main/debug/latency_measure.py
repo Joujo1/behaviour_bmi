@@ -1,5 +1,5 @@
 """
-Audio click timing measurement — software-only, PREEMPT_RT aware.
+Audio click timing measurement — software-only.
 
 Uses sounddevice's outputBufferDacTime converted to CLOCK_MONOTONIC as the
 physical play-time reference per callback block.  No GPIO hardware required.
@@ -16,16 +16,13 @@ Three quantities recorded per click:
     constant part  = onset_delay_ms  (ALSA pipeline delay, varies trial-to-trial)
     variation      = within-trial jitter  (sample clock precision)
 
-Requires PREEMPT_RT kernel.  Run with sudo for SCHED_FIFO scheduling.
-
 Usage:
-    sudo python3 debug/latency_measure.py [--n 500] [--rate 40] [--dur 1.0] [--iti 0.5]
-    sudo python3 debug/latency_measure.py --out output/myrun.csv
+    python3 debug/latency_measure.py [--n 500] [--rate 40] [--dur 1.0] [--iti 0.5]
+    python3 debug/latency_measure.py --out output/myrun.csv
 """
 
 import argparse
 import csv
-import ctypes
 import os
 import sys
 import threading
@@ -44,15 +41,6 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
 _CHUNK = 512                              # must match actions._CHUNK
 _CLICK = audio.build_click(srate=AUDIO_SRATE)
-
-
-def _set_rt_priority(priority: int = 80) -> bool:
-    """Set SCHED_FIFO on the calling thread.  Requires PREEMPT_RT + root / CAP_SYS_NICE."""
-    SCHED_FIFO = 1
-    class _Param(ctypes.Structure):
-        _fields_ = [("sched_priority", ctypes.c_int)]
-    ret = ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
-    return ret == 0
 
 
 def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
@@ -87,15 +75,10 @@ def _play_and_measure(left_clicks: list, duration: float) -> tuple:
     n_total = len(buf)
     pos     = [0]
     done    = threading.Event()
-    rt_done = [False]
 
     block_dac_mono: list = []
 
     def _callback(outdata, frames, time_info, _status):
-        if not rt_done[0]:
-            _set_rt_priority(80)
-            rt_done[0] = True
-
         t_now    = time.clock_gettime(time.CLOCK_MONOTONIC)
         pa_ahead = time_info.outputBufferDacTime - time_info.currentTime
         block_dac_mono.append(t_now + pa_ahead)
@@ -121,9 +104,6 @@ def _play_and_measure(left_clicks: list, duration: float) -> tuple:
 
 def run(n_trials: int, click_rate: float, duration: float,
         iti_s: float, csv_path: str) -> None:
-
-    rt_ok = _set_rt_priority(80)
-    print(f"RT priority (main thread): {'ok' if rt_ok else 'FAILED — run as sudo on PREEMPT_RT kernel'}")
 
     min_ici = CLICK_WIDTH_S
     block_s = _CHUNK / AUDIO_SRATE
@@ -210,7 +190,7 @@ def main():
     ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_out = os.path.join(OUTPUT_DIR, f"latency_{ts}.csv")
 
-    p = argparse.ArgumentParser(description="Click timing measurement (PREEMPT_RT, software)")
+    p = argparse.ArgumentParser(description="Click timing measurement (software)")
     p.add_argument("--n",    type=int,   default=500,  help="Number of trials (default: 500)")
     p.add_argument("--rate", type=float, default=40.0, help="Click rate Hz (default: 40)")
     p.add_argument("--dur",  type=float, default=1.0,  help="Train duration s (default: 1.0)")

@@ -5,7 +5,6 @@ Each entry in ACTIONS maps a JSON action "type" string to a Python function.
 All hardware interaction goes exclusively through gpio_handler.
 """
 
-import ctypes
 import logging
 import threading
 import time
@@ -17,16 +16,6 @@ import gpio_handler
 from config import LED_PINS, VALVE_PINS, AUDIO_PINS, CLICK_PULSE_US, AUDIO_DEVICE, AUDIO_SRATE
 
 logger = logging.getLogger(__name__)
-
-
-def _set_rt_priority(priority: int = 80) -> None:
-    """Elevate the calling thread to SCHED_FIFO.  Requires PREEMPT_RT + root / CAP_SYS_NICE."""
-    SCHED_FIFO = 1
-    class _Param(ctypes.Structure):
-        _fields_ = [("sched_priority", ctypes.c_int)]
-    ret = ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
-    if ret != 0:
-        logger.warning("SCHED_FIFO unavailable — run as root on PREEMPT_RT kernel for best timing")
 
 
 def _led_on(target: str) -> None:
@@ -120,7 +109,6 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
                                         srate=AUDIO_SRATE)
 
     def _player():
-        _set_rt_priority(80)
         stream = _open_stream()
         t_buffer = time.clock_gettime(time.CLOCK_MONOTONIC)
         if latency_cb is not None:
