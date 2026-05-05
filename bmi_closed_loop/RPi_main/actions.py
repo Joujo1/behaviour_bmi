@@ -85,7 +85,7 @@ def _open_stream() -> sd.OutputStream:
         except Exception:
             pass
     _stream = sd.OutputStream(samplerate=AUDIO_SRATE, channels=2,
-                               device=AUDIO_DEVICE, dtype='float32')
+                               device=AUDIO_DEVICE, dtype='int16')
     _stream.start()
     logger.info("Audio OutputStream opened")
     return _stream
@@ -116,8 +116,8 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
     if log_cb:
         log_cb("clicks", True)
 
-    buf = audio.build_buffer_from_times(_CLICK, left_clicks, right_clicks,
-                                        srate=AUDIO_SRATE)
+    buf = (audio.build_buffer_from_times(_CLICK, left_clicks, right_clicks,
+                                         srate=AUDIO_SRATE) * 32767).astype('int16')
 
     def _player():
         _set_rt_priority(80)
