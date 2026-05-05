@@ -82,7 +82,8 @@ def _play_and_measure(left_clicks: list, duration: float) -> tuple:
       pa_ahead    = outputBufferDacTime - currentTime  (physical interval, PA-time-domain)
       t_dac_block = t_mono_now + pa_ahead
     """
-    buf     = audio.build_buffer_from_times(_CLICK, left_clicks, [], srate=AUDIO_SRATE)
+    buf     = (audio.build_buffer_from_times(_CLICK, left_clicks, [], srate=AUDIO_SRATE)
+               * 32767).astype('int16')
     n_total = len(buf)
     pos     = [0]
     done    = threading.Event()
