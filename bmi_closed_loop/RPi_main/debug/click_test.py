@@ -15,6 +15,7 @@ import numpy as np
 import sounddevice as sd
 
 from audio import build_click, SRATE
+from config import AUDIO_DEVICE
 
 BUFFER_S = 2.0                          # seconds of audio pre-generated per chunk
 
@@ -82,11 +83,11 @@ def main():
         print("Playing — Ctrl+C to stop\n")
 
         gap_samples = int(args.gap * SRATE)
-        silence = np.zeros((gap_samples, 2), dtype=np.float32)
+        silence = np.zeros((gap_samples, 2), dtype=np.int16)
 
         try:
             with sd.OutputStream(samplerate=SRATE, channels=2,
-                                  device=1, dtype='float32') as stream:
+                                  device=AUDIO_DEVICE, dtype='int16') as stream:
                 trial = 0
                 while True:
                     trial += 1
@@ -99,7 +100,7 @@ def main():
                     buf, left_times, right_times = generate_poisson_buffer(click, l, r, duration, args.min_ici)
                     print(f"Trial {trial} [{side}]  L={len(left_times)} clicks: {[f'{t:.3f}' for t in left_times]}")
                     print(f"              R={len(right_times)} clicks: {[f'{t:.3f}' for t in right_times]}")
-                    stream.write(buf)
+                    stream.write((buf * 32767).astype(np.int16))
                     if gap_samples:
                         stream.write(silence)
         except KeyboardInterrupt:
@@ -116,9 +117,9 @@ def main():
 
         try:
             with sd.OutputStream(samplerate=SRATE, channels=1,
-                                  device=1, dtype='float32') as stream:
+                                  device=AUDIO_DEVICE, dtype='int16') as stream:
                 while True:
-                    stream.write(period)
+                    stream.write((period * 32767).astype(np.int16))
         except KeyboardInterrupt:
             print("\nStopped.")
 
