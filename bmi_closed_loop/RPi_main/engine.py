@@ -51,6 +51,7 @@ Expected JSON format:
 }
 """
 
+import ctypes
 import json
 import logging
 import queue
@@ -62,6 +63,16 @@ import actions
 from config import TRIAL_WATCHDOG_S
 
 logger = logging.getLogger(__name__)
+
+
+def _set_rt_priority(priority: int = 70) -> None:
+    """Elevate the calling thread to SCHED_FIFO.  Requires root / CAP_SYS_NICE."""
+    SCHED_FIFO = 1
+    class _Param(ctypes.Structure):
+        _fields_ = [("sched_priority", ctypes.c_int)]
+    ret = ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
+    if ret != 0:
+        logger.warning("SCHED_FIFO unavailable — run as root for best FSM timing")
 
 
 class Engine:
@@ -176,6 +187,7 @@ class Engine:
 
     def _run(self) -> None:
         """FSM thread main loop. Sole consumer of _event_queue."""
+        _set_rt_priority(70)
         while self._running:
             try:
                 event = self._event_queue.get(timeout=0.1)

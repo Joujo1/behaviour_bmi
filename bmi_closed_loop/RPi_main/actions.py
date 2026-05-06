@@ -5,6 +5,7 @@ Each entry in ACTIONS maps a JSON action "type" string to a Python function.
 All hardware interaction goes exclusively through gpio_handler.
 """
 
+import ctypes
 import logging
 import threading
 import time
@@ -16,6 +17,16 @@ import gpio_handler
 from config import LED_PINS, VALVE_PINS, AUDIO_PINS, CLICK_PULSE_US, AUDIO_DEVICE, AUDIO_SRATE
 
 logger = logging.getLogger(__name__)
+
+
+def _set_rt_priority(priority: int = 80) -> None:
+    """Elevate the calling thread to SCHED_FIFO.  Requires root / CAP_SYS_NICE."""
+    SCHED_FIFO = 1
+    class _Param(ctypes.Structure):
+        _fields_ = [("sched_priority", ctypes.c_int)]
+    ret = ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
+    if ret != 0:
+        logger.warning("SCHED_FIFO unavailable — run as root for best audio timing")
 
 
 def _led_on(target: str) -> None:
@@ -49,55 +60,87 @@ def _stop_audio(target: str) -> None:
     """No-op — audio output is now via the audio jack (sounddevice)."""
     pass
 
-# Module-level stop event; replaced each time _play_clicks() is called.
-# Setting it signals the player thread to stop feeding the stream.
-_click_stop: threading.Event = threading.Event()
-_click_stop.set()   # start in the "stopped / idle" state
-
 # Pre-built click waveform — constructed once at import time.
 _CLICK = audio.build_click(srate=AUDIO_SRATE)
 
-# Persistent OutputStream — opened once, kept alive between trials so there
-# is no per-trial stream startup transient.
-_stream: sd.OutputStream | None = None
-_CHUNK = 512    # samples per write (~10 ms at 48 kHz); stop flag checked between chunks
+_CHUNK = 512    # callback block size in samples (~10.67 ms at 48 kHz)
+
+# Persistent OutputStream with a global callback.  Stays open for the life of
+# the process; between trials it outputs silence.  _active holds the current
+# playback state dict; None means silence.  Reference assignment is atomic in
+# CPython (GIL), so no lock is needed for the _active swap.
+_stream:  sd.OutputStream | None = None
+_active:  dict | None            = None   # {'buf','pos','done','stop'}
+_rt_done: list                   = [False]
+
+# Module-level stop event; replaced on each _play_clicks() call.
+_click_stop: threading.Event = threading.Event()
+_click_stop.set()
 
 
-def _open_stream() -> sd.OutputStream:
-    """Return the running OutputStream, (re-)opening it if necessary."""
+def _stream_callback(outdata, frames, _time_info, _status) -> None:
+    global _active
+    if not _rt_done[0]:
+        _set_rt_priority(85)
+        _rt_done[0] = True
+
+    a = _active                          # atomic snapshot (GIL)
+    if a is None or a['stop'].is_set():
+        outdata[:] = 0
+        if a is not None:
+            _active = None
+            a['done'].set()
+        return
+
+    buf = a['buf']
+    pos = a['pos']
+    i   = pos[0]
+    end = min(i + frames, len(buf))
+    got = end - i
+    outdata[:got] = buf[i:end]
+    outdata[got:] = 0
+    pos[0] += frames
+
+    if pos[0] >= len(buf):
+        _active = None
+        a['done'].set()
+
+
+def _open_stream() -> None:
+    """Open (or reopen) the persistent callback OutputStream."""
     global _stream
     if _stream is not None and _stream.active:
-        return _stream
+        return
     if _stream is not None:
         try:
             _stream.close()
         except Exception:
             pass
-    _stream = sd.OutputStream(samplerate=AUDIO_SRATE, channels=2,
-                               device=AUDIO_DEVICE, dtype='float32')
+    _stream = sd.OutputStream(samplerate=AUDIO_SRATE, channels=2, device=AUDIO_DEVICE,
+                               blocksize=_CHUNK, callback=_stream_callback, dtype='int16')
     _stream.start()
-    logger.info("Audio OutputStream opened")
-    return _stream
+    logger.info("Audio stream opened")
 
 
 def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
                  log_cb=None, latency_cb=None) -> None:
     """
-    Render both click trains into a stereo float32 buffer and stream it via
-    a persistent OutputStream.
+    Render both click trains into a stereo int16 buffer and hand it to the
+    persistent callback OutputStream.  The stream stays open between trials
+    (feeding silence), so there is no per-trial ALSA startup cost.  ALSA's
+    kernel driver calls the callback on its own clock; timing does not depend
+    on Python's thread scheduler.
 
-    The buffer is fed in small chunks so the stop flag is checked frequently.
-    When playback ends naturally (i.e. stop_clicks() was NOT called),
-    on_complete() is fired so the engine can trigger the clicks_done transition.
+    When playback ends naturally (stop_clicks() was NOT called), on_complete()
+    is fired so the engine can trigger the clicks_done transition.
 
-    latency_cb(t_scheduled, t_buffer): optional; called from the player thread
-    just before the first stream.write(). t_scheduled is captured here (caller's
-    thread), t_buffer is captured inside _player() immediately before the write.
-    Both are CLOCK_MONOTONIC seconds.
+    latency_cb(t_scheduled, t_buffer): both are CLOCK_MONOTONIC seconds;
+    t_scheduled captured in the calling thread, t_buffer in the player thread
+    just before _active is set (i.e. just before the callback starts serving).
     """
-    global _click_stop
-    _click_stop.set()                # signal any running player to stop
-    _click_stop = threading.Event()  # fresh event for this run
+    global _click_stop, _active
+    _click_stop.set()                # discard any previous playback
+    _click_stop = threading.Event()
     stop = _click_stop
 
     t_scheduled = time.clock_gettime(time.CLOCK_MONOTONIC)
@@ -105,21 +148,17 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
     if log_cb:
         log_cb("clicks", True)
 
-    buf = audio.build_buffer_from_times(_CLICK, left_clicks, right_clicks,
-                                        srate=AUDIO_SRATE)
+    buf  = (audio.build_buffer_from_times(_CLICK, left_clicks, right_clicks,
+                                          srate=AUDIO_SRATE) * 32767).astype('int16')
+    done = threading.Event()
 
     def _player():
-        stream = _open_stream()
+        _open_stream()
         t_buffer = time.clock_gettime(time.CLOCK_MONOTONIC)
         if latency_cb is not None:
             latency_cb(t_scheduled, t_buffer)
-        i = 0
-        try:
-            while i < len(buf) and not stop.is_set():
-                stream.write(buf[i:i + _CHUNK])
-                i += _CHUNK
-        except Exception as e:
-            logger.warning("Click player error: %s", e)
+        _active = {'buf': buf, 'pos': [0], 'done': done, 'stop': stop}
+        done.wait()
         if not stop.is_set() and on_complete is not None:
             logger.info("Click trains finished — firing on_complete")
             on_complete()
