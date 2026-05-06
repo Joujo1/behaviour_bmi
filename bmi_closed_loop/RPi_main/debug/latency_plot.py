@@ -262,16 +262,24 @@ def main():
         else:
             d_med = np.median(delays)
             d_std = np.std(delays)
+            onset_sw  = trial_onset.median()
+            onset_hw  = onset_sw + d_med  # hardware-verified: sw + PortAudio bias
             print(f"  Oscilloscope delay:  median={d_med:.3f} ms  std={d_std:.4f} ms")
+            print(f"  Software onset delay  : {onset_sw:.2f} ms")
+            print(f"  PortAudio bias (d_med): {d_med:+.3f} ms")
+            print(f"  HW-verified onset     : {onset_hw:.2f} ms  "
+                  f"(= software {'+ ' if d_med >= 0 else '− '}{abs(d_med):.3f} ms)")
 
-            fig2 = plt.figure(figsize=(14, 9))
+            fig2 = plt.figure(figsize=(14, 10))
             fig2.suptitle(
                 f"Oscilloscope verification  —  {n_matched} matched clicks\n"
-                f"Hardware delay (Ch1−Ch2):  median {d_med:.3f} ms   std {d_std:.4f} ms   "
-                f"Software timing_error std: {std:.4f} ms",
+                f"PortAudio bias (Ch1−Ch2 median): {d_med:+.3f} ms   "
+                f"hw-verified onset: {onset_hw:.2f} ms   "
+                f"scope jitter std: {d_std:.4f} ms",
                 fontsize=12, fontweight="bold",
             )
-            gs2 = gridspec.GridSpec(2, 2, figure=fig2, hspace=0.5, wspace=0.38)
+            gs2 = gridspec.GridSpec(3, 2, figure=fig2, hspace=0.55, wspace=0.38,
+                                    height_ratios=[2, 1.5, 0.8])
 
             # Panel 1 — raw oscilloscope traces anchored to first GPIO edge
             ax = fig2.add_subplot(gs2[0, :])
@@ -317,6 +325,7 @@ def main():
 
             # Panel 3 — oscilloscope delay vs click index (systematic drift?)
             ax = fig2.add_subplot(gs2[1, 1])
+
             ax.scatter(range(n_matched), delays, alpha=0.4, s=8, color="#2ca02c")
             roll = pd.Series(delays).rolling(max(1, n_matched // 20),
                                              center=True, min_periods=1).median()
@@ -327,6 +336,27 @@ def main():
             ax.set_ylabel("Oscilloscope delay (ms)")
             ax.set_title("Delay over time\n(slope = systematic drift)", fontsize=9)
             ax.legend(fontsize=8)
+
+            # Panel 4 — onset delay summary text
+            ax = fig2.add_subplot(gs2[2, :])
+            ax.axis("off")
+            summary2 = (
+                f"{'Quantity':<55}  {'Software':>14}  {'Hardware (scope)':>16}\n"
+                f"{'─' * 90}\n"
+                f"{'ALSA onset delay  (t_play → first sample at DAC)':<55}  "
+                f"{onset_sw:>13.2f} ms  {onset_hw:>15.2f} ms\n"
+                f"{'PortAudio outputBufferDacTime bias  (d_med)':<55}  "
+                f"{'—':>14}  {d_med:>+14.3f} ms\n"
+                f"{'Timing jitter std  (sample-clock precision)':<55}  "
+                f"{wj_std:>13.4f} ms  {d_std:>15.4f} ms\n"
+                f"{'─' * 90}\n"
+                f"  hw_onset = sw_onset + PortAudio_bias:  "
+                f"{onset_sw:.2f} + ({d_med:+.3f}) = {onset_hw:.2f} ms\n"
+                f"  If |PortAudio_bias| < 1 ms: software onset measurement is trustworthy."
+            )
+            ax.text(0.01, 0.95, summary2, transform=ax.transAxes,
+                    fontsize=8.5, verticalalignment="top", fontfamily="monospace",
+                    bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.9))
 
             osci_out = (args.out or args.csv.replace(".csv", "")).replace(".png", "") \
                        + "_osci.png"
