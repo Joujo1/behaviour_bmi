@@ -208,6 +208,12 @@ def _play_birthday(target: str) -> None:
     threading.Thread(target=_run, daemon=True, name="happy-birthday").start()
 
 
+def init_audio() -> None:
+    """Pre-open the persistent audio stream at startup so the first trial has no cold-start delay."""
+    _open_stream()
+    logger.info("Audio stream pre-opened")
+
+
 def stop_clicks() -> None:
     """Interrupt any in-progress click train playback immediately."""
     _click_stop.set()

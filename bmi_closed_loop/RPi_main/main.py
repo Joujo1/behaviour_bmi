@@ -62,6 +62,7 @@ class _GPIOAdapter:
 def main():
     gpio_handler.setup()
     logger.info("GPIO ready")
+    _actions.init_audio()
 
     current_engine: Engine = None
     frame_queue: queue.Queue = None

@@ -1,20 +1,22 @@
 """
 Audio click timing measurement — software DAC timestamp + optional oscilloscope marker.
 
-Uses sounddevice's outputBufferDacTime converted to CLOCK_MONOTONIC as the
-physical play-time reference per callback block.  No GPIO loopback required.
+Uses the same persistent-stream design as actions.py: one OutputStream stays open
+for the entire run, outputting silence between trials.  t_play is captured just
+before _active is armed, so onset_delay_ms reflects only the time until the next
+period boundary (~0–10 ms) rather than ALSA cold-start (~60 ms).
 
 Three quantities recorded per click:
-  t_play         — CLOCK_MONOTONIC just before the stream opens each trial
+  t_play         — CLOCK_MONOTONIC just before _active is armed each trial
   t_click        — scheduled play time of this click (seconds into buffer)
   t_dac          — inferred CLOCK_MONOTONIC DAC time for this click:
                      block_dac_mono[block_idx] + offset_within_block
-  onset_delay_ms — (block_dac_mono[0] - t_play) * 1000: pipeline delay
-                   from "I want to play" to "first sample exits DAC"
+  onset_delay_ms — (block_dac_mono[0] - t_play) * 1000: time from arming
+                   to first callback serving audio (~0–10 ms with persistent stream)
 
   timing_error_ms = (t_dac - t_play - t_click) * 1000
-    constant part  = onset_delay_ms  (ALSA pipeline delay, varies trial-to-trial)
-    variation      = within-trial jitter  (sample clock precision)
+    constant part  = onset_delay_ms
+    variation      = within-trial jitter (sample clock precision)
 
 Oscilloscope verification (--osci-pin):
   Fires a 400 µs GPIO pulse at each click's predicted DAC time so the scope
@@ -29,6 +31,7 @@ Usage:
 """
 
 import argparse
+import ctypes
 import csv
 import os
 import sys
@@ -56,6 +59,102 @@ _CHUNK       = 512                              # must match actions._CHUNK
 _CLICK       = audio.build_click(srate=AUDIO_SRATE)
 OSCI_PULSE_S = 0.0004  # 400 µs GPIO pulse — visible on scope, << min ICI (3 ms)
 
+# Persistent stream state — mirrors actions.py exactly
+_stream:  sd.OutputStream | None = None
+_active:  dict | None            = None
+_rt_done: list                   = [False]
+
+
+def _set_rt_priority(priority: int = 85) -> None:
+    SCHED_FIFO = 1
+    class _Param(ctypes.Structure):
+        _fields_ = [("sched_priority", ctypes.c_int)]
+    ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
+
+
+def _stream_callback(outdata, frames, time_info, _status) -> None:
+    global _active
+    if not _rt_done[0]:
+        _set_rt_priority(85)
+        _rt_done[0] = True
+
+    t_now       = time.clock_gettime(time.CLOCK_MONOTONIC)
+    pa_ahead    = time_info.outputBufferDacTime - time_info.currentTime
+    t_dac_block = t_now + pa_ahead
+
+    a = _active
+    if a is None:
+        outdata[:] = 0
+        return
+
+    block_idx = a['block_idx'][0]
+    a['block_dac_mono'].append(t_dac_block)
+    a['block_idx'][0] += 1
+
+    if a['marker_q'] is not None:
+        block_s = a['block_s']
+        for t_c in a['left_clicks']:
+            b = int(t_c / block_s)
+            if b == block_idx:
+                a['marker_q'].put_nowait(t_dac_block + (t_c - b * block_s))
+
+    buf = a['buf']
+    pos = a['pos']
+    i   = pos[0]
+    end = min(i + frames, len(buf))
+    got = end - i
+    outdata[:got] = buf[i:end]
+    outdata[got:] = 0
+    pos[0] += frames
+
+    if pos[0] >= len(buf):
+        _active = None
+        a['done'].set()
+
+
+def _open_stream() -> None:
+    global _stream
+    if _stream is not None and _stream.active:
+        return
+    if _stream is not None:
+        try:
+            _stream.close()
+        except Exception:
+            pass
+    _stream = sd.OutputStream(samplerate=AUDIO_SRATE, channels=2, device=AUDIO_DEVICE,
+                               blocksize=_CHUNK, callback=_stream_callback, dtype='int16')
+    _stream.start()
+
+
+def _play_and_measure(left_clicks: list, duration: float,
+                      marker_q: _queue.Queue | None = None) -> tuple:
+    """
+    Arm the persistent stream with a new click buffer.
+
+    Returns (t_play, block_dac_mono):
+      t_play         : CLOCK_MONOTONIC just before _active is set
+      block_dac_mono : per-block inferred DAC time in CLOCK_MONOTONIC seconds
+    """
+    global _active
+    buf  = (audio.build_buffer_from_times(_CLICK, left_clicks, [], srate=AUDIO_SRATE)
+            * 32767).astype('int16')
+    done           = threading.Event()
+    block_dac_mono: list = []
+
+    t_play  = time.clock_gettime(time.CLOCK_MONOTONIC)
+    _active = {
+        'buf':            buf,
+        'pos':            [0],
+        'done':           done,
+        'block_dac_mono': block_dac_mono,
+        'block_idx':      [0],
+        'marker_q':       marker_q,
+        'left_clicks':    left_clicks,
+        'block_s':        _CHUNK / AUDIO_SRATE,
+    }
+    done.wait(timeout=duration + 1.5)
+    return t_play, block_dac_mono
+
 
 def _marker_worker(pin: int, q: _queue.Queue) -> None:
     """
@@ -74,7 +173,7 @@ def _marker_worker(pin: int, q: _queue.Queue) -> None:
             if slack > 0:
                 time.sleep(slack)
             while time.clock_gettime(time.CLOCK_MONOTONIC) < t_target:
-                pass  # busy-wait final 1 ms
+                pass
             _GPIO.output(pin, _GPIO.HIGH)
             time.sleep(OSCI_PULSE_S)
             _GPIO.output(pin, _GPIO.LOW)
@@ -95,64 +194,6 @@ def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
         clicks.append(round(float(t), 4))
         last_t = t
     return clicks
-
-
-def _play_and_measure(left_clicks: list, duration: float,
-                      marker_q: _queue.Queue | None = None) -> tuple:
-    """
-    Play a click buffer via a callback-based OutputStream.
-
-    Returns (t_play, block_dac_mono):
-      t_play         : CLOCK_MONOTONIC just before stream open
-      block_dac_mono : per-block inferred DAC time in CLOCK_MONOTONIC seconds
-
-    DAC time conversion:
-      t_mono_now  = CLOCK_MONOTONIC at callback entry
-      pa_ahead    = outputBufferDacTime - currentTime  (physical interval, PA-time-domain)
-      t_dac_block = t_mono_now + pa_ahead
-
-    If marker_q is given, each click's predicted DAC time is queued so the
-    _marker_worker thread can fire a GPIO pulse at that moment.
-    """
-    buf     = (audio.build_buffer_from_times(_CLICK, left_clicks, [], srate=AUDIO_SRATE)
-               * 32767).astype('int16')
-    n_total = len(buf)
-    pos     = [0]
-    done    = threading.Event()
-    block_s = _CHUNK / AUDIO_SRATE
-
-    block_dac_mono: list = []
-
-    def _callback(outdata, frames, time_info, _status):
-        t_now       = time.clock_gettime(time.CLOCK_MONOTONIC)
-        pa_ahead    = time_info.outputBufferDacTime - time_info.currentTime
-        t_dac_block = t_now + pa_ahead
-        block_idx   = len(block_dac_mono)
-        block_dac_mono.append(t_dac_block)
-
-        if marker_q is not None:
-            for t_c in left_clicks:
-                b = int(t_c / block_s)
-                if b == block_idx:
-                    marker_q.put_nowait(t_dac_block + (t_c - b * block_s))
-
-        i   = pos[0]
-        end = min(i + frames, n_total)
-        got = end - i
-        outdata[:got] = buf[i:end]
-        outdata[got:] = 0
-        pos[0] += frames
-
-        if pos[0] >= n_total:
-            done.set()
-            raise sd.CallbackStop()
-
-    t_play = time.clock_gettime(time.CLOCK_MONOTONIC)
-    with sd.OutputStream(samplerate=AUDIO_SRATE, channels=2, device=AUDIO_DEVICE,
-                         blocksize=_CHUNK, callback=_callback, dtype='int16'):
-        done.wait(timeout=duration + 1.5)
-
-    return t_play, block_dac_mono
 
 
 def run(n_trials: int, click_rate: float, duration: float,
@@ -177,6 +218,9 @@ def run(n_trials: int, click_rate: float, duration: float,
             )
             marker_thread.start()
             print(f"Oscilloscope marker on BCM {osci_pin}  (connect to scope Ch2)")
+
+    # Open stream once — stays open between trials, outputting silence.
+    _open_stream()
 
     print(f"Starting: {n_trials} trials  rate={click_rate:.0f} Hz  "
           f"dur={duration:.1f} s  iti={iti_s:.1f} s")
@@ -255,7 +299,7 @@ def run(n_trials: int, click_rate: float, duration: float,
     print(f"\nDone: {n} clicks across {n_trials} trials")
     print(f"  timing_error  mean={mean_e:.4f} ms  std={std_e:.4f} ms  "
           f"p5={s_err[int(0.05*n)]:.4f} ms  p95={s_err[int(0.95*n)]:.4f} ms")
-    print(f"  onset_delay   mean={mean_o:.2f} ms  std={std_o:.4f} ms  (pipeline delay)")
+    print(f"  onset_delay   mean={mean_o:.2f} ms  std={std_o:.4f} ms  (time to next period boundary)")
     print(f"Saved → {csv_path}")
 
 
@@ -263,7 +307,7 @@ def main():
     ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_out = os.path.join(OUTPUT_DIR, f"latency_{ts}.csv")
 
-    p = argparse.ArgumentParser(description="Click timing measurement (software DAC timestamp)")
+    p = argparse.ArgumentParser(description="Click timing measurement (persistent stream, software DAC timestamp)")
     p.add_argument("--n",        type=int,   default=500,  help="Number of trials (default: 500)")
     p.add_argument("--rate",     type=float, default=40.0, help="Click rate Hz (default: 40)")
     p.add_argument("--dur",      type=float, default=1.0,  help="Train duration s (default: 1.0)")
