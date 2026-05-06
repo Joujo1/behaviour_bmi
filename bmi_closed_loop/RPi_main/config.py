@@ -60,6 +60,3 @@ AUDIO_DEVICE  = 1
 AUDIO_SRATE   = 48_000
 CLICK_WIDTH_S = 0.003
 
-# BCM pin wired to line-out via 10kΩ series + 100kΩ pull-down to GND.
-# Rising edge = click arrived at speaker output.
-AUDIO_LOOPBACK_PIN = 11   # physical 23 — change if pin is already in use

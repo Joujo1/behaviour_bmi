@@ -71,7 +71,7 @@ def main():
     proc = subprocess.Popen(
         [pps_bin],
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=None,   # let pps_log's errors print directly to terminal
         text=True,
         bufsize=1,
     )

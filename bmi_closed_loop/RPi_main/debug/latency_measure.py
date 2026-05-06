@@ -1,8 +1,8 @@
 """
-Audio click timing measurement — software-only.
+Audio click timing measurement — software DAC timestamp + optional oscilloscope marker.
 
 Uses sounddevice's outputBufferDacTime converted to CLOCK_MONOTONIC as the
-physical play-time reference per callback block.  No GPIO hardware required.
+physical play-time reference per callback block.  No GPIO loopback required.
 
 Three quantities recorded per click:
   t_play         — CLOCK_MONOTONIC just before the stream opens each trial
@@ -16,8 +16,15 @@ Three quantities recorded per click:
     constant part  = onset_delay_ms  (ALSA pipeline delay, varies trial-to-trial)
     variation      = within-trial jitter  (sample clock precision)
 
+Oscilloscope verification (--osci-pin):
+  Fires a 400 µs GPIO pulse at each click's predicted DAC time so the scope
+  can compare "software's prediction" (Ch2/GPIO) against "actual waveform" (Ch1/audio).
+  Wire: BCM pin → scope Ch2 probe tip.  Pi GND → scope Ch2 ground clip.
+  Export scope CSV (time, ch1_V, ch2_V) and load with latency_plot.py --osci-csv.
+
 Usage:
     python3 debug/latency_measure.py [--n 500] [--rate 40] [--dur 1.0] [--iti 0.5]
+    python3 debug/latency_measure.py --osci-pin 17 --n 100
     python3 debug/latency_measure.py --out output/myrun.csv
 """
 
@@ -27,20 +34,53 @@ import os
 import sys
 import threading
 import time
+import queue as _queue
 from datetime import datetime
 
 import numpy as np
 import sounddevice as sd
+
+try:
+    import RPi.GPIO as _GPIO
+    _HAS_GPIO = True
+except ImportError:
+    _HAS_GPIO = False
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import audio
 from config import AUDIO_DEVICE, AUDIO_SRATE, CLICK_WIDTH_S
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+OUTPUT_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+_CHUNK       = 512                              # must match actions._CHUNK
+_CLICK       = audio.build_click(srate=AUDIO_SRATE)
+OSCI_PULSE_S = 0.0004  # 400 µs GPIO pulse — visible on scope, << min ICI (3 ms)
 
-_CHUNK = 512                              # must match actions._CHUNK
-_CLICK = audio.build_click(srate=AUDIO_SRATE)
+
+def _marker_worker(pin: int, q: _queue.Queue) -> None:
+    """
+    Pull predicted DAC times from q and fire a short GPIO pulse at each one.
+    Sleeps to within 1 ms then busy-waits for microsecond-level precision.
+    Stopped by putting None into the queue.
+    """
+    _GPIO.setmode(_GPIO.BCM)
+    _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
+    try:
+        while True:
+            t_target = q.get()
+            if t_target is None:
+                break
+            slack = t_target - time.clock_gettime(time.CLOCK_MONOTONIC) - 0.001
+            if slack > 0:
+                time.sleep(slack)
+            while time.clock_gettime(time.CLOCK_MONOTONIC) < t_target:
+                pass  # busy-wait final 1 ms
+            _GPIO.output(pin, _GPIO.HIGH)
+            time.sleep(OSCI_PULSE_S)
+            _GPIO.output(pin, _GPIO.LOW)
+    finally:
+        _GPIO.output(pin, _GPIO.LOW)
+        _GPIO.cleanup(pin)
 
 
 def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
@@ -57,7 +97,8 @@ def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
     return clicks
 
 
-def _play_and_measure(left_clicks: list, duration: float) -> tuple:
+def _play_and_measure(left_clicks: list, duration: float,
+                      marker_q: _queue.Queue | None = None) -> tuple:
     """
     Play a click buffer via a callback-based OutputStream.
 
@@ -69,19 +110,31 @@ def _play_and_measure(left_clicks: list, duration: float) -> tuple:
       t_mono_now  = CLOCK_MONOTONIC at callback entry
       pa_ahead    = outputBufferDacTime - currentTime  (physical interval, PA-time-domain)
       t_dac_block = t_mono_now + pa_ahead
+
+    If marker_q is given, each click's predicted DAC time is queued so the
+    _marker_worker thread can fire a GPIO pulse at that moment.
     """
     buf     = (audio.build_buffer_from_times(_CLICK, left_clicks, [], srate=AUDIO_SRATE)
                * 32767).astype('int16')
     n_total = len(buf)
     pos     = [0]
     done    = threading.Event()
+    block_s = _CHUNK / AUDIO_SRATE
 
     block_dac_mono: list = []
 
     def _callback(outdata, frames, time_info, _status):
-        t_now    = time.clock_gettime(time.CLOCK_MONOTONIC)
-        pa_ahead = time_info.outputBufferDacTime - time_info.currentTime
-        block_dac_mono.append(t_now + pa_ahead)
+        t_now       = time.clock_gettime(time.CLOCK_MONOTONIC)
+        pa_ahead    = time_info.outputBufferDacTime - time_info.currentTime
+        t_dac_block = t_now + pa_ahead
+        block_idx   = len(block_dac_mono)
+        block_dac_mono.append(t_dac_block)
+
+        if marker_q is not None:
+            for t_c in left_clicks:
+                b = int(t_c / block_s)
+                if b == block_idx:
+                    marker_q.put_nowait(t_dac_block + (t_c - b * block_s))
 
         i   = pos[0]
         end = min(i + frames, n_total)
@@ -103,12 +156,27 @@ def _play_and_measure(left_clicks: list, duration: float) -> tuple:
 
 
 def run(n_trials: int, click_rate: float, duration: float,
-        iti_s: float, csv_path: str) -> None:
+        iti_s: float, csv_path: str,
+        osci_pin: int | None = None) -> None:
 
     min_ici = CLICK_WIDTH_S
     block_s = _CHUNK / AUDIO_SRATE
     all_rows: list = []
     rng = np.random.default_rng()
+
+    marker_q      = None
+    marker_thread = None
+    if osci_pin is not None:
+        if not _HAS_GPIO:
+            print("WARNING: RPi.GPIO not available — oscilloscope marker disabled")
+        else:
+            marker_q = _queue.Queue()
+            marker_thread = threading.Thread(
+                target=_marker_worker, args=(osci_pin, marker_q),
+                daemon=True, name="osci-marker",
+            )
+            marker_thread.start()
+            print(f"Oscilloscope marker on BCM {osci_pin}  (connect to scope Ch2)")
 
     print(f"Starting: {n_trials} trials  rate={click_rate:.0f} Hz  "
           f"dur={duration:.1f} s  iti={iti_s:.1f} s")
@@ -120,7 +188,7 @@ def run(n_trials: int, click_rate: float, duration: float,
             if not left_clicks:
                 continue
 
-            t_play, block_dac_mono = _play_and_measure(left_clicks, duration)
+            t_play, block_dac_mono = _play_and_measure(left_clicks, duration, marker_q)
 
             if not block_dac_mono:
                 print(f"  Trial {i:4d}: no callback blocks — skipping")
@@ -159,6 +227,11 @@ def run(n_trials: int, click_rate: float, duration: float,
 
     except KeyboardInterrupt:
         print("\nInterrupted.")
+    finally:
+        if marker_q is not None:
+            marker_q.put(None)
+            if marker_thread:
+                marker_thread.join(timeout=1.0)
 
     if not all_rows:
         print("No valid data recorded.")
@@ -190,15 +263,18 @@ def main():
     ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_out = os.path.join(OUTPUT_DIR, f"latency_{ts}.csv")
 
-    p = argparse.ArgumentParser(description="Click timing measurement (software)")
-    p.add_argument("--n",    type=int,   default=500,  help="Number of trials (default: 500)")
-    p.add_argument("--rate", type=float, default=40.0, help="Click rate Hz (default: 40)")
-    p.add_argument("--dur",  type=float, default=1.0,  help="Train duration s (default: 1.0)")
-    p.add_argument("--iti",  type=float, default=0.5,  help="ITI s (default: 0.5)")
-    p.add_argument("--out",  default=default_out,      help="Output CSV path")
+    p = argparse.ArgumentParser(description="Click timing measurement (software DAC timestamp)")
+    p.add_argument("--n",        type=int,   default=500,  help="Number of trials (default: 500)")
+    p.add_argument("--rate",     type=float, default=40.0, help="Click rate Hz (default: 40)")
+    p.add_argument("--dur",      type=float, default=1.0,  help="Train duration s (default: 1.0)")
+    p.add_argument("--iti",      type=float, default=0.5,  help="ITI s (default: 0.5)")
+    p.add_argument("--out",      default=default_out,      help="Output CSV path")
+    p.add_argument("--osci-pin", type=int,   default=None,
+                   help="BCM pin for oscilloscope marker GPIO output (default: disabled). "
+                        "Wire this pin to scope Ch2. Line-out left channel to scope Ch1.")
     args = p.parse_args()
 
-    run(args.n, args.rate, args.dur, args.iti, args.out)
+    run(args.n, args.rate, args.dur, args.iti, args.out, osci_pin=args.osci_pin)
 
 
 if __name__ == "__main__":
