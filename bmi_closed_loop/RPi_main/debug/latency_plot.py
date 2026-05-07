@@ -94,13 +94,19 @@ def _rising_edges(t: np.ndarray, v: np.ndarray,
 def _match_edges(t_gpio: np.ndarray, t_audio: np.ndarray,
                  search_min_s: float = 0.005,
                  search_max_s: float = 0.150) -> tuple:
-    """Match each GPIO edge to the first audio edge within the search window."""
+    """Match each GPIO edge to the first unused audio edge within the search window."""
     mg, ma = [], []
+    last_idx = 0
     for tg in t_gpio:
-        cands = t_audio[(t_audio >= tg + search_min_s) & (t_audio <= tg + search_max_s)]
-        if len(cands):
+        for i in range(last_idx, len(t_audio)):
+            if t_audio[i] < tg + search_min_s:
+                continue
+            if t_audio[i] > tg + search_max_s:
+                break
             mg.append(tg)
-            ma.append(cands[0])
+            ma.append(t_audio[i])
+            last_idx = i + 1  # consume this audio edge
+            break
     return np.array(mg), np.array(ma)
 
 
@@ -177,8 +183,7 @@ def main():
 
     # Panel 1 — overlapping raw traces (twinx), same line style as isf_plot.py
     t0   = t_gpio[0] if len(t_gpio) else t_s[0]
-    hw   = args.zoom_ms / 2 / 1000
-    mask = (t_s >= t0 - hw) & (t_s <= t0 + hw)
+    mask = (t_s >= t0) & (t_s <= t0 + args.zoom_ms / 1000)
     t_ms = (t_s[mask] - t0) * 1000
 
     ax = fig.add_subplot(gs[0, :])
@@ -197,7 +202,7 @@ def main():
     ax2.tick_params(axis="y", labelcolor="red")
 
     ax.set_xlabel("Time relative to GPIO edge (ms)")
-    ax.set_title(f"Raw traces — first click  (zoom ±{args.zoom_ms/2:.0f} ms)")
+    ax.set_title(f"Raw traces — first {args.zoom_ms:.0f} ms from first GPIO edge")
     lines1, labs1 = ax.get_legend_handles_labels()
     lines2, labs2 = ax2.get_legend_handles_labels()
     ax.legend(lines1 + lines2, labs1 + labs2, fontsize=8, loc="upper right")
