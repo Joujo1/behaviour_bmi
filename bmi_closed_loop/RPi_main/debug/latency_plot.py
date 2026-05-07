@@ -195,17 +195,23 @@ def main():
     lines2, labs2 = ax2.get_legend_handles_labels()
     ax.legend(lines1 + lines2, labs1 + labs2, fontsize=8, loc="upper right")
 
-    # Panel 2 — overlaid ICI from all detected edges (not matched subset)
-    gpio_ici_ms  = np.diff(t_gpio)  * 1000
-    audio_ici_ms = np.diff(t_audio) * 1000
-    gpio_med  = np.median(gpio_ici_ms);  gpio_std  = np.std(gpio_ici_ms)
-    audio_med = np.median(audio_ici_ms); audio_std = np.std(audio_ici_ms)
+    # Panel 2 — ICI difference: audio ICI minus GPIO ICI (matched pairs)
+    gpio_ici_ms  = np.diff(t_gpio_m)  * 1000
+    audio_ici_ms = np.diff(t_audio_m) * 1000
+    ici_diff_ms  = audio_ici_ms - gpio_ici_ms
+    diff_med = np.median(ici_diff_ms)
+    diff_std = np.std(ici_diff_ms)
+
     ax = fig.add_subplot(gs[1, :])
-    ax.scatter(range(len(gpio_ici_ms)),  gpio_ici_ms,  alpha=0.7, s=30, color="red",  marker="s", label=f"GPIO  (scheduled)  median={gpio_med:.3f} ms  std={gpio_std:.4f} ms")
-    ax.scatter(range(len(audio_ici_ms)), audio_ici_ms, alpha=0.7, s=30, color=C_PRED, marker="^", label=f"Audio (actual)      median={audio_med:.3f} ms  std={audio_std:.4f} ms")
+    ax.scatter(range(len(ici_diff_ms)), ici_diff_ms, alpha=0.7, s=20,
+               color=C_PRED, marker="o")
+    ax.axhline(0,        color="black", lw=1.0, linestyle="--", alpha=0.5)
+    ax.axhline(diff_med, color="red",   lw=1.2, linestyle="--",
+               label=f"median {diff_med:.3f} ms")
     ax.set_xlabel("Click pair index")
-    ax.set_ylabel("ICI (ms)")
-    ax.set_title("Scheduled vs actual ICI per consecutive click pair", fontsize=9)
+    ax.set_ylabel("Audio ICI − GPIO ICI  (ms)")
+    ax.set_title(f"ICI difference (audio − scheduled)  |  median={diff_med:.3f} ms   std={diff_std:.4f} ms",
+                 fontsize=9)
     ax.legend(fontsize=8)
     ax.yaxis.set_major_locator(plt.MultipleLocator(5))
     ax.yaxis.set_minor_locator(plt.MultipleLocator(1))
@@ -233,7 +239,7 @@ def main():
 
     fig.suptitle(
         f"Click timing  —  {n_matched} matched clicks  |  "
-        f"GPIO ICI std={gpio_std:.4f} ms   Audio ICI std={audio_std:.4f} ms",
+        f"ICI difference  median={diff_med:.3f} ms   std={diff_std:.4f} ms",
         fontsize=11, fontweight="bold",
     )
 
