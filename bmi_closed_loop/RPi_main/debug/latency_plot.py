@@ -34,6 +34,53 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 
+# ── Oscilloscope ISF helpers ──────────────────────────────────────────────────
+
+def _load_isf(path: str) -> tuple:
+    """Parse a Tektronix ISF file and return (t_s, v) in seconds and volts."""
+    with open(path, "rb") as f:
+        raw = f.read()
+
+    curve_idx = raw.find(b":CURV")
+    if curve_idx == -1:
+        curve_idx = raw.find(b"CURV")
+    header = raw[:curve_idx].decode("ascii", errors="ignore")
+    after  = raw[curve_idx:]
+
+    params = {}
+    for token in header.split(";"):
+        token = token.strip()
+        if ":" in token:
+            token = token.rsplit(":", 1)[-1]
+        parts = token.split()
+        if len(parts) == 2:
+            params[parts[0].strip()] = parts[1].strip()
+
+    xincr  = float(params["XIN"])
+    xzero  = float(params["XZE"])
+    pt_off = float(params.get("PT_O", 0))
+    ymult  = float(params["YMU"])
+    yoff   = float(params["YOF"])
+    yzero  = float(params["YZE"])
+    byt_nr = int(params.get("BYT_N", 2))
+    nr_pt  = int(params["NR_P"])
+    bn_fmt = params.get("BN_F", "RI").strip()
+    byt_or = params.get("BYT_O", "MSB").strip()
+
+    hash_idx   = after.index(b"#")
+    n_digits   = int(chr(after[hash_idx + 1]))
+    data_start = hash_idx + 2 + n_digits
+    data       = after[data_start:data_start + nr_pt * byt_nr]
+
+    dtype = np.dtype((">" if byt_or == "MSB" else "<") +
+                     ("i" if bn_fmt == "RI" else "u") + str(byt_nr))
+    y_raw = np.frombuffer(data, dtype=dtype).astype(np.float64)
+
+    v = (y_raw - yoff) * ymult + yzero
+    t = (np.arange(nr_pt) - pt_off) * xincr + xzero
+    return t, v
+
+
 # ── Oscilloscope CSV helpers ──────────────────────────────────────────────────
 
 def _load_osci_csv(path: str) -> tuple:
@@ -105,6 +152,9 @@ def main():
     parser.add_argument("--osci-csv", default=None,
                         help="Oscilloscope CSV (time, ch1_audio_V, ch2_gpio_V) "
                              "for hardware verification")
+    parser.add_argument("--osci-isf", nargs=2, metavar=("CH1.ISF", "CH2.ISF"),
+                        default=None,
+                        help="Tektronix ISF files: ch1 (audio) and ch2 (GPIO)")
     parser.add_argument("--osci-ch2-thresh", type=float, default=None,
                         help="Ch2 (GPIO) threshold in V (default: auto = midpoint)")
     parser.add_argument("--osci-ch1-thresh", type=float, default=None,
@@ -236,10 +286,20 @@ def main():
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"Saved → {out}")
 
-    # ── Oscilloscope verification figure (only when --osci-csv is given) ─────
-    if args.osci_csv:
+    # ── Oscilloscope verification figure ─────────────────────────────────────
+    if args.osci_isf:
+        print(f"\nLoading ISF files: {args.osci_isf[0]}  {args.osci_isf[1]}")
+        t1, ch1 = _load_isf(args.osci_isf[0])
+        t2, ch2 = _load_isf(args.osci_isf[1])
+        # Both channels share the same time base when exported from the same capture
+        t_s = t1 if len(t1) <= len(t2) else t2
+        ch1 = ch1[:len(t_s)]
+        ch2 = ch2[:len(t_s)]
+    elif args.osci_csv:
         print(f"\nLoading oscilloscope CSV: {args.osci_csv}")
         t_s, ch1, ch2 = _load_osci_csv(args.osci_csv)
+
+    if args.osci_isf or args.osci_csv:
         print(f"  {len(t_s)} samples  "
               f"duration={t_s[-1]-t_s[0]:.3f} s  "
               f"sample_rate={1/(t_s[1]-t_s[0]):.0f} Hz")
