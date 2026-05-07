@@ -100,16 +100,6 @@ def _rising_edges(t: np.ndarray, v: np.ndarray,
     return np.array(times)
 
 
-def _audio_envelope(v: np.ndarray) -> np.ndarray:
-    """Return the analytic-signal envelope of an audio trace.
-
-    The envelope is single-polarity, so threshold crossings are independent
-    of the click's starting phase and roughly proportional to click amplitude
-    only via a smooth rise — much better behaved than the raw bipolar signal.
-    """
-    return np.abs(_signal.hilbert(v))
-
-
 def _match_edges(t_gpio: np.ndarray, t_audio: np.ndarray,
                  search_min_s: float = 0.005,
                  search_max_s: float = 0.150) -> tuple:
@@ -139,20 +129,13 @@ def main():
     p.add_argument("--ch2-thresh", type=float, default=None,
                    help="GPIO channel threshold in V (default: auto)")
     p.add_argument("--ch1-thresh", type=float, default=None,
-                   help="Audio envelope threshold in V "
-                        "(default: auto = 8%% of envelope peak — low CFD-style trigger)")
-    p.add_argument("--ch1-thresh-frac", type=float, default=0.08,
-                   help="Fraction of envelope peak to use as audio threshold "
-                        "(default: 0.08). Lower = less amplitude bias.")
+                   help="Audio channel threshold in V (default: auto = 35%% of LP-filtered peak)")
     p.add_argument("--search-min", type=float, default=5.0,
                    help="Edge match window start ms after GPIO edge (default: 5)")
     p.add_argument("--search-max", type=float, default=150.0,
                    help="Edge match window end ms after GPIO edge (default: 150)")
     p.add_argument("--zoom-ms", type=float, default=100.0,
                    help="Raw trace zoom window in ms around first GPIO edge (default: 100)")
-    p.add_argument("--trim-edges", type=int, default=1,
-                   help="Drop this many matched clicks from start AND end "
-                        "to avoid filtfilt edge artifacts (default: 1)")
     p.add_argument("--out", default=None, help="Output PNG path")
     args = p.parse_args()
 
@@ -171,32 +154,23 @@ def main():
     print(f"  {n} samples  duration={t_s[-1]-t_s[0]:.3f} s  "
           f"rate={1/(t_s[1]-t_s[0]):.0f} Hz")
 
-    # Filter audio: low-pass at 3 kHz to suppress PWM noise, then take envelope
+    # Low-pass filter audio at 3 kHz to suppress PWM noise before edge detection
     sample_rate = 1.0 / (t_s[1] - t_s[0])
-    b, a    = _signal.butter(4, 3000 / (sample_rate / 2), btype="low")
-    ch1_lp  = _signal.filtfilt(b, a, ch1)
-    ch1_env = _audio_envelope(ch1_lp)
+    b, a   = _signal.butter(4, 3000 / (sample_rate / 2), btype="low")
+    ch1_lp = _signal.filtfilt(b, a, ch1)
 
     # Edge detection
     ch2_thresh = args.ch2_thresh or (np.nanmax(ch2) + np.nanmin(ch2)) / 2
-    ch1_thresh = args.ch1_thresh or np.nanmax(ch1_env) * args.ch1_thresh_frac
-    print(f"  Audio envelope threshold: {ch1_thresh*1000:.2f} mV  "
-          f"(={args.ch1_thresh_frac*100:.0f}% of peak {np.nanmax(ch1_env)*1000:.1f} mV)")
+    ch1_thresh = args.ch1_thresh or np.nanmax(np.abs(ch1_lp)) * 0.35
+    print(f"  Audio threshold: {ch1_thresh*1000:.2f} mV  "
+          f"(35% of LP-filtered peak {np.nanmax(np.abs(ch1_lp))*1000:.1f} mV)")
 
-    t_gpio  = _rising_edges(t_s, ch2,     threshold=ch2_thresh)
-    t_audio = _rising_edges(t_s, ch1_env, threshold=ch1_thresh)
+    t_gpio  = _rising_edges(t_s, ch2,    threshold=ch2_thresh)
+    t_audio = _rising_edges(t_s, ch1_lp, threshold=ch1_thresh)
     print(f"  GPIO edges: {len(t_gpio)}   Audio edges: {len(t_audio)}")
 
     t_gpio_m, t_audio_m = _match_edges(t_gpio, t_audio,
                                         args.search_min / 1000, args.search_max / 1000)
-
-    # Trim edges of the matched series — filtfilt is unreliable near trace boundaries
-    if args.trim_edges > 0 and len(t_gpio_m) > 2 * args.trim_edges + 1:
-        k = args.trim_edges
-        t_gpio_m  = t_gpio_m[k:-k]
-        t_audio_m = t_audio_m[k:-k]
-        print(f"  Trimmed {k} click(s) from each end "
-              f"(filtfilt edge artifacts) → {len(t_gpio_m)} kept")
 
     n_matched = len(t_gpio_m)
     print(f"  Matched: {n_matched} clicks")
@@ -218,7 +192,6 @@ def main():
                             height_ratios=[1.6, 1.4, 0.6])
 
     C_PRED = "#4e79a7"
-    C_ENV  = "#59a14f"
 
     # Panel 1 — overlapping raw traces (twinx)
     t0   = t_gpio[0] if len(t_gpio) else t_s[0]
@@ -226,12 +199,11 @@ def main():
     t_ms = (t_s[mask] - t0) * 1000
 
     ax = fig.add_subplot(gs[0, :])
-    ax.plot(t_ms, ch1[mask],     color=C_PRED, lw=0.5, alpha=0.35, label="Ch1 — audio raw")
-    ax.plot(t_ms, ch1_lp[mask],  color=C_PRED, lw=1.0, label="Ch1 — audio filtered")
-    ax.plot(t_ms, ch1_env[mask], color=C_ENV,  lw=1.0, alpha=0.85, label="Ch1 — envelope")
-    ax.axhline( ch1_thresh, color=C_ENV, lw=0.6, linestyle=":", alpha=0.6,
+    ax.plot(t_ms, ch1[mask],    color=C_PRED, lw=0.5, alpha=0.4, label="Ch1 — audio raw")
+    ax.plot(t_ms, ch1_lp[mask], color=C_PRED, lw=1.0, label="Ch1 — audio filtered")
+    ax.axhline( ch1_thresh, color="gray", lw=0.6, linestyle=":", alpha=0.7,
                label=f"audio threshold ±{ch1_thresh*1000:.1f} mV")
-    ax.axhline(-ch1_thresh, color=C_ENV, lw=0.6, linestyle=":", alpha=0.6)
+    ax.axhline(-ch1_thresh, color="gray", lw=0.6, linestyle=":", alpha=0.7)
     ax.axvline(0,        color="red",   lw=0.8, linestyle="--", alpha=0.6)
     ax.axvline(pred_med, color="black", lw=0.8, linestyle="--", alpha=0.7,
                label=f"median audio onset +{pred_med:.1f} ms")
