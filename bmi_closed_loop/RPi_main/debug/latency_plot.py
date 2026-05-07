@@ -79,16 +79,35 @@ def _load_isf(path: str) -> tuple:
 def _rising_edges(t: np.ndarray, v: np.ndarray,
                   threshold: float | None = None,
                   min_gap_s: float = 0.003) -> np.ndarray:
+    """Detect rising edges where v crosses `threshold` upward.
+
+    Use this on monotonic or single-polarity signals (GPIO square waves,
+    envelopes, etc.). Do NOT call on bipolar oscillating signals — the
+    crossing time then depends on click amplitude and starting polarity.
+    """
     if threshold is None:
         threshold = (np.nanmax(v) + np.nanmin(v)) / 2
     above = v > threshold
     idxs  = np.where(~above[:-1] & above[1:])[0]
     times, last = [], -np.inf
     for i in idxs:
-        if t[i] - last >= min_gap_s:
-            times.append(float(t[i]))
-            last = t[i]
+        # linear interpolation for sub-sample precision
+        frac  = (threshold - v[i]) / (v[i + 1] - v[i])
+        t_cross = t[i] + frac * (t[i + 1] - t[i])
+        if t_cross - last >= min_gap_s:
+            times.append(float(t_cross))
+            last = t_cross
     return np.array(times)
+
+
+def _audio_envelope(v: np.ndarray) -> np.ndarray:
+    """Return the analytic-signal envelope of an audio trace.
+
+    The envelope is single-polarity, so threshold crossings are independent
+    of the click's starting phase and roughly proportional to click amplitude
+    only via a smooth rise — much better behaved than the raw bipolar signal.
+    """
+    return np.abs(_signal.hilbert(v))
 
 
 def _match_edges(t_gpio: np.ndarray, t_audio: np.ndarray,
@@ -120,13 +139,20 @@ def main():
     p.add_argument("--ch2-thresh", type=float, default=None,
                    help="GPIO channel threshold in V (default: auto)")
     p.add_argument("--ch1-thresh", type=float, default=None,
-                   help="Audio channel threshold in V (default: auto = 5%% of peak)")
+                   help="Audio envelope threshold in V "
+                        "(default: auto = 8%% of envelope peak — low CFD-style trigger)")
+    p.add_argument("--ch1-thresh-frac", type=float, default=0.08,
+                   help="Fraction of envelope peak to use as audio threshold "
+                        "(default: 0.08). Lower = less amplitude bias.")
     p.add_argument("--search-min", type=float, default=5.0,
                    help="Edge match window start ms after GPIO edge (default: 5)")
     p.add_argument("--search-max", type=float, default=150.0,
                    help="Edge match window end ms after GPIO edge (default: 150)")
     p.add_argument("--zoom-ms", type=float, default=100.0,
                    help="Raw trace zoom window in ms around first GPIO edge (default: 100)")
+    p.add_argument("--trim-edges", type=int, default=1,
+                   help="Drop this many matched clicks from start AND end "
+                        "to avoid filtfilt edge artifacts (default: 1)")
     p.add_argument("--out", default=None, help="Output PNG path")
     args = p.parse_args()
 
@@ -145,33 +171,46 @@ def main():
     print(f"  {n} samples  duration={t_s[-1]-t_s[0]:.3f} s  "
           f"rate={1/(t_s[1]-t_s[0]):.0f} Hz")
 
-    # Detect edges
-    # Low-pass filter audio at 3 kHz to remove PWM noise before edge detection
+    # Filter audio: low-pass at 3 kHz to suppress PWM noise, then take envelope
     sample_rate = 1.0 / (t_s[1] - t_s[0])
-    b, a   = _signal.butter(4, 3000 / (sample_rate / 2), btype="low")
-    ch1_lp = _signal.filtfilt(b, a, ch1)
+    b, a    = _signal.butter(4, 3000 / (sample_rate / 2), btype="low")
+    ch1_lp  = _signal.filtfilt(b, a, ch1)
+    ch1_env = _audio_envelope(ch1_lp)
 
+    # Edge detection
     ch2_thresh = args.ch2_thresh or (np.nanmax(ch2) + np.nanmin(ch2)) / 2
-    ch1_thresh = args.ch1_thresh or np.nanmax(np.abs(ch1_lp)) * 0.35
-    t_gpio  = _rising_edges(t_s, ch2,    threshold=ch2_thresh)
-    t_audio = _rising_edges(t_s, ch1_lp, threshold=ch1_thresh)
+    ch1_thresh = args.ch1_thresh or np.nanmax(ch1_env) * args.ch1_thresh_frac
+    print(f"  Audio envelope threshold: {ch1_thresh*1000:.2f} mV  "
+          f"(={args.ch1_thresh_frac*100:.0f}% of peak {np.nanmax(ch1_env)*1000:.1f} mV)")
+
+    t_gpio  = _rising_edges(t_s, ch2,     threshold=ch2_thresh)
+    t_audio = _rising_edges(t_s, ch1_env, threshold=ch1_thresh)
     print(f"  GPIO edges: {len(t_gpio)}   Audio edges: {len(t_audio)}")
 
     t_gpio_m, t_audio_m = _match_edges(t_gpio, t_audio,
                                         args.search_min / 1000, args.search_max / 1000)
+
+    # Trim edges of the matched series — filtfilt is unreliable near trace boundaries
+    if args.trim_edges > 0 and len(t_gpio_m) > 2 * args.trim_edges + 1:
+        k = args.trim_edges
+        t_gpio_m  = t_gpio_m[k:-k]
+        t_audio_m = t_audio_m[k:-k]
+        print(f"  Trimmed {k} click(s) from each end "
+              f"(filtfilt edge artifacts) → {len(t_gpio_m)} kept")
+
     n_matched = len(t_gpio_m)
     print(f"  Matched: {n_matched} clicks")
     if n_matched < 2:
         print("ERROR: too few matched clicks — check --ch1-thresh / --search-min/max")
         sys.exit(1)
 
-    # Metric 1 — ALSA prediction accuracy (per click)
+    # Metric 1 — per-click hardware delay (audio onset relative to GPIO edge)
     pred_error_ms = (t_audio_m - t_gpio_m) * 1000
     pred_med = np.median(pred_error_ms)
     pred_std = np.std(pred_error_ms)
 
     print(f"\nHardware delay:  median={pred_med:.3f} ms  std={pred_std:.4f} ms")
-    print(f"  (std = ICI jitter — if flat over time, ICI is preserved)")
+    print("  (per-click; std reflects amplitude/threshold sensitivity)")
 
     # ── Figure ───────────────────────────────────────────────────────────────
     fig = plt.figure(figsize=(14, 10))
@@ -179,16 +218,20 @@ def main():
                             height_ratios=[1.6, 1.4, 0.6])
 
     C_PRED = "#4e79a7"
-    C_ICI  = "#f28e2b"
+    C_ENV  = "#59a14f"
 
-    # Panel 1 — overlapping raw traces (twinx), same line style as isf_plot.py
+    # Panel 1 — overlapping raw traces (twinx)
     t0   = t_gpio[0] if len(t_gpio) else t_s[0]
     mask = (t_s >= t0) & (t_s <= t0 + args.zoom_ms / 1000)
     t_ms = (t_s[mask] - t0) * 1000
 
     ax = fig.add_subplot(gs[0, :])
-    ax.plot(t_ms, ch1[mask],    color=C_PRED, lw=0.5, alpha=0.4, label="Ch1 — audio raw")
-    ax.plot(t_ms, ch1_lp[mask], color=C_PRED, lw=1.0, label="Ch1 — audio filtered")
+    ax.plot(t_ms, ch1[mask],     color=C_PRED, lw=0.5, alpha=0.35, label="Ch1 — audio raw")
+    ax.plot(t_ms, ch1_lp[mask],  color=C_PRED, lw=1.0, label="Ch1 — audio filtered")
+    ax.plot(t_ms, ch1_env[mask], color=C_ENV,  lw=1.0, alpha=0.85, label="Ch1 — envelope")
+    ax.axhline( ch1_thresh, color=C_ENV, lw=0.6, linestyle=":", alpha=0.6,
+               label=f"audio threshold ±{ch1_thresh*1000:.1f} mV")
+    ax.axhline(-ch1_thresh, color=C_ENV, lw=0.6, linestyle=":", alpha=0.6)
     ax.axvline(0,        color="red",   lw=0.8, linestyle="--", alpha=0.6)
     ax.axvline(pred_med, color="black", lw=0.8, linestyle="--", alpha=0.7,
                label=f"median audio onset +{pred_med:.1f} ms")
@@ -230,7 +273,7 @@ def main():
     ax.grid(which="major", alpha=0.4)
     ax.grid(which="minor", alpha=0.15)
 
-    # Panel 4 — summary
+    # Panel 3 — summary
     ax = fig.add_subplot(gs[2, :])
     ax.axis("off")
     summary = (
@@ -240,6 +283,8 @@ def main():
         f"{'GPIO edges detected':<52}  {len(t_gpio):>12d}\n"
         f"{'Audio edges detected':<52}  {len(t_audio):>12d}\n"
         f"{'─'*67}\n"
+        f"{'Per-click hardware delay  median':<52}  {pred_med:>11.3f} ms\n"
+        f"{'Per-click hardware delay  std':<52}  {pred_std:>11.4f} ms\n"
         f"{'ICI difference  median  (audio − GPIO)':<52}  {diff_med:>11.3f} ms\n"
         f"{'ICI difference  std':<52}  {diff_std:>11.4f} ms\n"
         f"{'─'*67}\n"
