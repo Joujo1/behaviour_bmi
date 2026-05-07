@@ -118,8 +118,8 @@ def main():
                    help="Edge match window start ms after GPIO edge (default: 5)")
     p.add_argument("--search-max", type=float, default=150.0,
                    help="Edge match window end ms after GPIO edge (default: 150)")
-    p.add_argument("--zoom-ms", type=float, default=10.0,
-                   help="Raw trace zoom window in ms around first GPIO edge (default: 10)")
+    p.add_argument("--zoom-ms", type=float, default=100.0,
+                   help="Raw trace zoom window in ms around first GPIO edge (default: 100)")
     p.add_argument("--out", default=None, help="Output PNG path")
     args = p.parse_args()
 
@@ -176,29 +176,33 @@ def main():
     C_PRED = "#4e79a7"
     C_ICI  = "#f28e2b"
 
-    # Panel 1 — raw traces zoomed around first GPIO edge
+    # Panel 1 — overlapping raw traces (twinx), same line style as isf_plot.py
+    t0   = t_gpio[0] if len(t_gpio) else t_s[0]
+    hw   = args.zoom_ms / 2 / 1000
+    mask = (t_s >= t0 - hw) & (t_s <= t0 + hw)
+    t_ms = (t_s[mask] - t0) * 1000
+
     ax = fig.add_subplot(gs[0, :])
-    t0    = t_gpio[0] if len(t_gpio) else t_s[0]
-    hw    = args.zoom_ms / 2 / 1000
-    mask  = (t_s >= t0 - hw) & (t_s <= t0 + hw)
-    t_rel = (t_s[mask] - t0) * 1000
-    ax.plot(t_rel, ch1[mask], color=C_PRED, lw=0.8, label="Ch1 audio")
-    ax2   = ax.twinx()
-    ax2.plot(t_rel, ch2[mask], color="red", lw=0.8, alpha=0.7, label="Ch2 GPIO")
+    ax.plot(t_ms, ch1[mask], color=C_PRED, lw=0.8, label="Ch1 — audio (V)")
+    ax.axvline(0,        color="red",   lw=0.8, linestyle="--", alpha=0.6)
+    ax.axvline(pred_med, color="black", lw=0.8, linestyle="--", alpha=0.7,
+               label=f"median audio onset +{pred_med:.1f} ms")
+    ax.set_ylabel("Audio (V)", color=C_PRED)
+    ax.tick_params(axis="y", labelcolor=C_PRED)
+    ax.grid(alpha=0.3)
+
+    ax2 = ax.twinx()
+    ax2.plot(t_ms, ch2[mask], color="red", lw=0.8, alpha=0.8, label="Ch2 — GPIO (V)")
     ax2.set_ylabel("GPIO (V)", color="red")
     ax2.tick_params(axis="y", labelcolor="red")
-    ax.axvline(0, color="red", lw=0.8, linestyle="--", alpha=0.5)
-    ax.axvline(pred_med, color=C_PRED, lw=0.8, linestyle="--", alpha=0.7,
-               label=f"median audio onset +{pred_med:.1f} ms")
+
     ax.set_xlabel("Time relative to GPIO edge (ms)")
-    ax.set_ylabel("Audio (V)")
     ax.set_title(f"Raw traces — first click  (zoom ±{args.zoom_ms/2:.0f} ms)")
     lines1, labs1 = ax.get_legend_handles_labels()
     lines2, labs2 = ax2.get_legend_handles_labels()
     ax.legend(lines1 + lines2, labs1 + labs2, fontsize=8, loc="upper right")
-    ax.grid(alpha=0.3)
 
-    # Panel 2 — ALSA prediction error histogram
+    # Panel 3 — ALSA prediction error histogram
     bins = min(60, max(20, n_matched // 5))
     ax = fig.add_subplot(gs[1, 0])
     ax.hist(pred_error_ms, bins=bins, color=C_PRED, alpha=0.85,
@@ -211,7 +215,7 @@ def main():
                  fontsize=9)
     ax.legend(fontsize=8)
 
-    # Panel 3 — ICI error histogram
+    # Panel 4 — ICI error histogram
     ax = fig.add_subplot(gs[1, 1])
     ax.hist(ici_error_ms, bins=bins, color=C_ICI, alpha=0.85,
             edgecolor="white", linewidth=0.3)
@@ -224,7 +228,7 @@ def main():
                  fontsize=9)
     ax.legend(fontsize=8)
 
-    # Panel 4 — summary
+    # Panel 5 — summary
     ax = fig.add_subplot(gs[2, :])
     ax.axis("off")
     summary = (
