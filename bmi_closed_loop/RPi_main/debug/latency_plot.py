@@ -195,34 +195,19 @@ def main():
     lines2, labs2 = ax2.get_legend_handles_labels()
     ax.legend(lines1 + lines2, labs1 + labs2, fontsize=8, loc="upper right")
 
-    # Panel 2 — consecutive GPIO edge differences (scheduled ICI)
-    gpio_ici_ms = np.diff(t_gpio) * 1000
-    gpio_med = np.median(gpio_ici_ms)
-    gpio_std = np.std(gpio_ici_ms)
+    # Panel 2 — overlaid ICI from matched pairs (same x = same click pair)
+    gpio_ici_ms  = np.diff(t_gpio_m)  * 1000
+    audio_ici_ms = np.diff(t_audio_m) * 1000
+    gpio_med  = np.median(gpio_ici_ms);  gpio_std  = np.std(gpio_ici_ms)
+    audio_med = np.median(audio_ici_ms); audio_std = np.std(audio_ici_ms)
+    idx = range(len(gpio_ici_ms))
 
-    ax = fig.add_subplot(gs[1, 0])
-    ax.scatter(range(len(gpio_ici_ms)), gpio_ici_ms, alpha=0.5, s=6, color="red")
-    ax.axhline(gpio_med, color="black", lw=1.2, linestyle="--",
-               label=f"median {gpio_med:.3f} ms")
+    ax = fig.add_subplot(gs[1, :])
+    ax.scatter(idx, gpio_ici_ms,  alpha=0.6, s=8,  color="red",   label=f"GPIO  (scheduled)  median={gpio_med:.3f} ms  std={gpio_std:.4f} ms")
+    ax.scatter(idx, audio_ici_ms, alpha=0.6, s=8,  color=C_PRED,  label=f"Audio (actual)      median={audio_med:.3f} ms  std={audio_std:.4f} ms")
     ax.set_xlabel("Click pair index")
     ax.set_ylabel("ICI (ms)")
-    ax.set_title(f"GPIO edge intervals (scheduled ICI)\n"
-                 f"median={gpio_med:.3f} ms   std={gpio_std:.4f} ms", fontsize=9)
-    ax.legend(fontsize=8)
-
-    # Panel 3 — consecutive audio edge differences (actual ICI)
-    audio_ici_ms = np.diff(t_audio) * 1000
-    audio_med = np.median(audio_ici_ms)
-    audio_std = np.std(audio_ici_ms)
-
-    ax = fig.add_subplot(gs[1, 1])
-    ax.scatter(range(len(audio_ici_ms)), audio_ici_ms, alpha=0.5, s=6, color=C_PRED)
-    ax.axhline(audio_med, color="black", lw=1.2, linestyle="--",
-               label=f"median {audio_med:.3f} ms")
-    ax.set_xlabel("Click pair index")
-    ax.set_ylabel("ICI (ms)")
-    ax.set_title(f"Audio edge intervals (actual ICI)\n"
-                 f"median={audio_med:.3f} ms   std={audio_std:.4f} ms", fontsize=9)
+    ax.set_title("Scheduled vs actual ICI per consecutive click pair", fontsize=9)
     ax.legend(fontsize=8)
 
     # Panel 4 — summary
@@ -245,7 +230,7 @@ def main():
             bbox=dict(boxstyle="round", facecolor="whitesmoke", alpha=0.8))
 
     fig.suptitle(
-        f"Click timing  |  "
+        f"Click timing  —  {n_matched} matched clicks  |  "
         f"GPIO ICI std={gpio_std:.4f} ms   Audio ICI std={audio_std:.4f} ms",
         fontsize=11, fontweight="bold",
     )
