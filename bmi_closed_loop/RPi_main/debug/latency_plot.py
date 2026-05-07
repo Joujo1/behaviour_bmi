@@ -140,7 +140,7 @@ def main():
 
     # Detect edges
     ch2_thresh = args.ch2_thresh or (np.nanmax(ch2) + np.nanmin(ch2)) / 2
-    ch1_thresh = args.ch1_thresh or np.nanmax(np.abs(ch1)) * 0.05
+    ch1_thresh = args.ch1_thresh or np.nanmax(np.abs(ch1)) * 0.35
     t_gpio  = _rising_edges(t_s, ch2, threshold=ch2_thresh)
     t_audio = _rising_edges(t_s, ch1, threshold=ch1_thresh)
     print(f"  GPIO edges: {len(t_gpio)}   Audio edges: {len(t_audio)}")
