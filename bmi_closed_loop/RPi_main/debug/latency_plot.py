@@ -201,12 +201,16 @@ def main():
     gpio_med  = np.median(gpio_ici_ms);  gpio_std  = np.std(gpio_ici_ms)
     audio_med = np.median(audio_ici_ms); audio_std = np.std(audio_ici_ms)
     ax = fig.add_subplot(gs[1, :])
-    ax.scatter(range(len(gpio_ici_ms)),  gpio_ici_ms,  alpha=0.6, s=8, color="red",  label=f"GPIO  (scheduled)  median={gpio_med:.3f} ms  std={gpio_std:.4f} ms")
-    ax.scatter(range(len(audio_ici_ms)), audio_ici_ms, alpha=0.6, s=8, color=C_PRED, label=f"Audio (actual)      median={audio_med:.3f} ms  std={audio_std:.4f} ms")
+    ax.scatter(range(len(gpio_ici_ms)),  gpio_ici_ms,  alpha=0.7, s=30, color="red",  marker="s", label=f"GPIO  (scheduled)  median={gpio_med:.3f} ms  std={gpio_std:.4f} ms")
+    ax.scatter(range(len(audio_ici_ms)), audio_ici_ms, alpha=0.7, s=30, color=C_PRED, marker="^", label=f"Audio (actual)      median={audio_med:.3f} ms  std={audio_std:.4f} ms")
     ax.set_xlabel("Click pair index")
     ax.set_ylabel("ICI (ms)")
     ax.set_title("Scheduled vs actual ICI per consecutive click pair", fontsize=9)
     ax.legend(fontsize=8)
+    ax.yaxis.set_major_locator(plt.MultipleLocator(5))
+    ax.yaxis.set_minor_locator(plt.MultipleLocator(1))
+    ax.grid(which="major", alpha=0.4)
+    ax.grid(which="minor", alpha=0.15)
 
     # Panel 4 — summary
     ax = fig.add_subplot(gs[2, :])
