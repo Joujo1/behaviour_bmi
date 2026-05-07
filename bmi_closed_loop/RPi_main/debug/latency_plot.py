@@ -240,7 +240,7 @@ def main():
 
     fig.suptitle(
         f"Click timing — {n_matched} clicks  |  "
-        f"ALSA pred std={pred_std:.4f} ms   ICI std={ici_std:.4f} ms",
+        f"hardware delay  median={pred_med:.2f} ms   std={pred_std:.4f} ms",
         fontsize=11, fontweight="bold",
     )
 
