@@ -195,52 +195,58 @@ def main():
     lines2, labs2 = ax2.get_legend_handles_labels()
     ax.legend(lines1 + lines2, labs1 + labs2, fontsize=8, loc="upper right")
 
-    # Panel 2 — delay per click over time (flat = ICI preserved)
+    # Panel 2 — consecutive GPIO edge differences (scheduled ICI)
+    gpio_ici_ms = np.diff(t_gpio) * 1000
+    gpio_med = np.median(gpio_ici_ms)
+    gpio_std = np.std(gpio_ici_ms)
+
     ax = fig.add_subplot(gs[1, 0])
-    ax.scatter(range(n_matched), pred_error_ms, alpha=0.4, s=6, color=C_PRED)
-    roll = pd.Series(pred_error_ms).rolling(max(1, n_matched // 20),
-                                             center=True, min_periods=1).median()
-    ax.plot(range(n_matched), roll.values, color="black", lw=1.2, label="rolling median")
-    ax.axhline(pred_med, color="grey", lw=0.8, linestyle="--",
-               label=f"median {pred_med:.2f} ms")
-    ax.set_xlabel("Click index")
-    ax.set_ylabel("Audio onset − GPIO edge  (ms)")
-    ax.set_title("Delay per click over time\n(flat → ICI preserved)", fontsize=9)
+    ax.scatter(range(len(gpio_ici_ms)), gpio_ici_ms, alpha=0.5, s=6, color="red")
+    ax.axhline(gpio_med, color="black", lw=1.2, linestyle="--",
+               label=f"median {gpio_med:.3f} ms")
+    ax.set_xlabel("Click pair index")
+    ax.set_ylabel("ICI (ms)")
+    ax.set_title(f"GPIO edge intervals (scheduled ICI)\n"
+                 f"median={gpio_med:.3f} ms   std={gpio_std:.4f} ms", fontsize=9)
     ax.legend(fontsize=8)
 
-    # Panel 3 — delay histogram
-    bins = min(60, max(20, n_matched // 5))
+    # Panel 3 — consecutive audio edge differences (actual ICI)
+    audio_ici_ms = np.diff(t_audio) * 1000
+    audio_med = np.median(audio_ici_ms)
+    audio_std = np.std(audio_ici_ms)
+
     ax = fig.add_subplot(gs[1, 1])
-    ax.hist(pred_error_ms, bins=bins, color=C_PRED, alpha=0.85,
-            edgecolor="white", linewidth=0.3)
-    ax.axvline(pred_med, color="black", lw=1.2, linestyle="--",
-               label=f"median {pred_med:.3f} ms")
-    ax.set_xlabel("Audio onset − GPIO edge  (ms)")
-    ax.set_ylabel("Count")
-    ax.set_title(f"Click delay distribution\nstd={pred_std:.4f} ms", fontsize=9)
+    ax.scatter(range(len(audio_ici_ms)), audio_ici_ms, alpha=0.5, s=6, color=C_PRED)
+    ax.axhline(audio_med, color="black", lw=1.2, linestyle="--",
+               label=f"median {audio_med:.3f} ms")
+    ax.set_xlabel("Click pair index")
+    ax.set_ylabel("ICI (ms)")
+    ax.set_title(f"Audio edge intervals (actual ICI)\n"
+                 f"median={audio_med:.3f} ms   std={audio_std:.4f} ms", fontsize=9)
     ax.legend(fontsize=8)
 
     # Panel 4 — summary
     ax = fig.add_subplot(gs[2, :])
     ax.axis("off")
     summary = (
-        f"{'Quantity':<52}  {'Value':>12}\n"
-        f"{'─'*67}\n"
-        f"{'Clicks matched (scope)':<52}  {n_matched:>12d}\n"
-        f"{'─'*67}\n"
-        f"{'Hardware delay  median  (audio onset − GPIO edge)':<52}  {pred_med:>11.3f} ms\n"
-        f"{'Hardware delay  std  ← ICI jitter':<52}  {pred_std:>11.4f} ms\n"
-        f"{'─'*67}\n"
-        f"{'Software within-trial jitter  std':<52}  {wj_std:>11.4f} ms\n"
-        f"{'ALSA pipeline onset delay  (median)':<52}  {onset_med:>11.2f} ms\n"
+        f"{'Quantity':<52}  {'GPIO (scheduled)':>18}  {'Audio (actual)':>16}\n"
+        f"{'─'*90}\n"
+        f"{'ICI  median':<52}  {gpio_med:>16.3f} ms  {audio_med:>14.3f} ms\n"
+        f"{'ICI  std':<52}  {gpio_std:>16.4f} ms  {audio_std:>14.4f} ms\n"
+        f"{'─'*90}\n"
+        f"{'GPIO edges detected':<52}  {len(t_gpio):>18d}\n"
+        f"{'Audio edges detected':<52}  {len(t_audio):>18d}\n"
+        f"{'─'*90}\n"
+        f"{'Software within-trial jitter  std':<52}  {wj_std:>16.4f} ms\n"
+        f"{'ALSA pipeline onset delay  (median)':<52}  {onset_med:>16.2f} ms\n"
     )
     ax.text(0.01, 0.98, summary, transform=ax.transAxes,
             fontsize=9, verticalalignment="top", fontfamily="monospace",
             bbox=dict(boxstyle="round", facecolor="whitesmoke", alpha=0.8))
 
     fig.suptitle(
-        f"Click timing — {n_matched} clicks  |  "
-        f"hardware delay  median={pred_med:.2f} ms   std={pred_std:.4f} ms",
+        f"Click timing  |  "
+        f"GPIO ICI std={gpio_std:.4f} ms   Audio ICI std={audio_std:.4f} ms",
         fontsize=11, fontweight="bold",
     )
 
