@@ -222,16 +222,17 @@ def main():
     ax = fig.add_subplot(gs[2, :])
     ax.axis("off")
     summary = (
-        f"{'Quantity':<52}  {'GPIO (scheduled)':>18}  {'Audio (actual)':>16}\n"
-        f"{'─'*90}\n"
-        f"{'ICI  median':<52}  {gpio_med:>16.3f} ms  {audio_med:>14.3f} ms\n"
-        f"{'ICI  std':<52}  {gpio_std:>16.4f} ms  {audio_std:>14.4f} ms\n"
-        f"{'─'*90}\n"
-        f"{'GPIO edges detected':<52}  {len(t_gpio):>18d}\n"
-        f"{'Audio edges detected':<52}  {len(t_audio):>18d}\n"
-        f"{'─'*90}\n"
-        f"{'Software within-trial jitter  std':<52}  {wj_std:>16.4f} ms\n"
-        f"{'ALSA pipeline onset delay  (median)':<52}  {onset_med:>16.2f} ms\n"
+        f"{'Quantity':<52}  {'Value':>12}\n"
+        f"{'─'*67}\n"
+        f"{'Matched clicks':<52}  {n_matched:>12d}\n"
+        f"{'GPIO edges detected':<52}  {len(t_gpio):>12d}\n"
+        f"{'Audio edges detected':<52}  {len(t_audio):>12d}\n"
+        f"{'─'*67}\n"
+        f"{'ICI difference  median  (audio − GPIO)':<52}  {diff_med:>11.3f} ms\n"
+        f"{'ICI difference  std':<52}  {diff_std:>11.4f} ms\n"
+        f"{'─'*67}\n"
+        f"{'Software within-trial jitter  std':<52}  {wj_std:>11.4f} ms\n"
+        f"{'ALSA pipeline onset delay  (median)':<52}  {onset_med:>11.2f} ms\n"
     )
     ax.text(0.01, 0.98, summary, transform=ax.transAxes,
             fontsize=9, verticalalignment="top", fontfamily="monospace",
