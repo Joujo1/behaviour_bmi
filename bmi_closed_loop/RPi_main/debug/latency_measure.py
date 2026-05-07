@@ -49,6 +49,12 @@ try:
 except ImportError:
     _HAS_GPIO = False
 
+try:
+    import pigpio as _pigpio
+    _HAS_PIGPIO = True
+except ImportError:
+    _HAS_PIGPIO = False
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import audio
@@ -129,7 +135,8 @@ def _open_stream() -> None:
 
 
 def _play_and_measure(left_clicks: list, duration: float,
-                      marker_q: _queue.Queue | None = None) -> tuple:
+                      marker_q: _queue.Queue | None = None,
+                      pwm_q:    _queue.Queue | None = None) -> tuple:
     """
     Arm the persistent stream with a new click buffer.
 
@@ -154,6 +161,10 @@ def _play_and_measure(left_clicks: list, duration: float,
         'left_clicks':    left_clicks,
         'block_s':        _CHUNK / AUDIO_SRATE,
     }
+    # Queue PWM click times immediately — fires at software-scheduled time, not DAC time
+    if pwm_q is not None:
+        for t_c in left_clicks:
+            pwm_q.put_nowait(t_play + t_c)
     done.wait(timeout=duration + 1.5)
     return t_play, block_dac_mono
 
@@ -186,6 +197,62 @@ def _marker_worker(pin: int, q: _queue.Queue) -> None:
         _GPIO.cleanup(pin)
 
 
+def _build_pwm_wave(pi, pin: int, click_samples: np.ndarray,
+                    srate: int, pwm_freq: int = 250_000) -> int:
+    """
+    Encode click_samples as a pigpio hardware waveform at pwm_freq carrier.
+
+    Each audio sample maps to N carrier cycles where N = round(pwm_freq/srate).
+    Duty cycle per cycle = (sample + 1) / 2  (maps −1…1 to 0…1).
+    Returns the pigpio wave_id. Caller must call pi.wave_delete(wave_id) when done.
+    """
+    carrier_us   = 1_000_000 // pwm_freq          # 4 µs at 250 kHz
+    cycles_per_s = round(pwm_freq / srate)         # ≈ 5 at 250 kHz / 48 kHz
+    pin_mask     = 1 << pin
+
+    pulses = []
+    for sample in click_samples:
+        duty   = (float(sample) + 1.0) / 2.0
+        on_us  = max(1, min(carrier_us - 1, round(duty * carrier_us)))
+        off_us = carrier_us - on_us
+        for _ in range(cycles_per_s):
+            pulses.append(_pigpio.pulse(pin_mask, 0,        on_us))
+            pulses.append(_pigpio.pulse(0,        pin_mask, off_us))
+
+    pi.wave_clear()
+    pi.wave_add_generic(pulses)
+    return pi.wave_create()
+
+
+def _pwm_audio_worker(pi, wave_id: int, q: _queue.Queue) -> None:
+    """
+    Fire the pre-built pigpio wave at each scheduled click time.
+
+    Times (CLOCK_MONOTONIC seconds) come from the queue; None terminates.
+    Fires at t_play + t_click (software scheduled time), NOT the predicted DAC time.
+    On the scope this channel appears ~onset_delay ms BEFORE the GPIO trigger.
+    """
+    print(f"[pwm-audio] worker started  wave_id={wave_id}")
+    try:
+        while True:
+            t_target = q.get()
+            if t_target is None:
+                break
+            slack = t_target - time.clock_gettime(time.CLOCK_MONOTONIC) - 0.001
+            if slack > 0:
+                time.sleep(slack)
+            now = time.clock_gettime(time.CLOCK_MONOTONIC)
+            if now > t_target + 0.002:       # already > 2 ms late — skip
+                print(f"[pwm-audio] skipped late click ({(now-t_target)*1000:.1f} ms late)")
+                continue
+            while time.clock_gettime(time.CLOCK_MONOTONIC) < t_target:
+                pass
+            pi.wave_send_once(wave_id)
+    finally:
+        pi.wave_delete(wave_id)
+        pi.stop()
+
+
 def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
     if rate <= 0:
         return []
@@ -202,7 +269,8 @@ def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
 
 def run(n_trials: int, click_rate: float, duration: float,
         iti_s: float, csv_path: str,
-        osci_pin: int | None = None) -> None:
+        osci_pin: int | None = None,
+        pwm_audio_pin: int | None = None) -> None:
 
     min_ici = CLICK_WIDTH_S
     block_s = _CHUNK / AUDIO_SRATE
@@ -223,6 +291,26 @@ def run(n_trials: int, click_rate: float, duration: float,
             marker_thread.start()
             print(f"Oscilloscope marker on BCM {osci_pin}  (connect to scope Ch2)")
 
+    pwm_q      = None
+    pwm_thread = None
+    if pwm_audio_pin is not None:
+        if not _HAS_PIGPIO:
+            print("WARNING: pigpio not available — PWM audio output disabled")
+            print("         Install: sudo apt install python3-pigpio && sudo pigpiod")
+        else:
+            pi       = _pigpio.pi()
+            wave_id  = _build_pwm_wave(pi, pwm_audio_pin, _CLICK, AUDIO_SRATE)
+            pwm_q    = _queue.Queue()
+            pwm_thread = threading.Thread(
+                target=_pwm_audio_worker, args=(pi, wave_id, pwm_q),
+                daemon=True, name="pwm-audio",
+            )
+            pwm_thread.start()
+            print(f"PWM audio on BCM {pwm_audio_pin}  "
+                  f"(wire → RC LP [R=1kΩ, C=10nF] → scope Ch)")
+            print(f"  Fires at scheduled time (t_play + t_click) — "
+                  f"expect ~onset_delay ms BEFORE GPIO trigger on scope")
+
     # Open stream once — stays open between trials, outputting silence.
     _open_stream()
 
@@ -236,7 +324,8 @@ def run(n_trials: int, click_rate: float, duration: float,
             if not left_clicks:
                 continue
 
-            t_play, block_dac_mono = _play_and_measure(left_clicks, duration, marker_q)
+            t_play, block_dac_mono = _play_and_measure(
+                left_clicks, duration, marker_q, pwm_q)
 
             if not block_dac_mono:
                 print(f"  Trial {i:4d}: no callback blocks — skipping")
@@ -280,6 +369,10 @@ def run(n_trials: int, click_rate: float, duration: float,
             marker_q.put(None)
             if marker_thread:
                 marker_thread.join(timeout=1.0)
+        if pwm_q is not None:
+            pwm_q.put(None)
+            if pwm_thread:
+                pwm_thread.join(timeout=1.0)
 
     if not all_rows:
         print("No valid data recorded.")
@@ -318,11 +411,17 @@ def main():
     p.add_argument("--iti",      type=float, default=0.5,  help="ITI s (default: 0.5)")
     p.add_argument("--out",      default=default_out,      help="Output CSV path")
     p.add_argument("--osci-pin", type=int,   default=None,
-                   help="BCM pin for oscilloscope marker GPIO output (default: disabled). "
+                   help="BCM pin for oscilloscope trigger GPIO output (default: disabled). "
                         "Wire this pin to scope Ch2. Line-out left channel to scope Ch1.")
+    p.add_argument("--pwm-audio-pin", type=int, default=None,
+                   help="BCM pin for GPIO-PWM audio output (default: disabled). "
+                        "Wire: pin → R=1kΩ → node → C=10nF → GND, node → scope Ch. "
+                        "Requires pigpiod running (sudo pigpiod). "
+                        "Fires at scheduled software time, not predicted DAC time.")
     args = p.parse_args()
 
-    run(args.n, args.rate, args.dur, args.iti, args.out, osci_pin=args.osci_pin)
+    run(args.n, args.rate, args.dur, args.iti, args.out,
+        osci_pin=args.osci_pin, pwm_audio_pin=args.pwm_audio_pin)
 
 
 if __name__ == "__main__":
