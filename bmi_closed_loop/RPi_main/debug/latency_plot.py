@@ -158,15 +158,8 @@ def main():
     pred_med = np.median(pred_error_ms)
     pred_std = np.std(pred_error_ms)
 
-    # Metric 2 — ICI preservation (per consecutive pair)
-    ici_scheduled_ms = np.diff(t_gpio_m)  * 1000
-    ici_actual_ms    = np.diff(t_audio_m) * 1000
-    ici_error_ms     = ici_actual_ms - ici_scheduled_ms
-    ici_std = np.std(ici_error_ms)
-    ici_med = np.median(ici_error_ms)
-
-    print(f"\nALSA prediction error:  median={pred_med:.3f} ms  std={pred_std:.4f} ms")
-    print(f"ICI error:              median={ici_med:.3f} ms  std={ici_std:.4f} ms")
+    print(f"\nHardware delay:  median={pred_med:.3f} ms  std={pred_std:.4f} ms")
+    print(f"  (std = ICI jitter — if flat over time, ICI is preserved)")
 
     # ── Figure ───────────────────────────────────────────────────────────────
     fig = plt.figure(figsize=(14, 10))
@@ -202,33 +195,32 @@ def main():
     lines2, labs2 = ax2.get_legend_handles_labels()
     ax.legend(lines1 + lines2, labs1 + labs2, fontsize=8, loc="upper right")
 
-    # Panel 3 — ALSA prediction error histogram
-    bins = min(60, max(20, n_matched // 5))
+    # Panel 2 — delay per click over time (flat = ICI preserved)
     ax = fig.add_subplot(gs[1, 0])
+    ax.scatter(range(n_matched), pred_error_ms, alpha=0.4, s=6, color=C_PRED)
+    roll = pd.Series(pred_error_ms).rolling(max(1, n_matched // 20),
+                                             center=True, min_periods=1).median()
+    ax.plot(range(n_matched), roll.values, color="black", lw=1.2, label="rolling median")
+    ax.axhline(pred_med, color="grey", lw=0.8, linestyle="--",
+               label=f"median {pred_med:.2f} ms")
+    ax.set_xlabel("Click index")
+    ax.set_ylabel("Audio onset − GPIO edge  (ms)")
+    ax.set_title("Delay per click over time\n(flat → ICI preserved)", fontsize=9)
+    ax.legend(fontsize=8)
+
+    # Panel 3 — delay histogram
+    bins = min(60, max(20, n_matched // 5))
+    ax = fig.add_subplot(gs[1, 1])
     ax.hist(pred_error_ms, bins=bins, color=C_PRED, alpha=0.85,
             edgecolor="white", linewidth=0.3)
     ax.axvline(pred_med, color="black", lw=1.2, linestyle="--",
                label=f"median {pred_med:.3f} ms")
-    ax.set_xlabel("t_audio − t_gpio  (ms)")
+    ax.set_xlabel("Audio onset − GPIO edge  (ms)")
     ax.set_ylabel("Count")
-    ax.set_title(f"ALSA prediction accuracy\nmedian={pred_med:.3f} ms   std={pred_std:.4f} ms",
-                 fontsize=9)
+    ax.set_title(f"Click delay distribution\nstd={pred_std:.4f} ms", fontsize=9)
     ax.legend(fontsize=8)
 
-    # Panel 4 — ICI error histogram
-    ax = fig.add_subplot(gs[1, 1])
-    ax.hist(ici_error_ms, bins=bins, color=C_ICI, alpha=0.85,
-            edgecolor="white", linewidth=0.3)
-    ax.axvline(ici_med, color="black", lw=1.2, linestyle="--",
-               label=f"median {ici_med:.3f} ms")
-    ax.axvline(0, color="grey", lw=0.8, linestyle=":")
-    ax.set_xlabel("Actual ICI − Scheduled ICI  (ms)")
-    ax.set_ylabel("Count")
-    ax.set_title(f"ICI preservation\nmedian={ici_med:.3f} ms   std={ici_std:.4f} ms",
-                 fontsize=9)
-    ax.legend(fontsize=8)
-
-    # Panel 5 — summary
+    # Panel 4 — summary
     ax = fig.add_subplot(gs[2, :])
     ax.axis("off")
     summary = (
@@ -236,11 +228,8 @@ def main():
         f"{'─'*67}\n"
         f"{'Clicks matched (scope)':<52}  {n_matched:>12d}\n"
         f"{'─'*67}\n"
-        f"{'ALSA prediction error  median':<52}  {pred_med:>11.3f} ms\n"
-        f"{'ALSA prediction error  std  ← PortAudio accuracy':<52}  {pred_std:>11.4f} ms\n"
-        f"{'─'*67}\n"
-        f"{'ICI error  median':<52}  {ici_med:>11.3f} ms\n"
-        f"{'ICI error  std  ← click train timing precision':<52}  {ici_std:>11.4f} ms\n"
+        f"{'Hardware delay  median  (audio onset − GPIO edge)':<52}  {pred_med:>11.3f} ms\n"
+        f"{'Hardware delay  std  ← ICI jitter':<52}  {pred_std:>11.4f} ms\n"
         f"{'─'*67}\n"
         f"{'Software within-trial jitter  std':<52}  {wj_std:>11.4f} ms\n"
         f"{'ALSA pipeline onset delay  (median)':<52}  {onset_med:>11.2f} ms\n"
