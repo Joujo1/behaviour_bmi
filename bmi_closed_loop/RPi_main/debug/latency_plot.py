@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from scipy import signal as _signal
 
 
 # ── ISF loader ────────────────────────────────────────────────────────────────
@@ -139,10 +140,15 @@ def main():
           f"rate={1/(t_s[1]-t_s[0]):.0f} Hz")
 
     # Detect edges
+    # Low-pass filter audio at 3 kHz to remove PWM noise before edge detection
+    sample_rate = 1.0 / (t_s[1] - t_s[0])
+    b, a   = _signal.butter(4, 3000 / (sample_rate / 2), btype="low")
+    ch1_lp = _signal.filtfilt(b, a, ch1)
+
     ch2_thresh = args.ch2_thresh or (np.nanmax(ch2) + np.nanmin(ch2)) / 2
-    ch1_thresh = args.ch1_thresh or np.nanmax(np.abs(ch1)) * 0.35
-    t_gpio  = _rising_edges(t_s, ch2, threshold=ch2_thresh)
-    t_audio = _rising_edges(t_s, ch1, threshold=ch1_thresh)
+    ch1_thresh = args.ch1_thresh or np.nanmax(np.abs(ch1_lp)) * 0.35
+    t_gpio  = _rising_edges(t_s, ch2,    threshold=ch2_thresh)
+    t_audio = _rising_edges(t_s, ch1_lp, threshold=ch1_thresh)
     print(f"  GPIO edges: {len(t_gpio)}   Audio edges: {len(t_audio)}")
 
     t_gpio_m, t_audio_m = _match_edges(t_gpio, t_audio,
@@ -176,7 +182,8 @@ def main():
     t_ms = (t_s[mask] - t0) * 1000
 
     ax = fig.add_subplot(gs[0, :])
-    ax.plot(t_ms, ch1[mask], color=C_PRED, lw=0.8, label="Ch1 — audio (V)")
+    ax.plot(t_ms, ch1[mask],    color=C_PRED, lw=0.5, alpha=0.4, label="Ch1 — audio raw")
+    ax.plot(t_ms, ch1_lp[mask], color=C_PRED, lw=1.0, label="Ch1 — audio filtered")
     ax.axvline(0,        color="red",   lw=0.8, linestyle="--", alpha=0.6)
     ax.axvline(pred_med, color="black", lw=0.8, linestyle="--", alpha=0.7,
                label=f"median audio onset +{pred_med:.1f} ms")
