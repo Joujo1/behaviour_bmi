@@ -96,7 +96,9 @@ def _stream_callback(outdata, frames, time_info, _status) -> None:
         for t_c in a['left_clicks']:
             b = int(t_c / block_s)
             if b == block_idx:
-                a['marker_q'].put_nowait(t_dac_block + (t_c - b * block_s))
+                t_marker = t_dac_block + (t_c - b * block_s)
+                print(f"[marker] queued click t_c={t_c:.4f} → DAC {t_marker:.4f}")
+                a['marker_q'].put_nowait(t_marker)
 
     buf = a['buf']
     pos = a['pos']
@@ -162,6 +164,7 @@ def _marker_worker(pin: int, q: _queue.Queue) -> None:
     Sleeps to within 1 ms then busy-waits for microsecond-level precision.
     Stopped by putting None into the queue.
     """
+    print(f"[marker] worker started on BCM pin {pin}")
     _GPIO.setmode(_GPIO.BCM)
     _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
     try:
@@ -169,6 +172,7 @@ def _marker_worker(pin: int, q: _queue.Queue) -> None:
             t_target = q.get()
             if t_target is None:
                 break
+            print(f"[marker] firing pulse at {t_target:.4f}")
             slack = t_target - time.clock_gettime(time.CLOCK_MONOTONIC) - 0.001
             if slack > 0:
                 time.sleep(slack)
