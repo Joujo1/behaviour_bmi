@@ -58,12 +58,10 @@ OUTPUT_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"
 _CHUNK       = 512                              # must match actions._CHUNK
 OSCI_PULSE_S = 0.003   # 3 ms GPIO pulse — matches click duration
 
-# Measurement click: prepend a 200 µs full-amplitude step so the LP-filtered
-# waveform has a sharp rising edge for reliable threshold detection.
-# This is only used in latency_measure.py — audio.py's click is unchanged.
-_CLICK = audio.build_click(srate=AUDIO_SRATE)
-_N_ONSET = max(1, round(AUDIO_SRATE * 0.0002))   # 200 µs
-_CLICK[:_N_ONSET] = 1.0
+# Square-wave click for measurement: full amplitude for the entire click duration.
+# Gives a perfectly sharp rising edge for reliable threshold detection on scope.
+# audio.py's multi-tone click is unchanged — this only affects latency_measure.py.
+_CLICK = np.ones(round(AUDIO_SRATE * CLICK_WIDTH_S), dtype=np.float32)
 
 # Persistent stream state — mirrors actions.py exactly
 _stream:  sd.OutputStream | None = None
