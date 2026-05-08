@@ -7,6 +7,7 @@ All hardware interaction goes exclusively through gpio_handler.
 
 import ctypes
 import logging
+import math
 import threading
 import time
 
@@ -63,12 +64,9 @@ def _stop_audio(target: str) -> None:
 # Pre-built click waveform — constructed once at import time.
 _CLICK = audio.build_click(srate=AUDIO_SRATE)
 
-_CHUNK = 512    # callback block size in samples (~10.67 ms at 48 kHz)
+_CHUNK = 512
 
-# Persistent OutputStream with a global callback.  Stays open for the life of
-# the process; between trials it outputs silence.  _active holds the current
-# playback state dict; None means silence.  Reference assignment is atomic in
-# CPython (GIL), so no lock is needed for the _active swap.
+# Persistent OutputStream with a global callback.
 _stream:  sd.OutputStream | None = None
 _active:  dict | None            = None   # {'buf','pos','done','stop'}
 _rt_done: list                   = [False]
@@ -84,7 +82,7 @@ def _stream_callback(outdata, frames, _time_info, _status) -> None:
         _set_rt_priority(85)
         _rt_done[0] = True
 
-    a = _active                          # atomic snapshot (GIL)
+    a = _active
     if a is None or a['stop'].is_set():
         outdata[:] = 0
         if a is not None:
@@ -125,21 +123,11 @@ def _open_stream() -> None:
 def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
                  log_cb=None, latency_cb=None) -> None:
     """
-    Render both click trains into a stereo int16 buffer and hand it to the
-    persistent callback OutputStream.  The stream stays open between trials
-    (feeding silence), so there is no per-trial ALSA startup cost.  ALSA's
-    kernel driver calls the callback on its own clock; timing does not depend
-    on Python's thread scheduler.
-
-    When playback ends naturally (stop_clicks() was NOT called), on_complete()
-    is fired so the engine can trigger the clicks_done transition.
-
-    latency_cb(t_scheduled, t_buffer): both are CLOCK_MONOTONIC seconds;
-    t_scheduled captured in the calling thread, t_buffer in the player thread
-    just before _active is set (i.e. just before the callback starts serving).
+    Render both click trains into a stereo buffer and hand it to the
+    persistent callback OutputStream.
     """
     global _click_stop, _active
-    _click_stop.set()                # discard any previous playback
+    _click_stop.set()
     _click_stop = threading.Event()
     stop = _click_stop
 
@@ -168,45 +156,77 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
     logger.info("Click trains started: %d left, %d right", len(left_clicks), len(right_clicks))
 
 
-# Note frequencies in Hz
-_NOTES = {
-    "C4": 261.63, "D4": 293.66, "E4": 329.63, "F4": 349.23,
-    "G4": 392.00, "A4": 440.00, "Bb4": 466.16, "C5": 523.25,
-    "R":  0.0,  # rest
-}
-
-# Happy Birthday: (note, duration_seconds) at ~100 BPM, quarter = 0.6s
-_HAPPY_BIRTHDAY = [
-    ("C4", 0.3), ("C4", 0.3), ("D4", 0.6), ("C4", 0.6), ("F4", 0.6), ("E4", 1.2),
-    ("C4", 0.3), ("C4", 0.3), ("D4", 0.6), ("C4", 0.6), ("G4", 0.6), ("F4", 1.2),
-    ("C4", 0.3), ("C4", 0.3), ("C5", 0.6), ("A4", 0.6), ("F4", 0.6), ("E4", 0.6), ("D4", 1.2),
-    ("Bb4", 0.3), ("Bb4", 0.3), ("A4", 0.6), ("F4", 0.6), ("G4", 0.6), ("F4", 1.5),
-]
+_CHIRP_F_LO = 2_000
+_CHIRP_F_HI = 16_000
+_CHIRP_TOGGLES_NS: list | None = None
 
 
-def _buzz_note(target: str, frequency: float, duration: float) -> None:
-    """Buzz the audio pin at the given frequency for the given duration."""
-    if frequency == 0.0:
-        time.sleep(duration)
-        return
-    pulse = CLICK_PULSE_US / 1_000_000
-    period = 1.0 / frequency
-    low_time = period - pulse
-    end = time.time() + duration
-    while time.time() < end:
-        gpio_handler.set_audio(target, True)
-        time.sleep(pulse)
-        gpio_handler.set_audio(target, False)
-        time.sleep(max(0.0, low_time))
+def _build_chirp_toggles() -> list:
+    """Precompute GPIO toggle offsets (ns from click onset) for a 2→16→2 kHz hill chirp."""
+    T  = 0.003   # CLICK_WIDTH_S — 3 ms
+    dt = 1e-7                    # 100 ns integration step
+    toggles_ns = []
+    phase = 0.0
+    next_half = 0.5
+    for i in range(int(T / dt)):
+        t = i * dt
+        f = _CHIRP_F_LO + (_CHIRP_F_HI - _CHIRP_F_LO) * math.sin(math.pi * t / T)
+        phase += f * dt
+        if phase >= next_half:
+            toggles_ns.append(int(t * 1e9))
+            next_half += 0.5
+    return toggles_ns
 
 
-def _play_birthday(target: str) -> None:
-    """Play Happy Birthday on the given audio channel in a background thread."""
-    def _run():
-        for note, duration in _HAPPY_BIRTHDAY:
-            _buzz_note(target, _NOTES[note], duration)
-            time.sleep(0.05)  # brief gap between notes
-    threading.Thread(target=_run, daemon=True, name="happy-birthday").start()
+def _play_gpio_chirp_clicks(left_clicks: list, right_clicks: list,
+                             on_complete=None, log_cb=None, **_) -> None:
+    """Play click trains via GPIO hill-chirp (2→16→2 kHz over 3 ms per click).
+    Two threads run in parallel, one per audio pin, using busy-wait timing.
+    """
+    global _CHIRP_TOGGLES_NS
+    if _CHIRP_TOGGLES_NS is None:
+        _CHIRP_TOGGLES_NS = _build_chirp_toggles()
+    toggles_ns = _CHIRP_TOGGLES_NS
+
+    if log_cb:
+        log_cb("clicks", True)
+
+    start_ns   = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    done_count = [0]
+    done_lock  = threading.Lock()
+
+    def _finish():
+        with done_lock:
+            done_count[0] += 1
+            if done_count[0] == 2:
+                if log_cb:
+                    log_cb("clicks", False)
+                if on_complete:
+                    on_complete()
+
+    def _play_channel(clicks, target):
+        _set_rt_priority(85)
+        for click_t in sorted(clicks):
+            fire_ns = start_ns + int(click_t * 1e9)
+            while time.clock_gettime_ns(time.CLOCK_MONOTONIC) < fire_ns:
+                pass
+            state  = True
+            t0_ns  = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+            for offset_ns in toggles_ns:
+                wake_ns = t0_ns + offset_ns
+                while time.clock_gettime_ns(time.CLOCK_MONOTONIC) < wake_ns:
+                    pass
+                gpio_handler.set_audio(target, state)
+                state = not state
+            gpio_handler.set_audio(target, False)
+        _finish()
+
+    threading.Thread(target=_play_channel, args=(left_clicks,  "left"),
+                     daemon=True, name="chirp-L").start()
+    threading.Thread(target=_play_channel, args=(right_clicks, "right"),
+                     daemon=True, name="chirp-R").start()
+    logger.info("GPIO chirp clicks started: %d left, %d right",
+                len(left_clicks), len(right_clicks))
 
 
 def init_audio() -> None:
@@ -226,9 +246,6 @@ ACTIONS: dict = {
     "led_off":       _led_off,
     "valve_open":    _valve_open,
     "valve_close":   _valve_close,
-    "play_audio":    _play_audio,
-    "stop_audio":    _stop_audio,
-    "play_birthday": _play_birthday,
     "play_clicks":   _play_clicks,
 }
 
@@ -236,7 +253,6 @@ ACTIONS: dict = {
 def dispatch(action_dict: dict, on_complete=None, log_cb=None, latency_cb=None) -> None:
     """
     Look up the action type, pass remaining fields as kwargs, and execute it.
-
     on_complete, log_cb, and latency_cb are forwarded only for play_clicks.
     """
     action_dict = dict(action_dict)

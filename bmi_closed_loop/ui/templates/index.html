@@ -362,6 +362,7 @@
           <div class="status-dot stopped" id="dot-trial-${i}"></div>
           <span class="run-timer" id="run-timer-${i}"></span>
           <button class="btn small" onclick="stopTrial(${i})" style="margin-left:auto">Trial ■</button>
+          <button class="btn small" onclick="testGpioChirp(${i})" title="GPIO hill-chirp click test (2→16→2 kHz)">Chirp</button>
         </div>
       </div>`;
   }
@@ -590,6 +591,12 @@ if (!state.sessionId) return;
   async function stopTrial(id) {
     const res = await post(`/cage/${id}/trial/run/stop`);
     toast(`Cage ${id}: ${res.data?.msg || (res.ok ? 'stop requested' : 'failed')}`);
+  }
+
+  async function testGpioChirp(id) {
+    const res = await post(`/cage/${id}/test/gpio_chirp`, {left_rate:40, right_rate:10, duration:1.0});
+    const d = res.data || {};
+    toast(`Cage ${id} chirp: ${d.ok ? `L=${d.n_left} R=${d.n_right} clicks` : (d.msg || 'failed')}`);
   }
 
   // ── Live H264 stream via WebSocket + WebCodecs ──────────

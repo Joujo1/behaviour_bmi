@@ -18,7 +18,7 @@ import RPi.GPIO as _GPIO
 
 
 from config import (
-    LED_PINS, VALVE_PINS, BEAM_PINS,
+    LED_PINS, VALVE_PINS, AUDIO_PINS, BEAM_PINS,
     BEAM_ACTIVE_LOW, BEAM_DEBOUNCE_MS,
     FAN_PIN, STRIP_PIN, FAN_PWM_FREQ, FAN_MIN_DUTY,
 )
@@ -49,9 +49,8 @@ def setup() -> None:
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
     for pin in VALVE_PINS.values():
         _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
-    # Audio pins left unconfigured — output now via audio jack (sounddevice)
-    # for pin in AUDIO_PINS.values():
-    #     _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
+    for pin in AUDIO_PINS.values():
+        _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
     _GPIO.setup(FAN_PIN,   _GPIO.OUT, initial=_GPIO.LOW)
     _GPIO.setup(STRIP_PIN, _GPIO.OUT, initial=_GPIO.LOW)
 
@@ -60,7 +59,7 @@ def setup() -> None:
         _GPIO.setup(pin, _GPIO.IN, pull_up_down=pull)
 
     all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
-                       # list(AUDIO_PINS.values()) +   # audio via jack now
+                       list(AUDIO_PINS.values()) +
                        [FAN_PIN, STRIP_PIN])
     with _output_lock:
         for pin in all_output_pins:
@@ -87,8 +86,7 @@ def set_valve(target: str, state: bool) -> None:
 
 
 def set_audio(target: str, state: bool) -> None:
-    """No-op — audio output is now via the audio jack (sounddevice)."""
-    # _drive(AUDIO_PINS[target], state)
+    _drive(AUDIO_PINS[target], state)
 
 
 def _stop_fan_pwm() -> None:
@@ -154,9 +152,8 @@ def safety_sweep() -> None:
         set_led(target, False)
     for target in VALVE_PINS:
         set_valve(target, False)
-    # Audio pins not driven — output via audio jack now
-    # for target in AUDIO_PINS:
-    #     set_audio(target, False)
+    for target in AUDIO_PINS:
+        set_audio(target, False)
     set_fan(False)   # set_fan() stops PWM then drives pin low
     set_strip(False)
     logger.info("Safety sweep complete")
