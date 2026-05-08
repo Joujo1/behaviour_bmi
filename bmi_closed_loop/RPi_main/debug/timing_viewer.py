@@ -22,7 +22,6 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from scipy import signal as _signal
 
 
 # ── ISF loader ────────────────────────────────────────────────────────────────
@@ -105,15 +104,49 @@ def _match_edges(t_ref: np.ndarray, t_other: np.ndarray,
 
 
 def _process_audio(t_s: np.ndarray, ch: np.ndarray,
-                   sample_rate: float, thresh: float | None = None) -> tuple:
-    """LP filter at 3 kHz → rising-edge detection on filtered signal.
-    Returns (ch_lp, t_edges, thresh_used)."""
-    b, a   = _signal.butter(4, 3000 / (sample_rate / 2), btype="low")
-    ch_lp  = _signal.filtfilt(b, a, ch)
+                   thresh: float | None = None) -> tuple:
+    """Rising-edge detection on abs(ch) — works regardless of output polarity.
+    min_gap_s=0.005 rejects noise edges closer than 5 ms (just under 6 ms min ICI).
+    Returns (ch, t_edges, thresh_used)."""
+    ch_abs = np.abs(ch)
     if thresh is None:
-        thresh = np.nanmax(np.abs(ch_lp)) * 0.35
-    t_edges = _rising_edges(t_s, ch_lp, threshold=thresh)
-    return ch_lp, t_edges, thresh
+        thresh = np.nanmax(ch_abs) * 0.5
+    t_edges = _rising_edges(t_s, ch_abs, threshold=thresh, min_gap_s=0.005)
+    return ch, t_edges, thresh
+
+
+# ── Per-run processing helper ─────────────────────────────────────────────────
+
+def _process_run(gpio_isf: str, audio_isf: str,
+                 ch1_thresh, ch2_thresh,
+                 search_min_s: float, search_max_s: float) -> dict | None:
+    """Load one ISF pair and return delay stats, or None if too few matches."""
+    t1, ch1 = _load_isf(audio_isf)
+    t2, ch2 = _load_isf(gpio_isf)
+    n = min(len(t1), len(t2))
+    t_s = t1[:n]; ch1 = ch1[:n]; ch2 = ch2[:n]
+    ch1_peak = np.nanmax(np.abs(ch1))
+    ch2_peak = np.nanmax(ch2)
+    eff_ch2 = ch2_thresh if ch2_thresh is not None else (np.nanmax(ch2) + np.nanmin(ch2)) / 2
+    _, t_audio, thresh1_used = _process_audio(t_s, ch1, ch1_thresh)
+    t_gpio  = _rising_edges(t_s, ch2, threshold=eff_ch2)
+    print(f"  ch1 peak={ch1_peak*1000:.1f} mV  thresh={thresh1_used*1000:.1f} mV  "
+          f"audio_edges={len(t_audio)}  |  "
+          f"ch2 peak={ch2_peak*1000:.1f} mV  thresh={eff_ch2*1000:.1f} mV  "
+          f"gpio_edges={len(t_gpio)}")
+    t_gpio_m, t_audio_m = _match_edges(t_gpio, t_audio, search_min_s, search_max_s)
+    print(f"  matched={len(t_gpio_m)}")
+    if len(t_gpio_m) < 2:
+        return None
+    delays = (t_audio_m - t_gpio_m) * 1000
+    return {
+        'delays_ms': delays,
+        'n':         len(delays),
+        'mean':      float(np.mean(delays)),
+        'median':    float(np.median(delays)),
+        'std':       float(np.std(delays)),
+        'label':     audio_isf,
+    }
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -137,6 +170,9 @@ def main():
                    help="PWM match window end ms relative to GPIO edge (default: -20)")
     p.add_argument("--win-ms", type=float, default=200.0,
                    help="Visible window width in ms (default: 200)")
+    p.add_argument("--extra", nargs=2, metavar=("CH2.ISF", "CH1.ISF"),
+                   action="append", default=[],
+                   help="Additional ISF pair for multi-run panel; repeat as needed")
     args = p.parse_args()
 
     # ── Load ISF ─────────────────────────────────────────────────────────────
@@ -148,13 +184,11 @@ def main():
     sample_rate = 1.0 / (t_s[1] - t_s[0])
     print(f"  {n} samples  duration={t_s[-1]-t_s[0]:.3f} s  rate={sample_rate:.0f} Hz")
 
-    # ── Audio channel (LP → envelope → edges) ────────────────────────────────
-    ch1_lp, t_audio, ch1_thresh = _process_audio(
-        t_s, ch1, sample_rate, args.ch1_thresh)
+    ch1_proc, t_audio, ch1_thresh = _process_audio(t_s, ch1, args.ch1_thresh)
     print(f"  Audio threshold: {ch1_thresh*1000:.2f} mV")
 
     # ── GPIO trigger edges ────────────────────────────────────────────────────
-    ch2_thresh = args.ch2_thresh or (np.nanmax(ch2) + np.nanmin(ch2)) / 2
+    ch2_thresh = args.ch2_thresh if args.ch2_thresh is not None else (np.nanmax(ch2) + np.nanmin(ch2)) / 2
     t_gpio = _rising_edges(t_s, ch2, threshold=ch2_thresh)
     print(f"  GPIO edges: {len(t_gpio)}   Audio edges: {len(t_audio)}")
 
@@ -182,8 +216,8 @@ def main():
         np_ = min(len(t_p), n)
         ch_pwm_raw = ch_pwm_raw[:np_]
 
-        ch_pwm_lp, t_pwm_edges, ch3_thresh = _process_audio(
-            t_s[:np_], ch_pwm_raw, sample_rate, args.ch3_thresh)
+        ch_pwm_proc, t_pwm_edges, ch3_thresh = _process_audio(
+            t_s[:np_], ch_pwm_raw, args.ch3_thresh)
         print(f"  PWM threshold: {ch3_thresh*1000:.2f} mV")
         print(f"  PWM edges: {len(t_pwm_edges)}")
 
@@ -203,18 +237,35 @@ def main():
         else:
             print("  WARNING: too few PWM matches — disabling PWM overlay")
 
-    # ── Time axes (shift by mean to align with GPIO trigger) ──────────────────
-    t_ms       = t_s * 1000
-    t_audio_ms = (t_s - mean_delay / 1000) * 1000
+    # ── Extra runs for multi-run panel ───────────────────────────────────────
+    extra_runs = []
+    for gpio_isf, audio_isf in args.extra:
+        print(f"Loading extra: {gpio_isf}  {audio_isf}")
+        run = _process_run(gpio_isf, audio_isf,
+                           args.ch1_thresh, args.ch2_thresh,
+                           args.search_min / 1000, args.search_max / 1000)
+        if run is None:
+            print(f"  WARNING: too few matches — skipping")
+        else:
+            extra_runs.append(run)
+            print(f"  n={run['n']}  mean={run['mean']:.3f} ms  std={run['std']:.4f} ms")
+
+    # ── Time axes — origin at first GPIO edge, audio shifted by mean delay ───
+    t_origin   = t_gpio[0]
+    t_ms       = (t_s - t_origin) * 1000
+    t_audio_ms = (t_s - t_origin - mean_delay / 1000) * 1000
     if has_pwm:
-        t_pwm_ms = (t_s - mean_pwm_delay / 1000) * 1000
+        t_pwm_ms = (t_s - t_origin - mean_pwm_delay / 1000) * 1000
 
     # ── Figure ────────────────────────────────────────────────────────────────
-    n_panels = 3 if has_pwm else 2
-    fig = plt.figure(figsize=(14, 8 if not has_pwm else 9))
-    height_ratios = [2.5, 1.2] if not has_pwm else [2.5, 1.0, 1.0]
+    has_multi = len(extra_runs) > 0
+    panel_heights = [2.5, 1.2]
+    if has_pwm:   panel_heights.append(1.0)
+    if has_multi: panel_heights.append(1.4)
+    n_panels = len(panel_heights)
+    fig = plt.figure(figsize=(14, 4 + sum(panel_heights)))
     gs = gridspec.GridSpec(n_panels, 1, figure=fig,
-                           height_ratios=height_ratios, hspace=0.50)
+                           height_ratios=panel_heights, hspace=0.50)
 
     C_AUDIO = "#4e79a7"   # blue
     C_GPIO  = "red"
@@ -224,14 +275,21 @@ def main():
     ax_w  = fig.add_subplot(gs[0])
     ax_w2 = ax_w.twinx()
 
-    ax_w.plot(t_audio_ms, ch1_lp, color=C_AUDIO, lw=0.8, alpha=0.85,
-              label=f"Audio LP (shifted −{mean_delay:.1f} ms)")
+    ax_w.plot(t_audio_ms, ch1_proc, color=C_AUDIO, lw=0.8, alpha=0.85,
+              label=f"Audio (shifted −{mean_delay:.1f} ms)")
 
     if has_pwm:
-        ax_w.plot(t_pwm_ms, ch_pwm_lp, color=C_PWM, lw=0.8, alpha=0.85,
-                  label=f"PWM LP (shifted −{mean_pwm_delay:.1f} ms)")
+        ax_w.plot(t_pwm_ms, ch_pwm_proc, color=C_PWM, lw=0.8, alpha=0.85,
+                  label=f"PWM (shifted −{mean_pwm_delay:.1f} ms)")
 
     ax_w2.plot(t_ms, ch2, color=C_GPIO, lw=0.8, alpha=0.85, label="GPIO trigger")
+
+    # Click index labels — light vertical line + index number at top of panel
+    t_gpio_plot = (t_gpio_m - t_origin) * 1000
+    for i, tg in enumerate(t_gpio_plot):
+        ax_w.axvline(tg, color="gray", lw=0.5, alpha=0.25, zorder=0)
+        ax_w.text(tg, 1.01, str(i), transform=ax_w.get_xaxis_transform(),
+                  ha="center", va="bottom", fontsize=6, color="gray")
 
     ax_w.set_ylabel("Audio (V)",  color=C_AUDIO)
     ax_w.tick_params(axis="y", labelcolor=C_AUDIO)
@@ -292,10 +350,59 @@ def main():
             f"PWM delay  mean={mean_pwm_delay:.3f} ms   median={median_pwm_delay:.3f} ms   std={std_pwm_delay:.4f} ms",
             fontsize=9)
 
+    # ── Panel: multi-run delay (optional) ────────────────────────────────────
+    if has_multi:
+        multi_idx = 2 + (1 if has_pwm else 0)
+        ax_m = fig.add_subplot(gs[multi_idx])
+        cmap = plt.cm.tab10
+
+        # Primary run as run 0
+        all_runs = [{'delays_ms': delays_ms, 'n': n_matched,
+                     'mean': mean_delay, 'median': median_delay,
+                     'std': std_delay, 'label': args.isf[1]}] + extra_runs
+
+        x_offset = 0
+        for r_idx, run in enumerate(all_runs):
+            color = cmap(r_idx / max(len(all_runs) - 1, 1))
+            xs = range(x_offset, x_offset + run['n'])
+            ax_m.scatter(xs, run['delays_ms'], s=10, alpha=0.5, color=color, zorder=2)
+            ax_m.axhline(run['mean'], color=color, lw=1.2, linestyle="--", alpha=0.8)
+            if x_offset > 0:
+                ax_m.axvline(x_offset - 0.5, color="lightgray", lw=0.8, zorder=0)
+            ax_m.text(x_offset + run['n'] / 2, 0.97,
+                      f"#{r_idx}\nn={run['n']}\nμ={run['mean']:.2f}\nσ={run['std']:.3f}",
+                      ha="center", va="top", fontsize=6, color=color,
+                      transform=ax_m.get_xaxis_transform())
+            x_offset += run['n']
+
+        all_delays_pool = np.concatenate([r['delays_ms'] for r in all_runs])
+        pool_mean   = float(np.mean(all_delays_pool))
+        pool_median = float(np.median(all_delays_pool))
+        pool_std    = float(np.std(all_delays_pool))
+
+        ax_m.axhline(pool_mean,   color="black", lw=1.5, linestyle="-",
+                     label=f"all mean {pool_mean:.3f} ms")
+        ax_m.axhline(pool_median, color="gray",  lw=1.0, linestyle="--",
+                     label=f"all median {pool_median:.3f} ms")
+        ax_m.axhspan(pool_mean - pool_std, pool_mean + pool_std,
+                     color="black", alpha=0.07, label=f"±1σ ({pool_std:.4f} ms)")
+        ax_m.yaxis.set_major_locator(plt.MultipleLocator(1))
+        ax_m.yaxis.set_minor_locator(plt.MultipleLocator(0.25))
+        ax_m.grid(which="major", alpha=0.4)
+        ax_m.grid(which="minor", alpha=0.15)
+        ax_m.set_xlabel("Click index (cumulative across runs)")
+        ax_m.set_ylabel("Audio delay (ms)")
+        ax_m.set_xlim(-1, x_offset + 1)
+        ax_m.legend(fontsize=8, loc="upper right")
+        ax_m.set_title(
+            f"All {len(all_runs)} runs  |  "
+            f"N={len(all_delays_pool)} clicks  |  "
+            f"mean={pool_mean:.3f} ms   median={pool_median:.3f} ms   std={pool_std:.4f} ms",
+            fontsize=9)
+
     # ── Navigation ────────────────────────────────────────────────────────────
-    t0_ms  = t_gpio[0] * 1000 if len(t_gpio) else 0.0
     win_ms = [args.win_ms]
-    pos_ms = [t0_ms]
+    pos_ms = [0.0]   # first GPIO edge is now at t=0
 
     def set_view():
         ax_w.set_xlim(pos_ms[0], pos_ms[0] + win_ms[0])

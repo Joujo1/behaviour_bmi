@@ -153,6 +153,7 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
     done = threading.Event()
 
     def _player():
+        global _active
         _open_stream()
         t_buffer = time.clock_gettime(time.CLOCK_MONOTONIC)
         if latency_cb is not None:

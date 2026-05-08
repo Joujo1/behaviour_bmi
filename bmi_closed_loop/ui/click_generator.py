@@ -4,10 +4,11 @@ Poisson click train generator.
 Generates independent left and right Poisson click trains
   - Inter-click intervals are exponentially distributed: ICI ~ Exp(1/rate)
   - Difficulty is controlled by the ratio of left_rate to right_rate
-  - min_ici (default: click width = 3 ms) prevents clicks from overlapping
-    in the audio buffer and distorting each other via waveform addition.
-    Clicks drawn closer than min_ici are dropped (rejection thinning);
-    only timestamps that will actually be rendered are returned.
+  - min_ici (default: 2 × click width = 6 ms) ensures at least one full
+    click-width of silence between the end of one click and the start of
+    the next, preventing waveform addition and distortion in the audio buffer.
+    Clicks drawn closer than min_ici are shifted forward; only timestamps
+    that will actually be rendered are returned.
 """
 
 import numpy as np
@@ -19,16 +20,17 @@ CLICK_WIDTH_S = config.CLICK_WIDTH_S
 
 def generate_clicks(left_rate: float, right_rate: float, duration: float,
                     seed: int = None,
-                    min_ici: float = CLICK_WIDTH_S) -> dict:
+                    min_ici: float = 2 * CLICK_WIDTH_S) -> dict:
     """
     Args:
         left_rate:  Mean click rate for the left channel (clicks/sec).
         right_rate: Mean click rate for the right channel (clicks/sec).
         duration:   Stimulus duration in seconds.
         seed:       Optional RNG seed for reproducibility.
-        min_ici:    Minimum inter-click interval in seconds.  Defaults to the
-                    click width (3 ms) so no two clicks overlap in the audio
-                    buffer.  Pass 0.0 to disable.
+        min_ici:    Minimum inter-click interval in seconds (start-to-start).
+                    Defaults to 2 × click width (6 ms) so there is at least
+                    one click-width of silence between consecutive clicks.
+                    Pass 0.0 to disable.
 
     Returns:
         dict with keys:
