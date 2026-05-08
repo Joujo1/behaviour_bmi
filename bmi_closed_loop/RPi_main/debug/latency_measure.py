@@ -186,7 +186,6 @@ def _marker_worker(pin: int, q: _queue.Queue) -> None:
         _GPIO.cleanup(pin)
 
 
-
 def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
     if rate <= 0:
         return []
@@ -237,8 +236,7 @@ def run(n_trials: int, click_rate: float, duration: float,
             if not left_clicks:
                 continue
 
-            t_play, block_dac_mono = _play_and_measure(
-                left_clicks, duration, marker_q)
+            t_play, block_dac_mono = _play_and_measure(left_clicks, duration, marker_q)
 
             if not block_dac_mono:
                 print(f"  Trial {i:4d}: no callback blocks — skipping")
@@ -320,12 +318,11 @@ def main():
     p.add_argument("--iti",      type=float, default=0.5,  help="ITI s (default: 0.5)")
     p.add_argument("--out",      default=default_out,      help="Output CSV path")
     p.add_argument("--osci-pin", type=int,   default=None,
-                   help="BCM pin for oscilloscope trigger GPIO output (default: disabled). "
+                   help="BCM pin for oscilloscope marker GPIO output (default: disabled). "
                         "Wire this pin to scope Ch2. Line-out left channel to scope Ch1.")
     args = p.parse_args()
 
-    run(args.n, args.rate, args.dur, args.iti, args.out,
-        osci_pin=args.osci_pin)
+    run(args.n, args.rate, args.dur, args.iti, args.out, osci_pin=args.osci_pin)
 
 
 if __name__ == "__main__":
