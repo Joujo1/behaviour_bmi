@@ -200,6 +200,14 @@
           <option value="true">Yes</option>
         </select>
       </div>
+      <div class="field">
+        <label>Side bias alg</label>
+        <select id="edit-bias-alg" style="width:180px">
+          <option value="none">None</option>
+          <option value="brody">Brody (performance eq.)</option>
+          <option value="ibl">IBL (layup on preferred)</option>
+        </select>
+      </div>
     </div>
     <div class="modal-row">
       <div class="field">
@@ -405,6 +413,7 @@
     document.getElementById('edit-dob').value         = parseDob(s.dob);
     document.getElementById('edit-weight').value      = s.weight_g ?? '';
     document.getElementById('edit-water').value       = s.water_restricted ? 'true' : 'false';
+    document.getElementById('edit-bias-alg').value    = s.side_bias_alg  || 'none';
     document.getElementById('edit-species').value     = s.species       || '';
     document.getElementById('edit-strain').value      = s.strain        || '';
     document.getElementById('edit-experiment-nr').value = s.experiment_nr || '';
@@ -443,6 +452,7 @@
       dob,
       weight_g:           parseFloat(document.getElementById('edit-weight').value) || null,
       water_restricted:   document.getElementById('edit-water').value === 'true',
+      side_bias_alg:      document.getElementById('edit-bias-alg').value,
       species:            document.getElementById('edit-species').value.trim()        || null,
       strain:             document.getElementById('edit-strain').value.trim()         || null,
       experiment_nr:      document.getElementById('edit-experiment-nr').value.trim()  || null,

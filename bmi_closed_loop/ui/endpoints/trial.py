@@ -21,7 +21,8 @@ def _get_db():
 
 
 def start_runner(cage_id: int, substage_id: int, session_id: int | None,
-                 task_config: dict | None = None) -> tuple[bool, str]:
+                 task_config: dict | None = None,
+                 subject_id: int | None = None) -> tuple[bool, str]:
     """
     Start the trial runner for a cage.  If task_config is not supplied it is
     fetched from the DB.  Returns (ok, message).  Must be called inside a
@@ -40,6 +41,16 @@ def start_runner(cage_id: int, substage_id: int, session_id: int | None,
             return False, f"substage {substage_id} not found"
         task_config = row[0]
 
+    if subject_id is None and session_id is not None:
+        conn = _get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT subject_id FROM sessions WHERE id = %s", (session_id,))
+                row = cur.fetchone()
+                subject_id = row[0] if row else None
+        finally:
+            conn.close()
+
     base_iti_s = task_config.get("base_iti_s")
     fail_iti_s = task_config.get("fail_iti_s")
     if base_iti_s is None or fail_iti_s is None:
@@ -56,6 +67,7 @@ def start_runner(cage_id: int, substage_id: int, session_id: int | None,
         max(0.0, float(fail_iti_s)),
         session_id=session_id,
         substage_id=substage_id,
+        subject_id=subject_id,
     )
 
 

@@ -48,6 +48,7 @@ def list_subjects():
                     s.strain,
                     s.experiment_nr,
                     s.reference_weight_g,
+                    s.side_bias_alg,
                     ts.label        AS substage_label,
                     tst.name        AS stage_name
                 FROM subjects s
@@ -159,6 +160,7 @@ def update_subject(subject_id: int):
     allowed = {
         "code", "sex", "dob", "weight_g", "water_restricted",
         "species", "strain", "experiment_nr", "notes", "reference_weight_g",
+        "side_bias_alg",
     }
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:

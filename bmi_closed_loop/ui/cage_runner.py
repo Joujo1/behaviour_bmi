@@ -15,6 +15,8 @@ import random
 import threading
 import time
 
+import psycopg2
+
 import config
 from ui.click_generator import generate_clicks
 
@@ -36,6 +38,7 @@ class CageRunner:
         self._pending_switch: dict | None = None
         self.session_id:      int  | None = None
         self.substage_id:     int  | None = None
+        self.subject_id:      int  | None = None
         self._started_at:     float| None = None
         self._correct_side:   str  | None = None
         self._click_seed:     int  | None = None
@@ -47,7 +50,8 @@ class CageRunner:
     def start(self, trial_definition: dict, sender,
               base_iti_s: float, fail_iti_s: float,
               session_id: int | None = None,
-              substage_id: int | None = None) -> tuple[bool, str]:
+              substage_id: int | None = None,
+              subject_id: int | None = None) -> tuple[bool, str]:
         """Launch the continuous run loop in a background thread."""
         with self._lock:
             if self.is_running:
@@ -57,6 +61,7 @@ class CageRunner:
             self._pending_switch = None
             self.session_id      = session_id
             self.substage_id     = substage_id
+            self.subject_id      = subject_id
             self._started_at     = time.time()
             self._event.clear()
             self._thread = threading.Thread(target=self._run_loop, args=(trial_definition, sender, base_iti_s, fail_iti_s),
@@ -140,7 +145,11 @@ class CageRunner:
             _log.info("Cage %d: trial %d — sending", self.cage_id, trial_count)
             self._event.clear()
 
-            resolved, correct_side = _resolve_sides(trial_definition)
+            trial_for_resolve = (
+                _apply_bias(trial_definition, self.subject_id)
+                if self.subject_id is not None else trial_definition
+            )
+            resolved, correct_side = _resolve_sides(trial_for_resolve)
             click_seed = random.randrange(2**32)
             trial_to_send = _expand_clicks(resolved, seed=click_seed)
             with self._lock:
@@ -324,3 +333,84 @@ def _expand_clicks(trial_definition: dict, seed: int | None = None) -> dict:
                 action["left_clicks"]  = clicks["left_clicks"]
                 action["right_clicks"] = clicks["right_clicks"]
     return trial
+
+
+def _get_subject_bias_alg(subject_id: int) -> str:
+    conn = psycopg2.connect(config.POSTGRES_DSN)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT side_bias_alg FROM subjects WHERE id = %s", (subject_id,))
+            row = cur.fetchone()
+        return (row[0] or "none") if row else "none"
+    except Exception:
+        _log.exception("bias_alg lookup failed for subject %d", subject_id)
+        return "none"
+    finally:
+        conn.close()
+
+
+def _query_recent_trials(subject_id: int, window: int = 20) -> list[dict]:
+    conn = psycopg2.connect(config.POSTGRES_DSN)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT correct_side, outcome
+                FROM trial_results
+                WHERE session_id IN (SELECT id FROM sessions WHERE subject_id = %s)
+                  AND outcome IN ('correct', 'wrong')
+                ORDER BY completed_at DESC
+                LIMIT %s
+            """, (subject_id, window))
+            rows = cur.fetchall()
+        return [{"correct_side": r[0], "outcome": r[1]} for r in rows]
+    except Exception:
+        _log.exception("recent trial query failed for subject %d", subject_id)
+        return []
+    finally:
+        conn.close()
+
+
+def _apply_bias(trial_definition: dict, subject_id: int) -> dict:
+    """
+    Return a (possibly modified) trial dict with side_mode='weighted' and
+    left_probability adjusted by the subject's bias algorithm.
+    Returns the original dict unchanged when bias does not apply.
+    """
+    if trial_definition.get("side_mode") not in ("random", "weighted"):
+        return trial_definition  # fixed mode: no intervention
+
+    alg = _get_subject_bias_alg(subject_id)
+    if alg == "none":
+        return trial_definition
+
+    recent = _query_recent_trials(subject_id, window=20)
+    left_prob = None
+
+    if alg == "brody":
+        left_hits  = [t["outcome"] == "correct" for t in recent if t["correct_side"] == "left"]
+        right_hits = [t["outcome"] == "correct" for t in recent if t["correct_side"] == "right"]
+        if left_hits and right_hits:
+            fc_l  = sum(left_hits) / len(left_hits)
+            fc_r  = sum(right_hits) / len(right_hits)
+            total = fc_l + fc_r
+            left_prob = (fc_r / total) if total > 0 else 0.5
+            _log.info("Brody bias: fc_l=%.2f fc_r=%.2f → P(left)=%.2f", fc_l, fc_r, left_prob)
+
+    elif alg == "ibl":
+        if recent and recent[0]["outcome"] == "wrong":
+            responded = []
+            for t in recent[:10]:
+                cs = t["correct_side"]
+                if cs is None:
+                    continue
+                resp = cs if t["outcome"] == "correct" else ("right" if cs == "left" else "left")
+                responded.append(resp)
+            if responded:
+                avg_right = sum(1 for s in responded if s == "right") / len(responded)
+                left_prob = 1.0 - avg_right
+                _log.info("IBL debias triggered: avg_right=%.2f → P(left)=%.2f", avg_right, left_prob)
+
+    if left_prob is None:
+        return trial_definition
+
+    return {**trial_definition, "side_mode": "weighted", "left_probability": left_prob}

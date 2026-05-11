@@ -119,7 +119,8 @@ def open_session():
     trials_msg = None
     if cage_id is not None and substage_id is not None:
         trials_started, trials_msg = start_runner(
-            cage_id, substage_id, session_id, task_config=task_config
+            cage_id, substage_id, session_id, task_config=task_config,
+            subject_id=subject_id,
         )
 
     _log.info(

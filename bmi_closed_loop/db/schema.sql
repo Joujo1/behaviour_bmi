@@ -78,6 +78,8 @@ ALTER TABLE subjects ADD COLUMN IF NOT EXISTS species             TEXT;
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS strain              TEXT;
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS experiment_nr       TEXT;
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS reference_weight_g  NUMERIC;
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS side_bias_alg       TEXT DEFAULT 'none'
+    CHECK (side_bias_alg IN ('none', 'brody', 'ibl'));
 
 
 -- ---------------------------------------------------------------------------
