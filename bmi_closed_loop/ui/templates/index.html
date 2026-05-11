@@ -391,6 +391,17 @@
   function onCageSubjectSelected(id) {
     const sel = document.getElementById(`subject-${id}`);
     const subjectId = parseInt(sel.value);
+    if (subjectId) {
+      for (let otherId = 1; otherId <= N_CAGES; otherId++) {
+        if (otherId === id) continue;
+        if (cageState[otherId].subjectId === subjectId) {
+          const code = allSubjects.find(s => s.id === subjectId)?.code ?? subjectId;
+          toast(`⚠ ${code} is already assigned to Cage ${otherId} — deselect it there first`);
+          sel.value = cageState[id].subjectId ?? '';
+          return;
+        }
+      }
+    }
     if (!subjectId) {
       cageState[id].subjectId  = null;
       cageState[id].substageId = null;
@@ -433,6 +444,14 @@
   async function openCageSession(id) {
     const state = cageState[id];
     if (!state.subjectId) { toast(`Cage ${id}: select a subject first`); return; }
+    for (let otherId = 1; otherId <= N_CAGES; otherId++) {
+      if (otherId === id) continue;
+      if (cageState[otherId].subjectId === state.subjectId && cageState[otherId].sessionId) {
+        const code = allSubjects.find(s => s.id === state.subjectId)?.code ?? state.subjectId;
+        toast(`⚠ ${code} already has an open session in Cage ${otherId}`);
+        return;
+      }
+    }
     const researcher = document.getElementById('inp-researcher').value.trim();
     const res = await post('/session/open', {
       cage_id:    id,
@@ -769,9 +788,16 @@ if (!state.sessionId) return;
   // ── Global bar actions ───────────────────────────────────
   async function openAllSessions() {
     const researcher = document.getElementById('inp-researcher').value.trim();
+    const assignedSubjects = new Set();
     for (let i = 1; i <= N_CAGES; i++) {
       const state = cageState[i];
       if (state.sessionId || !state.subjectId) continue;
+      if (assignedSubjects.has(state.subjectId)) {
+        const code = allSubjects.find(s => s.id === state.subjectId)?.code ?? state.subjectId;
+        toast(`⚠ Cage ${i}: ${code} is already assigned to another cage — skipped`);
+        continue;
+      }
+      assignedSubjects.add(state.subjectId);
       const res = await post('/session/open', {
         cage_id: i, subject_id: state.subjectId, researcher,
       });

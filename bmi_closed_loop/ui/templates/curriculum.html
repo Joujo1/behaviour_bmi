@@ -249,6 +249,40 @@
     color: var(--fg-faint); font-size: 0.8rem; padding: 2px 6px; font-family: inherit;
   }
   .bldr-remove:hover { color: var(--dead); }
+
+  /* ── Inline warning banner ── */
+  .bldr-warning-banner {
+    display: none;
+    background: rgba(205, 20, 20, 0.85);
+    color: #fff;
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .bldr-warning-banner.visible { display: block; }
+
+  /* ── Terminal state cards (correct / wrong) ── */
+  .bldr-terminal-card {
+    border: 2px solid var(--fg);
+    padding: 14px;
+    margin-top: 4px;
+  }
+  .bldr-terminal-card.correct-card { border-color: #40ca72; }
+  .bldr-terminal-card.wrong-card   { border-color: #cd1414; }
+  .bldr-terminal-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .bldr-terminal-title {
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .bldr-terminal-title.correct { color: #40ca72; }
+  .bldr-terminal-title.wrong   { color: #cd1414; }
+  .bldr-iti-row {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap;
+  }
 </style>
 {% endblock %}
 
@@ -339,12 +373,6 @@
             <option value="">—</option>
           </select>
         </span>
-        <span class="bldr-label">Base ITI (s)
-          <input id="bldr-base-iti" class="bldr-input" type="number" min="0" step="0.5" style="width:60px" placeholder="5" />
-        </span>
-        <span class="bldr-label">Fail ITI (s)
-          <input id="bldr-fail-iti" class="bldr-input" type="number" min="0" step="0.5" style="width:60px" placeholder="15" />
-        </span>
         <span class="bldr-label">Click Side
           <select id="bldr-side-mode" class="bldr-input" onchange="onSideModeChange()">
             <option value="random">Random</option>
@@ -361,7 +389,9 @@
 
       <!-- States scroll area -->
       <div id="builder-scroll">
+        <div id="bldr-warning-banner" class="bldr-warning-banner"></div>
         <div id="bldr-states-container"></div>
+        <div id="bldr-terminal-cards"></div>
       </div>
 
     </div>
@@ -375,12 +405,13 @@
   const ACTION_TYPES    = ['led_on','led_off','valve_open','valve_close','play_clicks'];
   const ALL_TARGETS     = ['left','right','center','high_click_side','low_click_side'];
   const TRIGGER_TYPES   = ['beam_break','timeout','clicks_done'];
-  const TERMINAL_STATES = ['__correct__','__wrong__'];
 
-  let allStages      = [];
+  let allStages         = [];
   let currentSubstageId = null;
-  let bldrStates     = [];
-  let bldrStateCount = 1;
+  let bldrStates        = [];
+  let bldrStateCount    = 1;
+  let bldrCorrectState  = { entry_actions: [], exit_actions: [], duration_ms: 0, base_iti_ms: 5000 };
+  let bldrWrongState    = null;
 
   // ── Init ──────────────────────────────────────────────────
   async function init() {
@@ -477,7 +508,18 @@
   async function promptAddSubstage(stageId, stageName) {
     const label = prompt(`New substage label under "${stageName}":`);
     if (!label) return;
-    const number = prompt('Substage number (e.g. 1):');
+    const rawNum = prompt('Substage number (leave empty to append after last):');
+    let substageNumber;
+    if (!rawNum || !rawNum.trim()) {
+      const stage = allStages.find(s => s.id === stageId);
+      const maxNum = (stage?.substages?.length)
+        ? Math.max(...stage.substages.map(s => s.substage_number))
+        : 0;
+      substageNumber = maxNum + 1;
+    } else {
+      substageNumber = parseInt(rawNum);
+      if (isNaN(substageNumber)) { toast('Invalid substage number'); return; }
+    }
     try {
       const res  = await fetch('/training-substages', {
         method: 'POST',
@@ -485,7 +527,7 @@
         body: JSON.stringify({
           stage_id: stageId,
           label: label.trim(),
-          substage_number: parseInt(number) || 1,
+          substage_number: substageNumber,
           task_config: {},
         }),
       });
@@ -604,10 +646,10 @@
   async function saveTaskConfig() {
     if (!currentSubstageId) return;
     if (!bldrStates.length) { toast('Add at least one state first'); return; }
-    const baseIti = parseFloat(document.getElementById('bldr-base-iti').value);
-    const failIti = parseFloat(document.getElementById('bldr-fail-iti').value);
-    if (isNaN(baseIti) || isNaN(failIti)) { toast('Set Base ITI and Fail ITI before saving'); return; }
-    const definition = { ...buildTrialJSON(), base_iti_s: baseIti, fail_iti_s: failIti };
+    if (!bldrCorrectState.base_iti_ms && bldrCorrectState.base_iti_ms !== 0) {
+      toast('Set Base ITI in the Correct State before saving'); return;
+    }
+    const definition = buildTrialJSON();
     try {
       const res  = await fetch(`/training-substages/${currentSubstageId}/task-config`, {
         method: 'PATCH',
@@ -640,21 +682,35 @@
   }
   function removeState(idx) { bldrStates.splice(idx, 1); renderBuilder(); }
   function updateStateField(idx, field, value) {
-    bldrStates[idx][field] = value;
-    if (field === 'id') updateInitialStateOptions();
+    if (field === 'id') {
+      const oldId = bldrStates[idx].id;
+      bldrStates[idx].id = value;
+      for (const s of bldrStates) {
+        for (const t of s.transitions) {
+          if (t.next_state === oldId) t.next_state = value;
+        }
+      }
+      const initSel = document.getElementById('bldr-initial-state');
+      if (initSel && initSel.value === oldId) initSel.value = value;
+      updateInitialStateOptions();
+    } else {
+      bldrStates[idx][field] = value;
+    }
     updateJSONPreview();
   }
   function addAction(si, phase) { bldrStates[si][phase].push({ type: 'led_on', target: 'center' }); renderBuilder(); }
   function removeAction(si, phase, ai) { bldrStates[si][phase].splice(ai, 1); renderBuilder(); }
   function updateAction(si, phase, ai, field, value) { bldrStates[si][phase][ai][field] = value; updateJSONPreview(); }
   function addTransition(si) {
-    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: '__end__', hold_ms: null });
+    bldrStates[si].transitions.push({ trigger: 'timeout', duration: null, target: 'center', next_state: 'correct', hold_ms: null });
     renderBuilder();
   }
   function removeTransition(si, ti) { bldrStates[si].transitions.splice(ti, 1); renderBuilder(); }
   function updateTransition(si, ti, field, value) {
-    if (field === 'duration' || field === 'hold_ms')
+    if (field === 'hold_ms')
       bldrStates[si].transitions[ti][field] = (value === '' || isNaN(parseFloat(value))) ? null : parseFloat(value);
+    else if (field === 'duration')
+      bldrStates[si].transitions[ti][field] = (value === '' || value === null || isNaN(parseFloat(value))) ? null : parseFloat(value);
     else
       bldrStates[si].transitions[ti][field] = value;
     if (field === 'trigger') renderBuilder(); else updateJSONPreview();
@@ -664,7 +720,8 @@
     return list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
   }
   function nextStateOpts(selected) {
-    const all = [...bldrStates.map(s => s.id), ...TERMINAL_STATES];
+    const terminals = ['correct', ...(bldrWrongState !== null ? ['wrong'] : [])];
+    const all = [...bldrStates.map(s => s.id), ...terminals];
     return all.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
   }
 
@@ -672,13 +729,15 @@
     const renderActions = phase => s[phase].map((a, ai) => {
       const typeSelect = `<select class="bldr-input" onchange="bldrStates[${idx}]['${phase}'][${ai}]['type']=this.value; renderBuilder();">${opts(ACTION_TYPES,a.type)}</select>`;
       const extraFields = a.type === 'play_clicks'
-        ? `<input class="bldr-input" type="number" min="0" step="1" placeholder="left rate" title="Left click rate (clicks/s)"
-               style="width:80px;" value="${a.left_rate??''}"
+        ? `<span class="bldr-label" style="font-size:0.72rem;margin:0 2px 0 4px">L:</span>
+           <input class="bldr-input" type="number" min="0" step="1" placeholder="clicks/s" title="Left click rate (clicks/s)"
+               style="width:72px;" value="${a.left_rate??''}"
                onchange="updateAction(${idx},'${phase}',${ai},'left_rate',parseFloat(this.value)||0)" />
-           <input class="bldr-input" type="number" min="0" step="1" placeholder="right rate" title="Right click rate (clicks/s)"
-               style="width:80px;" value="${a.right_rate??''}"
+           <span class="bldr-label" style="font-size:0.72rem;margin:0 2px 0 4px">R:</span>
+           <input class="bldr-input" type="number" min="0" step="1" placeholder="clicks/s" title="Right click rate (clicks/s)"
+               style="width:72px;" value="${a.right_rate??''}"
                onchange="updateAction(${idx},'${phase}',${ai},'right_rate',parseFloat(this.value)||0)" />
-           <input class="bldr-input" type="number" min="0" step="0.1" placeholder="dur s" title="Click train duration (s)"
+           <input class="bldr-input" type="number" min="0" step="0.1" placeholder="dur (s)" title="Click train duration (s)"
                style="width:64px;" value="${a.click_duration??''}"
                onchange="updateAction(${idx},'${phase}',${ai},'click_duration',parseFloat(this.value)||1)" />`
         : `<select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target??'center')}</select>`;
@@ -695,9 +754,10 @@
                    title="Hold duration in ms (leave empty for immediate)"
                    onchange="updateTransition(${idx},${ti},'hold_ms',this.value)" />`;
       } else if (t.trigger === 'timeout') {
-        extra = `<input class="bldr-input" type="number" step="0.1" min="0" placeholder="duration s"
-                   style="width:90px;" value="${t.duration??''}"
-                   onchange="updateTransition(${idx},${ti},'duration',this.value)" />`;
+        const durMs = t.duration != null ? Math.round(t.duration * 1000) : '';
+        extra = `<input class="bldr-input" type="number" step="100" min="0" placeholder="ms"
+                   style="width:90px;" value="${durMs}"
+                   onchange="updateTransition(${idx},${ti},'duration',this.value===''?'':this.value/1000)" />`;
       }
       return `<div class="bldr-action-row">
         <select class="bldr-input" onchange="updateTransition(${idx},${ti},'trigger',this.value)">${opts(TRIGGER_TYPES,t.trigger)}</select>
@@ -731,9 +791,143 @@
     </div>`;
   }
 
+  // ── Terminal state card helpers ────────────────────────────
+  function updateTerminalAction(stateKey, phase, ai, field, value) {
+    const st = stateKey === 'correct' ? bldrCorrectState : bldrWrongState;
+    if (!st) return;
+    st[phase][ai][field] = value;
+    updateJSONPreview();
+  }
+  function addTerminalAction(stateKey, phase) {
+    const st = stateKey === 'correct' ? bldrCorrectState : bldrWrongState;
+    if (!st) return;
+    st[phase].push({ type: 'led_on', target: 'center' });
+    renderTerminalCards();
+  }
+  function removeTerminalAction(stateKey, phase, ai) {
+    const st = stateKey === 'correct' ? bldrCorrectState : bldrWrongState;
+    if (!st) return;
+    st[phase].splice(ai, 1);
+    renderTerminalCards();
+  }
+  function renderTerminalActionType(stateKey, phase, ai, a) {
+    return `<select class="bldr-input" onchange="(function(el){
+      const st=('${stateKey}'==='correct'?bldrCorrectState:bldrWrongState);
+      st['${phase}'][${ai}]['type']=el.value;
+      if(el.value==='play_clicks'){delete st['${phase}'][${ai}].target;}
+      else{delete st['${phase}'][${ai}].left_rate;delete st['${phase}'][${ai}].right_rate;delete st['${phase}'][${ai}].click_duration;st['${phase}'][${ai}].target='center';}
+      renderTerminalCards();})(this)">${opts(ACTION_TYPES, a.type)}</select>`;
+  }
+  function renderTerminalActions(stateKey, phase, actions) {
+    return (actions || []).map((a, ai) => {
+      const typeSelect = renderTerminalActionType(stateKey, phase, ai, a);
+      const extraFields = a.type === 'play_clicks'
+        ? `<span class="bldr-label" style="font-size:0.72rem;margin:0 2px 0 4px">L:</span>
+           <input class="bldr-input" type="number" min="0" step="1" placeholder="clicks/s" style="width:72px;" value="${a.left_rate??''}"
+               onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'left_rate',parseFloat(this.value)||0)" />
+           <span class="bldr-label" style="font-size:0.72rem;margin:0 2px 0 4px">R:</span>
+           <input class="bldr-input" type="number" min="0" step="1" placeholder="clicks/s" style="width:72px;" value="${a.right_rate??''}"
+               onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'right_rate',parseFloat(this.value)||0)" />
+           <input class="bldr-input" type="number" min="0" step="0.1" placeholder="dur (s)" style="width:64px;" value="${a.click_duration??''}"
+               onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'click_duration',parseFloat(this.value)||1)" />`
+        : `<select class="bldr-input" onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS, a.target??'center')}</select>`;
+      return `<div class="bldr-action-row">${typeSelect}${extraFields}
+        <button class="bldr-remove" onclick="removeTerminalAction('${stateKey}','${phase}',${ai})">✕</button></div>`;
+    }).join('');
+  }
+
+  function renderCorrectCard() {
+    const s = bldrCorrectState;
+    return `<div class="bldr-terminal-card correct-card">
+      <div class="bldr-terminal-header">
+        <span class="bldr-terminal-title correct">Correct State (mandatory)</span>
+      </div>
+      <div class="bldr-phase-block">
+        <div class="bldr-phase-label">Entry Actions</div>
+        ${renderTerminalActions('correct','entry_actions', s.entry_actions)}
+        <button class="btn small" onclick="addTerminalAction('correct','entry_actions')">+ entry action</button>
+      </div>
+      <div class="bldr-phase-block">
+        <div class="bldr-phase-label">Exit Actions</div>
+        ${renderTerminalActions('correct','exit_actions', s.exit_actions)}
+        <button class="btn small" onclick="addTerminalAction('correct','exit_actions')">+ exit action</button>
+      </div>
+      <div class="bldr-iti-row">
+        <span class="bldr-label">Duration
+          <input class="bldr-input" type="number" min="0" step="100" placeholder="ms" style="width:80px;"
+            value="${s.duration_ms??''}"
+            onchange="bldrCorrectState.duration_ms=this.value===''?0:parseFloat(this.value);updateJSONPreview()" />
+        </span>
+        <span class="bldr-label" style="margin-left:12px">Base ITI
+          <input class="bldr-input" type="number" min="0" step="100" placeholder="ms" style="width:80px;"
+            value="${s.base_iti_ms??''}"
+            onchange="bldrCorrectState.base_iti_ms=parseFloat(this.value)||0;updateJSONPreview()" />
+        </span>
+      </div>
+    </div>`;
+  }
+
+  function renderWrongCard() {
+    if (bldrWrongState === null) {
+      return `<div style="display:flex;align-items:center;gap:12px;margin-top:8px;
+                           background:rgba(205,20,20,0.85);color:#fff;padding:10px 14px;
+                           font-size:0.78rem;font-weight:700;letter-spacing:0.08em;">
+        <span style="flex:1">⚠ No wrong state defined — failed trials end immediately with no actions</span>
+        <button class="btn small" onclick="enableWrongState()" style="white-space:nowrap">+ Wrong State</button>
+      </div>`;
+    }
+    const s = bldrWrongState;
+    return `<div class="bldr-terminal-card wrong-card" style="margin-top:8px">
+      <div class="bldr-terminal-header">
+        <span class="bldr-terminal-title wrong">Wrong State</span>
+        <button class="bldr-remove" onclick="disableWrongState()">✕ remove</button>
+      </div>
+      <div class="bldr-phase-block">
+        <div class="bldr-phase-label">Entry Actions</div>
+        ${renderTerminalActions('wrong','entry_actions', s.entry_actions)}
+        <button class="btn small" onclick="addTerminalAction('wrong','entry_actions')">+ entry action</button>
+      </div>
+      <div class="bldr-phase-block">
+        <div class="bldr-phase-label">Exit Actions</div>
+        ${renderTerminalActions('wrong','exit_actions', s.exit_actions)}
+        <button class="btn small" onclick="addTerminalAction('wrong','exit_actions')">+ exit action</button>
+      </div>
+      <div class="bldr-iti-row">
+        <span class="bldr-label">Duration
+          <input class="bldr-input" type="number" min="0" step="100" placeholder="ms" style="width:80px;"
+            value="${s.duration_ms??''}"
+            onchange="bldrWrongState.duration_ms=this.value===''?0:parseFloat(this.value);updateJSONPreview()" />
+        </span>
+        <span class="bldr-label" style="margin-left:12px">Fail ITI
+          <input class="bldr-input" type="number" min="0" step="100" placeholder="ms" style="width:80px;"
+            value="${s.fail_iti_ms??''}"
+            onchange="bldrWrongState.fail_iti_ms=parseFloat(this.value)||0;updateJSONPreview()" />
+        </span>
+      </div>
+    </div>`;
+  }
+
+  function renderTerminalCards() {
+    const el = document.getElementById('bldr-terminal-cards');
+    if (!el) return;
+    el.innerHTML = renderCorrectCard() + renderWrongCard();
+  }
+
+  function enableWrongState() {
+    bldrWrongState = { entry_actions: [], exit_actions: [], duration_ms: 0, fail_iti_ms: 15000 };
+    renderTerminalCards();
+    updateJSONPreview();
+  }
+  function disableWrongState() {
+    bldrWrongState = null;
+    renderTerminalCards();
+    updateJSONPreview();
+  }
+
   function renderBuilder() {
     document.getElementById('bldr-states-container').innerHTML =
       bldrStates.map((s,i) => renderStateCard(s,i)).join('');
+    renderTerminalCards();
     updateInitialStateOptions();
     updateJSONPreview();
   }
@@ -758,46 +952,103 @@
       trial_id:      document.getElementById('bldr-trial-id').value.trim() || 'trial',
       initial_state: document.getElementById('bldr-initial-state').value || bldrStates[0]?.id || '',
       side_mode:     sideMode,
+      base_iti_s:    (bldrCorrectState.base_iti_ms || 0) / 1000,
+      fail_iti_s:    bldrWrongState ? (bldrWrongState.fail_iti_ms || 0) / 1000
+                                    : (bldrCorrectState.base_iti_ms || 0) / 1000,
     };
     if (sideMode === 'weighted') {
       const pct = parseFloat(document.getElementById('bldr-left-prob').value);
       def.left_probability = isNaN(pct) ? 0.5 : Math.round(pct) / 100;
     }
-    return {
-      ...def,
-      states: bldrStates.map(s => {
-        const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
-        const mapActions = actions => actions.map(a => {
-          if (a.type === 'play_clicks') {
-            const ac = { type: 'play_clicks' };
-            if (a.left_rate      != null) ac.left_rate       = a.left_rate;
-            if (a.right_rate     != null) ac.right_rate      = a.right_rate;
-            if (a.click_duration != null) ac.click_duration  = a.click_duration;
-            return ac;
+
+    const mapActions = actions => (actions || []).map(a => {
+      if (a.type === 'play_clicks') {
+        const ac = { type: 'play_clicks' };
+        if (a.left_rate      != null) ac.left_rate      = a.left_rate;
+        if (a.right_rate     != null) ac.right_rate     = a.right_rate;
+        if (a.click_duration != null) ac.click_duration = a.click_duration;
+        return ac;
+      }
+      return {...a};
+    });
+
+    const regularStates = bldrStates.map(s => {
+      const timeoutT = s.transitions.find(t => t.trigger === 'timeout');
+      const state = {
+        id:            s.id,
+        entry_actions: mapActions(s.entry_actions),
+        exit_actions:  mapActions(s.exit_actions),
+        transitions:   s.transitions.map(t => {
+          const tr = { trigger: t.trigger, next_state: t.next_state };
+          if (t.trigger === 'beam_break') {
+            tr.target = t.target;
+            if (t.hold_ms) tr.hold_ms = t.hold_ms;
           }
-          return {...a};
-        });
-        const state = {
-          id:            s.id,
-          entry_actions: mapActions(s.entry_actions),
-          exit_actions:  mapActions(s.exit_actions),
-          transitions:   s.transitions.map(t => {
-            const tr = { trigger: t.trigger, next_state: t.next_state };
-            if (t.trigger === 'beam_break') {
-              tr.target = t.target;
-              if (t.hold_ms) tr.hold_ms = t.hold_ms;
-            }
-            return tr;
-          }),
-        };
-        if (timeoutT?.duration !== null && timeoutT?.duration !== undefined)
-          state.duration = timeoutT.duration;
-        return state;
-      }),
+          return tr;
+        }),
+      };
+      if (timeoutT?.duration !== null && timeoutT?.duration !== undefined)
+        state.duration = timeoutT.duration;
+      return state;
+    });
+
+    // Generate correct state as a regular state with timeout → __correct__
+    const correctDuration = (bldrCorrectState.duration_ms || 0) / 1000;
+    const correctStateJson = {
+      id:            'correct',
+      entry_actions: mapActions(bldrCorrectState.entry_actions),
+      exit_actions:  mapActions(bldrCorrectState.exit_actions),
+      transitions:   [{ trigger: 'timeout', next_state: '__correct__' }],
+      duration:      correctDuration,
     };
+
+    const states = [...regularStates, correctStateJson];
+
+    if (bldrWrongState !== null) {
+      const wrongDuration = (bldrWrongState.duration_ms || 0) / 1000;
+      states.push({
+        id:            'wrong',
+        entry_actions: mapActions(bldrWrongState.entry_actions),
+        exit_actions:  mapActions(bldrWrongState.exit_actions),
+        transitions:   [{ trigger: 'timeout', next_state: '__wrong__' }],
+        duration:      wrongDuration,
+      });
+    }
+
+    return { ...def, states };
+  }
+
+  function checkHighClickSideWarning() {
+    const banner = document.getElementById('bldr-warning-banner');
+    if (!banner) return;
+    const SIDE_ALIASES = new Set(['high_click_side', 'low_click_side']);
+    let usesAlias = false;
+    let hasPlayClicks = false;
+    const allStatesForCheck = [...bldrStates,
+      ...(bldrCorrectState ? [bldrCorrectState] : []),
+      ...(bldrWrongState   ? [bldrWrongState]   : [])];
+    for (const s of allStatesForCheck) {
+      for (const phase of ['entry_actions', 'exit_actions']) {
+        for (const a of (s[phase] || [])) {
+          if (a.type === 'play_clicks') hasPlayClicks = true;
+          if (SIDE_ALIASES.has(a.target))  usesAlias = true;
+        }
+      }
+      for (const t of (s.transitions || [])) {
+        if (SIDE_ALIASES.has(t.target)) usesAlias = true;
+      }
+    }
+    if (usesAlias && !hasPlayClicks) {
+      banner.textContent = '⚠ high_click_side / low_click_side is used but no play_clicks action exists in any state. ' +
+        'Fixed mode: target resolves to null (crash). Random / weighted: side selected randomly with no rate difference.';
+      banner.classList.add('visible');
+    } else {
+      banner.classList.remove('visible');
+    }
   }
 
   function updateJSONPreview() {
+    checkHighClickSideWarning();
     updateGraph();
   }
 
@@ -833,28 +1084,81 @@
 
   function loadDefinition(def) {
     document.getElementById('bldr-trial-id').value  = def.trial_id  || 'trial';
-    document.getElementById('bldr-base-iti').value  = def.base_iti_s ?? '';
-    document.getElementById('bldr-fail-iti').value  = def.fail_iti_s ?? '';
     document.getElementById('bldr-side-mode').value = def.side_mode  || 'random';
     const leftProb = def.left_probability != null ? Math.round(def.left_probability * 100) : 50;
     document.getElementById('bldr-left-prob').value = leftProb;
     document.getElementById('bldr-left-prob-wrap').style.display = def.side_mode === 'weighted' ? '' : 'none';
-    bldrStateCount = 1;
-    bldrStates = (def.states || []).map(s => {
-      const timeoutT = (s.transitions || []).find(t => t.trigger === 'timeout');
-      return {
-        id: s.id,
-        entry_actions: (s.entry_actions || []).map(a => ({...a})),
-        exit_actions:  (s.exit_actions  || []).map(a => ({...a})),
-        transitions: (s.transitions || []).map(t => ({
-          trigger:    t.trigger,
-          target:     t.target    || 'center',
-          next_state: t.next_state,
-          hold_ms:    t.hold_ms   ?? null,
-          duration:   timeoutT && t.trigger === 'timeout' ? (s.duration ?? null) : null,
-        })),
+
+    const rawStates = def.states || [];
+
+    // Extract correct / wrong special states
+    const correctRaw = rawStates.find(s => s.id === 'correct');
+    const wrongRaw   = rawStates.find(s => s.id === 'wrong');
+
+    if (correctRaw) {
+      bldrCorrectState = {
+        entry_actions: (correctRaw.entry_actions || []).map(a => ({...a})),
+        exit_actions:  (correctRaw.exit_actions  || []).map(a => ({...a})),
+        duration_ms:   (correctRaw.duration ?? 0) * 1000,
+        base_iti_ms:   (def.base_iti_s ?? 5) * 1000,
       };
-    });
+    } else {
+      bldrCorrectState = {
+        entry_actions: [],
+        exit_actions:  [],
+        duration_ms:   0,
+        base_iti_ms:   (def.base_iti_s ?? 5) * 1000,
+      };
+    }
+
+    if (wrongRaw) {
+      bldrWrongState = {
+        entry_actions: (wrongRaw.entry_actions || []).map(a => ({...a})),
+        exit_actions:  (wrongRaw.exit_actions  || []).map(a => ({...a})),
+        duration_ms:   (wrongRaw.duration ?? 0) * 1000,
+        fail_iti_ms:   (def.fail_iti_s ?? 15) * 1000,
+      };
+    } else if (def.fail_iti_s != null) {
+      // Old format: had fail_iti_s at top level but no wrong state — create empty one
+      bldrWrongState = {
+        entry_actions: [],
+        exit_actions:  [],
+        duration_ms:   0,
+        fail_iti_ms:   def.fail_iti_s * 1000,
+      };
+    } else {
+      bldrWrongState = null;
+    }
+
+    // Filter out correct/wrong special states from the regular states list
+    // Also remap legacy __correct__ / __wrong__ next_state refs to 'correct' / 'wrong'
+    const remapNextState = ns => {
+      if (ns === '__correct__' || ns === '__end__') return 'correct';
+      if (ns === '__wrong__') return 'wrong';
+      return ns;
+    };
+    bldrStates = rawStates
+      .filter(s => s.id !== 'correct' && s.id !== 'wrong')
+      .map(s => {
+        const timeoutT = (s.transitions || []).find(t => t.trigger === 'timeout');
+        return {
+          id: s.id,
+          entry_actions: (s.entry_actions || []).map(a => ({...a})),
+          exit_actions:  (s.exit_actions  || []).map(a => ({...a})),
+          transitions: (s.transitions || []).map(t => ({
+            trigger:    t.trigger,
+            target:     t.target    || 'center',
+            next_state: remapNextState(t.next_state),
+            hold_ms:    t.hold_ms   ?? null,
+            duration:   timeoutT && t.trigger === 'timeout' ? (s.duration ?? null) : null,
+          })),
+        };
+      });
+
+    bldrStateCount = bldrStates.reduce((max, s) => {
+      const m = s.id.match(/^state_(\d+)$/);
+      return m ? Math.max(max, parseInt(m[1]) + 1) : max;
+    }, 1);
     renderBuilder();
     const sel = document.getElementById('bldr-initial-state');
     sel.value = def.initial_state || '';
