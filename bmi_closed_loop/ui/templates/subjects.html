@@ -34,6 +34,7 @@
     text-transform: uppercase; border: 1px solid var(--border);
   }
   .badge.water { border-color: #6ab4ff; color: #6ab4ff; }
+  .badge.bias  { border-color: #c8a000; color: #c8a000; }
 
   /* ── Modals ── */
   .modal-overlay {
@@ -313,7 +314,10 @@
         <td>${s.weight_g != null ? s.weight_g + ' g' : '—'}</td>
         <td>${s.stage_name || '—'}</td>
         <td>${s.substage_label || '—'}</td>
-        <td>${s.water_restricted ? '<span class="badge water">Water restricted</span>' : ''}</td>
+        <td style="display:flex;gap:4px;flex-wrap:wrap">
+          ${s.water_restricted ? '<span class="badge water">Water restricted</span>' : ''}
+          ${s.side_bias_alg && s.side_bias_alg !== 'none' ? `<span class="badge bias">${s.side_bias_alg.toUpperCase()} bias</span>` : ''}
+        </td>
         <td style="display:flex;gap:6px">
           <button class="btn small" onclick="openSubstageModal(${s.id}, '${s.code}')">Move substage</button>
           <button class="btn small" onclick="openEditModal(${s.id})">Edit</button>

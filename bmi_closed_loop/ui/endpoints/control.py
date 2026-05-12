@@ -122,7 +122,12 @@ def trial_graph():
                     label += f"\\lexit:  {a['type']}({a.get('target', '')})"
             label += "\\l"   # trailing newline keeps text left-aligned
 
-        dot.node(sid, label, shape="rectangle", style="rounded")
+        if sid == 'correct':
+            dot.node(sid, label, shape="rectangle", style="rounded", color="#40ca72", penwidth="2")
+        elif sid == 'wrong':
+            dot.node(sid, label, shape="rectangle", style="rounded", color="#cd1414", penwidth="2")
+        else:
+            dot.node(sid, label, shape="rectangle", style="rounded")
 
         for t in state.get("transitions", []):
             next_s = t.get("next_state", "")

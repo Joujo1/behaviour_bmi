@@ -692,11 +692,11 @@
       }
       const initSel = document.getElementById('bldr-initial-state');
       if (initSel && initSel.value === oldId) initSel.value = value;
-      updateInitialStateOptions();
+      renderBuilder();
     } else {
       bldrStates[idx][field] = value;
+      updateJSONPreview();
     }
-    updateJSONPreview();
   }
   function addAction(si, phase) { bldrStates[si][phase].push({ type: 'led_on', target: 'center' }); renderBuilder(); }
   function removeAction(si, phase, ai) { bldrStates[si][phase].splice(ai, 1); renderBuilder(); }
@@ -722,7 +722,10 @@
   function nextStateOpts(selected) {
     const terminals = ['correct', ...(bldrWrongState !== null ? ['wrong'] : [])];
     const all = [...bldrStates.map(s => s.id), ...terminals];
-    return all.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+    return all.map(v => {
+      const label = v === 'correct' ? '__correct__' : v === 'wrong' ? '__wrong__' : v;
+      return `<option value="${v}"${v===selected?' selected':''}>${label}</option>`;
+    }).join('');
   }
 
   function renderStateCard(s, idx) {

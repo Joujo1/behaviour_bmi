@@ -228,6 +228,15 @@
   }
   .run-timer.active { color: var(--alive); font-weight: 700; }
 
+  .bias-alg {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #c8a000;
+    min-height: 1em;
+  }
+
   /* ── Global bottom bar ── */
   #global-bar {
     display: flex;
@@ -352,6 +361,7 @@
           <button class="btn small" id="btn-close-${i}" onclick="closeCageSession(${i})" disabled>Close</button>
         </div>
         <div id="session-status-${i}" class="session-status"></div>
+        <div id="bias-alg-${i}" class="bias-alg"></div>
         <div id="run-status-${i}" class="run-status"></div>
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
@@ -414,10 +424,15 @@
   }
 
   function updateCageSessionUI(id) {
-    const state   = cageState[id];
+    const state    = cageState[id];
     const statusEl = document.getElementById(`session-status-${id}`);
+    const biasEl   = document.getElementById(`bias-alg-${id}`);
     const openBtn  = document.getElementById(`btn-open-${id}`);
     const closeBtn = document.getElementById(`btn-close-${id}`);
+
+    const subject = allSubjects.find(s => s.id === state.subjectId);
+    const alg = subject?.side_bias_alg;
+    if (biasEl) biasEl.textContent = (alg && alg !== 'none') ? `${alg.toUpperCase()} bias` : '';
 
     if (state.sessionId) {
       statusEl.textContent = `session ${state.sessionNumber ?? state.sessionId}`;
@@ -425,7 +440,6 @@
       openBtn.disabled     = true;
       closeBtn.disabled    = false;
     } else {
-      const subject = allSubjects.find(s => s.id === state.subjectId);
       if (subject) {
         const label = subject.stage_name
           ? `${subject.stage_name} › ${subject.substage_label || '?'}`
