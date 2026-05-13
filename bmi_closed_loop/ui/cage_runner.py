@@ -33,15 +33,16 @@ class CageRunner:
         self._event  = threading.Event()
         self._lock   = threading.Lock()
 
-        self._stop:           bool        = False
-        self._last_result:    dict | None = None
-        self._pending_switch: dict | None = None
-        self.session_id:      int  | None = None
-        self.substage_id:     int  | None = None
-        self.subject_id:      int  | None = None
-        self._started_at:     float| None = None
-        self._correct_side:   str  | None = None
-        self._click_seed:     int  | None = None
+        self._stop:              bool        = False
+        self._last_result:       dict | None = None
+        self._pending_switch:    dict | None = None
+        self.session_id:         int  | None = None
+        self.substage_id:        int  | None = None
+        self.subject_id:         int  | None = None
+        self._started_at:        float| None = None
+        self._correct_side:      str  | None = None
+        self._click_seed:        int  | None = None
+        self._last_click_ratio:  float| None = None   # high/low click ratio of the most recently sent trial
 
     @property
     def is_running(self) -> bool:
@@ -145,16 +146,21 @@ class CageRunner:
             _log.info("Cage %d: trial %d — sending", self.cage_id, trial_count)
             self._event.clear()
 
+            with self._lock:
+                last_click_ratio = self._last_click_ratio
+
             trial_for_resolve = (
-                _apply_bias(trial_definition, self.subject_id)
+                _apply_bias(trial_definition, self.subject_id,
+                            last_click_ratio=last_click_ratio)
                 if self.subject_id is not None else trial_definition
             )
             resolved, correct_side = _resolve_sides(trial_for_resolve)
             click_seed = random.randrange(2**32)
             trial_to_send = _expand_clicks(resolved, seed=click_seed)
             with self._lock:
-                self._correct_side = correct_side
-                self._click_seed   = click_seed
+                self._correct_side     = correct_side
+                self._click_seed       = click_seed
+                self._last_click_ratio = _get_click_ratio(trial_to_send)
             _log.info("Cage %d: trial %d — correct_side=%s",
                       self.cage_id, trial_count, correct_side)
 
@@ -310,6 +316,19 @@ def _resolve_sides(trial_definition: dict) -> tuple:
     return trial, correct_side
 
 
+def _get_click_ratio(expanded_trial: dict) -> float | None:
+    """Return high_clicks / low_clicks for the play_clicks action, or None if absent."""
+    for state in expanded_trial.get("states", []):
+        for phase in ("entry_actions", "exit_actions"):
+            for action in state.get(phase, []):
+                if action.get("type") == "play_clicks":
+                    n_r = len(action.get("right_clicks", []))
+                    n_l = len(action.get("left_clicks",  []))
+                    n_hi, n_lo = (n_r, n_l) if n_r >= n_l else (n_l, n_r)
+                    return n_hi / max(n_lo, 1)
+    return None
+
+
 def _expand_clicks(trial_definition: dict, seed: int | None = None) -> dict:
     """
     Deep-copy the trial definition and replace any play_clicks action that
@@ -370,11 +389,16 @@ def _query_recent_trials(subject_id: int, window: int = 20) -> list[dict]:
         conn.close()
 
 
-def _apply_bias(trial_definition: dict, subject_id: int) -> dict:
+def _apply_bias(trial_definition: dict, subject_id: int,
+                last_click_ratio: float | None = None) -> dict:
     """
     Return a (possibly modified) trial dict with side_mode='weighted' and
     left_probability adjusted by the subject's bias algorithm.
     Returns the original dict unchanged when bias does not apply.
+
+    last_click_ratio: high_clicks / low_clicks ratio of the most recently completed trial.
+        Used by the IBL algorithm to gate on easy trials only.  Pass None (default) to
+        skip the difficulty check (original behaviour).
     """
     if trial_definition.get("side_mode") not in ("random", "weighted"):
         return trial_definition  # fixed mode: no intervention
@@ -398,17 +422,29 @@ def _apply_bias(trial_definition: dict, subject_id: int) -> dict:
 
     elif alg == "ibl":
         if recent and recent[0]["outcome"] == "wrong":
-            responded = []
-            for t in recent[:10]:
-                cs = t["correct_side"]
-                if cs is None:
-                    continue
-                resp = cs if t["outcome"] == "correct" else ("right" if cs == "left" else "left")
-                responded.append(resp)
-            if responded:
-                avg_right = sum(1 for s in responded if s == "right") / len(responded)
-                left_prob = 1.0 - avg_right
-                _log.info("IBL debias triggered: avg_right=%.2f → P(left)=%.2f", avg_right, left_prob)
+            # Easy-trial gate: only act when the last trial had a clear click majority.
+            # Threshold is read from the trial definition so it can be set per substage
+            # (add "ibl_easy_min_ratio": 2.0 to the substage task_config).
+            # Falls back to None (gate disabled) when the key is absent.
+            easy_min_ratio = trial_definition.get("ibl_easy_min_ratio", 2.5)
+            if (easy_min_ratio is not None
+                    and last_click_ratio is not None
+                    and last_click_ratio < easy_min_ratio):
+                _log.debug("IBL debias skipped: last trial ratio %.2f < threshold %.2f",
+                           last_click_ratio, easy_min_ratio)
+            else:
+                responded = []
+                for t in recent[:10]:
+                    cs = t["correct_side"]
+                    if cs is None:
+                        continue
+                    resp = cs if t["outcome"] == "correct" else ("right" if cs == "left" else "left")
+                    responded.append(resp)
+                if responded:
+                    avg_right = sum(1 for s in responded if s == "right") / len(responded)
+                    left_prob = 1.0 - avg_right
+                    _log.info("IBL debias triggered: ratio=%.2f avg_right=%.2f → P(left)=%.2f",
+                              last_click_ratio or -1, avg_right, left_prob)
 
     if left_prob is None:
         return trial_definition
