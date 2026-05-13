@@ -25,9 +25,10 @@ pop_frame_events() is called from the picamera2 encoder thread.
 
 Timestamp policy
 ----------------
-- Sensor inputs  : stamped inside _on_beam_event() at interrupt-callback time,
-                   before the tuple enters the queue, so latency from queue
-                   processing does not affect the recorded time.
+- Sensor inputs  : stamped from the pigpio hardware tick passed into
+                   _on_beam_event(), converted to CLOCK_MONOTONIC in
+                   gpio_handler. Reflects the moment the pigpio daemon
+                   detected the edge, not when Python ran the callback.
 - Hardware outputs: stamped in _dispatch_action() *after* actions.dispatch()
                    returns, so t reflects when the GPIO pin actually changed.
 - State transitions: stamped in transition_to() at decision time (FSM thread).
@@ -214,9 +215,10 @@ class Engine:
     # External event sources — post to queue, return immediately          #
     # ------------------------------------------------------------------ #
 
-    def _on_beam_event(self, target: str, is_active: bool) -> None:
-        """GPIO interrupt callback. Stamps the event at detection time before queuing."""
-        t = time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start
+    def _on_beam_event(self, target: str, is_active: bool, t_mono: float) -> None:
+        """GPIO interrupt callback. t_mono is CLOCK_MONOTONIC seconds derived from
+        the pigpio hardware tick, recorded at the moment the daemon detected the edge."""
+        t = t_mono - self._trial_start
         self._event_queue.put(('beam', target, is_active, t))
 
     def _on_timeout(self) -> None:
