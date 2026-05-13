@@ -1,0 +1,802 @@
+\documentclass[11pt, a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+}
+
+\definecolor{jsonbg}{RGB}{245,245,245}
+\definecolor{jsonkw}{RGB}{0,0,180}
+\definecolor{jsonstr}{RGB}{180,0,0}
+\definecolor{jsoncmt}{RGB}{80,120,80}
+
+\lstdefinelanguage{json}{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{jsonbg},
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none,
+    breaklines=true,
+    showstringspaces=false,
+    literate=
+        *{0}{{{\color{jsonkw}0}}}{1}
+         {1}{{{\color{jsonkw}1}}}{1}
+         {2}{{{\color{jsonkw}2}}}{1}
+         {3}{{{\color{jsonkw}3}}}{1}
+         {4}{{{\color{jsonkw}4}}}{1}
+         {5}{{{\color{jsonkw}5}}}{1}
+         {6}{{{\color{jsonkw}6}}}{1}
+         {7}{{{\color{jsonkw}7}}}{1}
+         {8}{{{\color{jsonkw}8}}}{1}
+         {9}{{{\color{jsonkw}9}}}{1}
+         {:}{{{\color{black}{:}}}}{1}
+         {,}{{{\color{black}{,}}}}{1}
+         {\{}{{{\color{black}{\{}}}}{1}
+         {\}}{{{\color{black}{\}}}}}{1}
+         {[}{{{\color{black}{[}}}}{1}
+         {]}{{{\color{black}{]}}}}{1},
+}
+
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+
+\title{\textbf{Oscilloscope Benchmark Guide}\\
+\large Automated Behavioural Training Rig --- Real-Time Performance Characterisation}
+\author{Joel Kiener}
+\date{Bachelor Thesis, FS 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ==============================================================================
+\section*{GPIO Quick Reference}
+\addcontentsline{toc}{section}{GPIO Quick Reference}
+% ==============================================================================
+
+All GPIO numbers are BCM. Connect the oscilloscope GND probe to any Pi GND
+pin (e.g.\ physical pin 6 or 9). Logic level is 3.3\,V on all GPIO.
+Beams are \textbf{active low} (beam broken $\rightarrow$ pin goes LOW).
+LEDs and valves are \textbf{active high} (on $\rightarrow$ pin goes HIGH).
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Signal} & \textbf{BCM} & \textbf{Physical} & \textbf{Logic} \\
+\midrule
+Beam left    & 2  & 3  & Active low  \\
+Beam center  & 3  & 5  & Active low  \\
+Beam right   & 4  & 7  & Active low  \\
+LED left     & 13 & 33 & Active high \\
+LED center   & 19 & 35 & Active high \\
+LED right    & 26 & 37 & Active high \\
+Valve left   & 0  & 27 & Active high \\
+Valve right  & 5  & 29 & Active high \\
+Audio L/R    & \multicolumn{3}{l}{3.5\,mm jack (tip = left, ring = right)} \\
+\bottomrule
+\end{tabular}
+\caption{GPIO pin reference (\texttt{RPi\_main/config.py}).}
+\end{table}
+
+\newpage
+
+% ==============================================================================
+\section{FSM Transition Latency (Headline Number)}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+The end-to-end time from a hardware beam break to the Pi asserting a GPIO
+output in response. This captures the full software chain:
+
+\[
+\text{kernel IRQ} \;\rightarrow\; \text{Python callback} \;\rightarrow\;
+\text{event queue} \;\rightarrow\; \text{FSM thread} \;\rightarrow\; \text{GPIO write}
+\]
+
+This is the number most directly comparable to pyControl
+($556 \pm 17\,\mu\text{s}$, Akam et al.\ 2022) and LabNet
+($0.26\,\text{ms}$ median, Schatz \& Winter 2022).
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: Beam center (BCM 3, physical 5)
+    \item \textbf{CH2}: LED center (BCM 19, physical 35)
+    \item \textbf{GND}: Pi physical pin 6
+    \item To simulate a beam break cleanly: connect a short wire from the beam
+          pin to GND, or use a signal generator at 3.3\,V logic. Alternatively,
+          block the IR beam with a card.
+\end{itemize}
+
+\subsection*{Trial definition}
+
+Create a new substage called \texttt{bench\_fsm} in the curriculum builder and
+paste the following task config:
+
+\begin{lstlisting}[language=json]
+{
+  "trial_id": "bench_fsm_latency",
+  "side_mode": "fixed_left",
+  "base_iti_s": 1.0,
+  "fail_iti_s": 1.0,
+  "initial_state": "wait_for_beam",
+  "states": [
+    {
+      "id": "wait_for_beam",
+      "duration": 30.0,
+      "entry_actions": [],
+      "exit_actions": [],
+      "transitions": [
+        { "trigger": "beam_break", "target": "center", "next_state": "respond" },
+        { "trigger": "timeout", "next_state": "__wrong__" }
+      ]
+    },
+    {
+      "id": "respond",
+      "duration": 2.0,
+      "entry_actions": [ { "type": "led_on",  "target": "center" } ],
+      "exit_actions":  [ { "type": "led_off", "target": "center" } ],
+      "transitions": [
+        { "trigger": "timeout", "next_state": "__correct__" }
+      ]
+    }
+  ]
+}
+\end{lstlisting}
+
+\subsection*{Oscilloscope settings}
+
+\begin{itemize}[noitemsep]
+    \item Timebase: 1\,ms/div
+    \item CH1: DC coupling, 2\,V/div --- beam signal falls from 3.3\,V to 0\,V
+    \item CH2: DC coupling, 2\,V/div --- LED rises from 0\,V to 3.3\,V
+    \item Trigger: CH1, falling edge, $\sim$1.5\,V threshold
+    \item Mode: Normal (single-shot per break event)
+    \item Use cursor $\Delta t$ or built-in measurement to read CH1 falling
+          $\rightarrow$ CH2 rising
+\end{itemize}
+
+\subsection*{Procedure}
+
+Start a session, assign a cage to substage \texttt{bench\_fsm}, and start
+continuous trials. Arm the scope in Normal mode, break the beam, read
+$\Delta t$, record the value, reset, repeat. Collect $N \geq 500$ samples.
+Most bench scopes (Rigol, Siglent, Keysight) have a Statistics mode under
+Measure that accumulates mean/std/min/max automatically.
+
+\subsection*{What to report}
+
+Mean $\pm$ std, minimum, maximum, 99th percentile, histogram (100\,$\mu$s bins).
+Repeat under 12-cage load (Section~\ref{sec:load}) and compare.
+
+\newpage
+
+% ==============================================================================
+\section{Threading.Timer Accuracy (State Timeout Jitter)}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+FSM state timeouts use Python's \texttt{threading.Timer}. On a non-RTOS Linux
+system, timer callbacks are subject to OS scheduler jitter. This measures how
+accurately a programmed timeout actually fires, which affects stimulus duration
+precision and spike-event alignment.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: LED center (BCM 19, physical 35)
+    \item LED turns ON at state entry, OFF when timeout fires
+    \item No beam break needed
+\end{itemize}
+
+\subsection*{Trial definition}
+
+\begin{lstlisting}[language=json]
+{
+  "trial_id": "bench_timeout",
+  "side_mode": "fixed_left",
+  "base_iti_s": 0.5,
+  "fail_iti_s": 0.5,
+  "initial_state": "timed_state",
+  "states": [
+    {
+      "id": "timed_state",
+      "duration": 1.0,
+      "entry_actions": [ { "type": "led_on",  "target": "center" } ],
+      "exit_actions":  [ { "type": "led_off", "target": "center" } ],
+      "transitions": [
+        { "trigger": "timeout", "next_state": "__correct__" }
+      ]
+    }
+  ]
+}
+\end{lstlisting}
+
+Test with \texttt{duration} = 0.1\,s, 0.5\,s, 1.0\,s, and 2.0\,s.
+Shorter timeouts will show higher relative jitter.
+
+\subsection*{Oscilloscope settings}
+
+\begin{itemize}[noitemsep]
+    \item Timebase: 200\,ms/div for 1\,s duration (2\,s total window)
+    \item CH1: DC coupling, 2\,V/div
+    \item Trigger: CH1 rising edge
+    \item Use automatic pulse-width measurement in Statistics mode
+\end{itemize}
+
+\subsection*{What to report}
+
+Mean measured duration vs.\ programmed duration (systematic offset), standard
+deviation (jitter), min/max. Table across all four duration values.
+Repeat under load (Section~\ref{sec:load}).
+
+\newpage
+
+% ==============================================================================
+\section{Hold Timer Accuracy}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+The \texttt{hold\_ms} feature requires the animal to maintain a beam break for
+a specified duration before the FSM advances. This timer is started at
+beam-break time. Its accuracy directly affects task validity: if
+\texttt{hold\_ms=100} fires at 85\,ms, animals are rewarded for shorter holds
+than intended.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: Beam center (BCM 3, physical 5)
+    \item \textbf{CH2}: LED center (BCM 19, physical 35) --- turns on after hold completes
+    \item Simulate a held break with a jumper wire from BCM 3 to GND (do not
+          use a finger, which may wobble and trigger debounce events)
+\end{itemize}
+
+\subsection*{Trial definition}
+
+\begin{lstlisting}[language=json]
+{
+  "trial_id": "bench_hold",
+  "side_mode": "fixed_left",
+  "base_iti_s": 0.5,
+  "fail_iti_s": 0.5,
+  "initial_state": "wait",
+  "states": [
+    {
+      "id": "wait",
+      "duration": 30.0,
+      "entry_actions": [],
+      "exit_actions": [],
+      "transitions": [
+        {
+          "trigger": "beam_break",
+          "target": "center",
+          "hold_ms": 100,
+          "next_state": "held"
+        },
+        { "trigger": "timeout", "next_state": "__wrong__" }
+      ]
+    },
+    {
+      "id": "held",
+      "duration": 1.0,
+      "entry_actions": [ { "type": "led_on",  "target": "center" } ],
+      "exit_actions":  [ { "type": "led_off", "target": "center" } ],
+      "transitions": [
+        { "trigger": "timeout", "next_state": "__correct__" }
+      ]
+    }
+  ]
+}
+\end{lstlisting}
+
+Test with \texttt{hold\_ms} = 50, 100, 200, 500.
+
+\subsection*{Oscilloscope settings}
+
+\begin{itemize}[noitemsep]
+    \item Timebase: 10\,ms/div for 100\,ms hold
+    \item Trigger: CH1 falling edge
+    \item Measure $\Delta t$: CH1 falling edge $\rightarrow$ CH2 rising edge
+\end{itemize}
+
+\subsection*{What to report}
+
+Mean hold duration vs.\ programmed \texttt{hold\_ms} (systematic bias),
+std deviation, table across all four values. $N \geq 300$ per value.
+
+\newpage
+
+% ==============================================================================
+\section{Audio Onset Latency}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+The time from the FSM dispatching a \texttt{play\_clicks} action (LED GPIO as
+proxy timestamp) to the first audio sample appearing at the DAC output
+(3.5\,mm jack). This is the \texttt{sounddevice} buffer latency.
+
+This is the most experiment-critical latency: the animal hears the first click
+some time after state entry. All trial timestamps are aligned to state entry,
+so audio onset latency is a systematic offset in all behavioural data that
+must be reported so others can correct for it.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: LED left (BCM 13, physical 33) --- state entry marker
+    \item \textbf{CH2}: 3.5\,mm jack tip (left channel)
+          Use a 3.5\,mm-to-BNC adapter, or strip a cable and probe the tip wire.
+    \item CH2: AC coupling, 200\,mV/div (audio is $\pm$1\,V AC waveform)
+\end{itemize}
+
+\subsection*{Trial definition}
+
+\begin{lstlisting}[language=json]
+{
+  "trial_id": "bench_audio_latency",
+  "side_mode": "fixed_left",
+  "base_iti_s": 1.0,
+  "fail_iti_s": 1.0,
+  "initial_state": "play",
+  "states": [
+    {
+      "id": "play",
+      "duration": 3.0,
+      "entry_actions": [
+        { "type": "led_on",      "target": "left" },
+        { "type": "play_clicks", "left_rate": 100, "right_rate": 0,
+          "click_duration": 2.5 }
+      ],
+      "exit_actions": [
+        { "type": "led_off", "target": "left" }
+      ],
+      "transitions": [
+        { "trigger": "timeout", "next_state": "__correct__" }
+      ]
+    }
+  ]
+}
+\end{lstlisting}
+
+\texttt{left\_rate=100} gives dense clicks that are easy to identify on the
+scope. \texttt{right\_rate=0} isolates the left channel for clean probing.
+
+\subsection*{Oscilloscope settings}
+
+\begin{itemize}[noitemsep]
+    \item Timebase: 5\,ms/div (50\,ms window; audio latency is typically 10--30\,ms)
+    \item CH1: DC coupling, 2\,V/div
+    \item CH2: AC coupling, 500\,mV/div
+    \item Trigger: CH1 rising edge
+    \item Measure $\Delta t$: CH1 rising edge $\rightarrow$ first audio peak on CH2
+\end{itemize}
+
+\subsection*{What to report}
+
+Mean audio onset latency $\pm$ std ($N \geq 200$). State this value explicitly
+in the thesis Methods section as the systematic offset between logged state
+entry time and actual stimulus delivery.
+
+\newpage
+
+% ==============================================================================
+\section{Click Inter-Arrival Interval Distribution}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+Whether the intended Poisson-distributed inter-click intervals (ICI) are
+preserved through the audio pipeline. If \texttt{sounddevice} introduces
+timing distortion, click trains are not truly Poisson, which would invalidate
+the psychophysics task.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: 3.5\,mm jack tip (left channel), AC coupling
+    \item No GPIO probe needed
+\end{itemize}
+
+\subsection*{Procedure}
+
+Capture a full 2.5\,s click train waveform at the scope's maximum sample rate.
+Export the waveform as CSV via the scope's USB port (supported on most Rigol/
+Siglent models). Then in Python:
+
+\begin{enumerate}[noitemsep]
+    \item Threshold the waveform to find click peak times.
+    \item Compute inter-click intervals (ICI).
+    \item Plot ICI histogram and overlay the expected exponential distribution
+          with rate $\lambda = $ \texttt{left\_rate}.
+    \item Run a Kolmogorov--Smirnov test against the exponential null hypothesis.
+\end{enumerate}
+
+Repeat for rate pairs: (80, 20), (60, 40), (50, 50), (100, 0).
+
+\subsection*{What to report}
+
+ICI histogram vs.\ theoretical exponential for each rate, KS test $p$-value,
+and any systematic deviation such as the minimum ICI floor imposed by
+\texttt{CLICK\_WIDTH\_S = 3\,ms} in \texttt{config.py}.
+
+\newpage
+
+% ==============================================================================
+\section{Valve Open Duration Precision}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+Reward valves are opened for a fixed duration to deliver a precise water
+volume. Duration jitter translates directly to water volume variance, affecting
+both welfare records and experiment reproducibility.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: Valve left (BCM 0, physical 27)
+\end{itemize}
+
+\subsection*{Trial definition}
+
+\begin{lstlisting}[language=json]
+{
+  "trial_id": "bench_valve",
+  "side_mode": "fixed_left",
+  "base_iti_s": 2.0,
+  "fail_iti_s": 2.0,
+  "initial_state": "reward",
+  "states": [
+    {
+      "id": "reward",
+      "duration": 0.15,
+      "entry_actions": [ { "type": "valve_open",  "target": "left" } ],
+      "exit_actions":  [ { "type": "valve_close", "target": "left" } ],
+      "transitions": [
+        { "trigger": "timeout", "next_state": "__correct__" }
+      ]
+    }
+  ]
+}
+\end{lstlisting}
+
+\texttt{duration = 0.15\,s} matches \texttt{VALVE\_OPEN\_DEFAULT\_MS = 150\,ms}
+in \texttt{config.py}. Also test with 0.05\,s and 0.30\,s to check linearity.
+
+\subsection*{Oscilloscope settings}
+
+\begin{itemize}[noitemsep]
+    \item Timebase: 50\,ms/div
+    \item CH1: DC coupling, 2\,V/div
+    \item Trigger: CH1 rising edge
+    \item Use automatic pulse-width measurement in Statistics mode
+\end{itemize}
+
+\subsection*{What to report}
+
+Mean valve open duration vs.\ programmed duration, std deviation, $N \geq 300$.
+Convert jitter to volume: a typical solenoid valve delivers approximately
+3--8\,$\mu$L/ms, so 1\,ms jitter corresponds to 3--8\,$\mu$L volume variance
+per reward.
+
+\newpage
+
+% ==============================================================================
+\section{Audio--LED Synchronisation (Multi-modal Stimulus Onset)}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+In the actual task, LED and click train are presented simultaneously as the
+stimulus. This measures how well-synchronised they are at the hardware output
+level, i.e.\ the audio-visual asynchrony experienced by the animal.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: LED left (BCM 13, physical 33)
+    \item \textbf{CH2}: 3.5\,mm jack tip (left channel), AC coupling
+\end{itemize}
+
+Use the same trial definition as Section~4 (\texttt{bench\_audio\_latency}).
+The delta between CH1 rising edge and the first audio click on CH2 is the
+audio-visual stimulus onset asynchrony (SOA).
+
+\subsection*{What to report}
+
+Mean SOA $\pm$ std. State this as: ``visual and auditory stimuli are offset by
+$X$\,ms, with the LED preceding the first click,'' and note that the animal
+perceives the clicks with this delay relative to the logged state entry
+timestamp.
+
+\newpage
+
+% ==============================================================================
+\section{Camera--GPIO Timestamp Synchronisation}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+The Pi embeds a GPIO state snapshot in every UDP frame header, timestamped via
+\texttt{CLOCK\_MONOTONIC}. This validates whether the camera frame timestamps
+correctly correspond to the actual moment of GPIO state change.
+
+When an LED turns on at time $T_\text{GPIO}$, the first camera frame in which
+the LED appears lit should have a header timestamp satisfying:
+
+\[
+0 \leq T_\text{frame} - T_\text{GPIO} \leq \frac{1}{60\,\text{fps}} = 16.7\,\text{ms}
+\]
+
+Errors outside this range indicate a bug in the timestamp anchoring code in
+\texttt{RPi\_main/streamer.py}.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: LED center (BCM 19, physical 35)
+    \item Point the cage camera directly at the LED so it is clearly visible
+          in-frame.
+    \item No second scope probe needed --- the camera is the second channel.
+\end{itemize}
+
+\subsection*{Procedure}
+
+\begin{enumerate}[noitemsep]
+    \item Run the \texttt{bench\_fsm\_latency} trial (Section~1) with camera
+          recording enabled (NAS write on).
+    \item Add a single log line in \texttt{engine.py} at the GPIO write call to
+          record \texttt{clock\_gettime(CLOCK\_MONOTONIC)} as $T_\text{GPIO}$.
+    \item After the session, open the \texttt{.bin} recording in
+          \texttt{bin\_viewer.py}.
+    \item Find the frame where the LED state bit first changes to 1 in the header.
+          Read the embedded timestamp $T_\text{frame}$.
+    \item Compute $\Delta t = T_\text{frame} - T_\text{GPIO}$.
+    \item Repeat for $N \geq 100$ LED events.
+\end{enumerate}
+
+\subsection*{What to report}
+
+Mean synchronisation error $\pm$ std, histogram. Confirm that errors are always
+positive (frame timestamp always after GPIO event). Negative values indicate a
+timestamp anchoring error.
+
+\newpage
+
+% ==============================================================================
+\section{Latency Under Load (Scaling Validation)}
+\label{sec:load}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+All measurements above should be repeated under full 12-cage load to verify
+that the system scales without performance degradation. This is the key
+scalability claim of the thesis.
+
+\subsection*{Setup}
+
+\begin{enumerate}[noitemsep]
+    \item Run Sections 1, 2, and 4 with only 1 cage active (baseline).
+    \item Repeat with 12 cages running simultaneous continuous trials.
+          The measured cage runs the benchmark trial definition; the other 11
+          run the normal task or any continuous trial loop.
+\end{enumerate}
+
+Also check the acquisition logs for UDP sequence number gaps during the
+12-cage run (logged by \texttt{watchdog.py}).
+
+\subsection*{What to report}
+
+Table of all metrics at $N=1$ vs.\ $N=12$ cages:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Metric} & \multicolumn{2}{c}{\textbf{1 cage}} & \multicolumn{2}{c}{\textbf{12 cages}} \\
+                & mean & 99th pct & mean & 99th pct \\
+\midrule
+FSM transition latency     & & & & \\
+Timeout jitter (std)       & & & & \\
+Audio onset latency        & & & & \\
+UDP frame drop rate        & & & & \\
+\bottomrule
+\end{tabular}
+\caption{Real-time performance metrics under single-cage and full 12-cage load.}
+\end{table}
+
+\newpage
+
+% ==============================================================================
+\section{TCP Command Latency (PC $\rightarrow$ Pi Round-Trip)}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+The time from the PC sending a trial start command over TCP to the Pi's first
+GPIO output. This captures: network round-trip time + TCP stack latency +
+Python socket receive + FSM initialisation.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: LED center (BCM 19, physical 35)
+    \item On the PC side: add a \texttt{time.monotonic()} log in
+          \texttt{command/tcp\_command\_sender.py} at the moment bytes are
+          written to the socket.
+    \item Compare the PC-side send timestamp to the scope CH1 rising edge
+          timestamp using the scope's time display.
+\end{itemize}
+
+Use any trial definition where the initial state has an immediate LED entry
+action (e.g.\ \texttt{bench\_fsm\_latency}).
+
+\subsection*{What to report}
+
+Mean PC$\rightarrow$Pi GPIO latency $\pm$ std ($N \geq 200$). Cross-check with
+network RTT alone: \texttt{ping -c 1000 192.168.1.101} gives the pure network
+component. The difference is the Python processing overhead.
+
+\newpage
+
+% ==============================================================================
+\section{SCHED\_FIFO Effect on Jitter}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+Whether enabling POSIX real-time scheduling (\texttt{SCHED\_FIFO}) in
+\texttt{engine.py} meaningfully reduces latency or jitter. This requires
+running \texttt{main.py} as root on the Pi (\texttt{sudo python main.py}).
+
+\subsection*{Procedure}
+
+\begin{enumerate}[noitemsep]
+    \item Run Section~1 (FSM transition latency) in \textbf{normal scheduling}
+          mode. Record full distribution ($N \geq 500$).
+    \item Enable \texttt{SCHED\_FIFO} for the FSM thread in \texttt{engine.py}
+          and restart with \texttt{sudo}.
+    \item Run Section~1 again under identical conditions.
+    \item Compare distributions, especially the tail (99th percentile and max).
+\end{enumerate}
+
+\subsection*{What to report}
+
+Side-by-side comparison: does the \emph{mean} change? (Probably not.)
+Does the 99th percentile or maximum change? (Likely yes --- \texttt{SCHED\_FIFO}
+primarily reduces outlier latencies, not the mean.) Provide a practical
+recommendation: is \texttt{SCHED\_FIFO} necessary for this application?
+
+\newpage
+
+% ==============================================================================
+\section{Inter-Trial Interval Precision}
+% ==============================================================================
+
+\subsection*{What it measures}
+
+The ITI is implemented as \texttt{time.sleep()} in \texttt{ui/cage\_runner.py}
+on the PC, followed by a new TCP command to the Pi. This measures how
+accurately the ITI executes end-to-end, including network overhead.
+
+\subsection*{Hardware setup}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{CH1}: LED center (BCM 19, physical 35)
+    \item LED turns on at each new trial's initial state entry.
+    \item Measure: time from LED falling edge (trial end) to next LED rising
+          edge (next trial start) = actual ITI.
+\end{itemize}
+
+Use \texttt{bench\_fsm\_latency} with \texttt{base\_iti\_s = 1.0} and a very
+short trial (beam break immediately ends the trial).
+
+\subsection*{Oscilloscope settings}
+
+\begin{itemize}[noitemsep]
+    \item Timebase: 500\,ms/div (for 1\,s ITI --- gives $\sim$5\,s window)
+    \item Use automatic period or pulse-separation measurement
+\end{itemize}
+
+\subsection*{What to report}
+
+Mean ITI vs.\ programmed ITI, std deviation. This sets the floor on how
+precisely session pacing can be controlled.
+
+\newpage
+
+% ==============================================================================
+\section*{Summary Table}
+\addcontentsline{toc}{section}{Summary Table}
+% ==============================================================================
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{clllr}
+\toprule
+\textbf{\#} & \textbf{Measurement} & \textbf{CH1} & \textbf{CH2} & \textbf{N} \\
+\midrule
+1  & FSM transition latency        & Beam center (BCM 3)   & LED center (BCM 19) & 500+ \\
+2  & Timeout jitter                & LED center (BCM 19)   & ---                 & 500+ \\
+3  & Hold timer accuracy           & Beam center (BCM 3)   & LED center (BCM 19) & 300+ \\
+4  & Audio onset latency           & LED left (BCM 13)     & Audio jack          & 200+ \\
+5  & Click ICI distribution        & Audio jack            & ---                 & 1 rec. \\
+6  & Valve duration precision      & Valve left (BCM 0)    & ---                 & 300+ \\
+7  & Audio--LED synchronisation    & LED left (BCM 13)     & Audio jack          & 200+ \\
+8  & Camera--GPIO sync             & LED center (BCM 19)   & (software)          & 100+ \\
+9  & Latency under load            & (repeat 1, 2, 4)      & ---                 & 500+ \\
+10 & TCP command latency           & LED center (BCM 19)   & (PC log)            & 200+ \\
+11 & SCHED\_FIFO effect            & Beam center (BCM 3)   & LED center (BCM 19) & 500+$\times$2 \\
+12 & ITI precision                 & LED center (BCM 19)   & ---                 & 200+ \\
+\bottomrule
+\end{tabular}
+\caption{All measurements at a glance.}
+\end{table}
+
+\newpage
+
+% ==============================================================================
+\section*{Practical Tips}
+\addcontentsline{toc}{section}{Practical Tips}
+% ==============================================================================
+
+\subsection*{Probe connections}
+
+Pi GPIO runs at 3.3\,V logic. Use 10$\times$ probe attenuation. Keep the
+oscilloscope GND lead short (10\,cm) connected to a Pi GND pin; long ground
+leads introduce noise at this voltage level. The beam sensor is active-low
+with an internal pull-up, so you will see a clean TTL falling edge on beam
+break --- fine for ms-scale measurements.
+
+\subsection*{Collecting statistics automatically}
+
+Most bench scopes (Rigol DS1054Z, Siglent SDS1104X-E, Keysight DSOX1204G)
+have a Statistics mode under \textbf{Measure $\rightarrow$ Statistics}. Enable
+it, set it to accumulate, and walk away for 10 minutes to collect 500+ samples
+automatically. Photograph the statistics screen, or export data via USB as CSV
+for offline analysis.
+
+\subsection*{Triggering on beam breaks}
+
+The beam sensor is active-low with 1\,ms software debounce. Set scope trigger
+to falling edge, $\sim$1.5\,V threshold to capture the first edge cleanly.
+
+\subsection*{Recommended measurement order}
+
+The following order minimises probe re-wiring and can be completed in one
+afternoon session:
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Section 1} (FSM latency) --- main result, beam + LED probes.
+    \item \textbf{Section 2} (timeout jitter) --- same probes, change trial JSON.
+    \item \textbf{Section 4 + 7} (audio latency + LED sync) --- move CH1 to LED
+          left, add audio jack probe to CH2.
+    \item \textbf{Section 6} (valve) --- move CH1 to valve pin.
+    \item \textbf{Section 9} (load test) --- repeat 1, 2, 4 with 12 cages running.
+    \item \textbf{Sections 3, 5, 10--12} --- secondary, do in a second session.
+\end{enumerate}
+
+\end{document}
