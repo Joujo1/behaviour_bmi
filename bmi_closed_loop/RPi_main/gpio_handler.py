@@ -22,7 +22,6 @@ import os
 import select as _select
 import struct
 import threading
-import time
 
 import gpiod
 import pigpio
@@ -140,10 +139,8 @@ def setup() -> None:
     # Configure PWM range for fan once so set_fan_pwm can use 0–100 directly
     _pi.set_PWM_range(FAN_PIN, 100)
 
-    for target, pin in BEAM_PINS.items():
-        pull = pigpio.PUD_UP if BEAM_ACTIVE_LOW[target] else pigpio.PUD_DOWN
-        _pi.set_mode(pin, pigpio.INPUT)
-        _pi.set_pull_up_down(pin, pull)
+    # Beam pins are NOT configured here — gpiod owns them exclusively.
+    # Configuring them via pigpiod AND gpiod causes a register write conflict.
 
     all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
                        list(AUDIO_PINS.values()) + [FAN_PIN, STRIP_PIN])
@@ -151,12 +148,8 @@ def setup() -> None:
         for pin in all_output_pins:
             _output_state[pin] = False
 
-    # Record tick/monotonic anchor for timestamp conversion
-    _mono_anchor = time.clock_gettime(time.CLOCK_MONOTONIC)
-    _tick_anchor  = _pi.get_current_tick()
-
     _init_fast_gpio()
-    logger.info("GPIO setup complete (pigpio daemon connected)")
+    logger.info("GPIO setup complete (pigpio for outputs + fan PWM; gpiod for beam inputs)")
 
 
 def cleanup() -> None:
