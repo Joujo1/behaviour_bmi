@@ -27,8 +27,8 @@ WantedBy=multi-user.target
 
 [Unit]
 Description=Cage Controller
-After=network-online.target pigpiod.service
-Wants=network-online.target pigpiod.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 ExecStart=/usr/bin/python3 /home/pi/behaviour_bmi/bmi_closed_loop/RPi_main/main.py

@@ -1,17 +1,16 @@
 """
-GPIO hardware abstraction layer — pigpio + gpiod backend.
+GPIO hardware abstraction layer — gpiod + /dev/gpiomem mmap, no pigpiod.
 
-All pin numbers and all pigpio/gpiod calls are confined to this module.
+All pin numbers and all GPIO calls are confined to this module.
 Engine and actions interact with hardware exclusively through the functions here.
 
-Input monitoring (beam sensors) uses the kernel GPIO character device via gpiod,
-which delivers hardware interrupts directly to poll() — no DMA ring buffer or
-IPC hop. Output writes use /dev/gpiomem mmap for sub-µs latency.
-
-pigpiod is still used for initial pin setup and fan PWM.
+Input monitoring  : kernel GPIO character device via gpiod (hardware interrupts
+                    delivered to poll() — no DMA ring buffer or IPC hop).
+Output writes     : /dev/gpiomem mmap GPSET0/GPCLR0 (~1µs, no IPC).
+Fan PWM           : software PWM thread (200 Hz) — GPIO8 has no hardware PWM.
+pigpiod           : NOT used. Can be stopped/disabled.
 
 Requires:
-  sudo systemctl start pigpiod
   sudo apt install python3-gpiod
 """
 
@@ -24,7 +23,6 @@ import struct
 import threading
 
 import gpiod
-import pigpio
 
 from config import (
     LED_PINS, VALVE_PINS, AUDIO_PINS, BEAM_PINS,
@@ -34,32 +32,33 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# ── pigpio daemon conection (used for setup and fan PWM only) ───────────────
-_pi: pigpio.pi = None
+# ── gpiod output lines (held open for process lifetime) ───────────────────────
+_gpiod_out_chip:  gpiod.Chip | None = None
+_gpiod_out_lines: dict              = {}   # pin → gpiod.Line
 
 # ── gpiod input monitoring ────────────────────────────────────────────────────
-_gpiod_chip: gpiod.Chip | None = None
-_gpiod_fd_map: dict = {}   # event_fd → (target, line)
-_monitoring: bool  = False
+_gpiod_chip:   gpiod.Chip | None = None
+_gpiod_fd_map: dict              = {}    # event_fd → (target, line)
+_monitoring:   bool              = False
 
 # ── internal output-state tracking ───────────────────────────────────────────
 _output_state: dict[int, bool] = {}
-_output_lock = threading.Lock()
+_output_lock   = threading.Lock()
 
-# ── fan PWM duty tracking (pigpio PWM is stateless — no object needed) ────────
-_fan_pwm_lock  = threading.Lock()
-_fan_pwm_duty: float = 0.0
-_fan_pwm_active: bool = False
+# ── fan software PWM ──────────────────────────────────────────────────────────
+_fan_pwm_lock:   threading.Lock  = threading.Lock()
+_fan_pwm_duty:   float           = 0.0
+_fan_pwm_active: bool            = False
+_fan_pwm_stop:   threading.Event = threading.Event()
+_fan_pwm_thread: threading.Thread | None = None
 
-# ── direct /dev/gpiomem mmap for sub-µs output writes (RPi 4 BCM2711) ────────
-# GPSET0 (offset 0x1C) sets pins 0-31; GPCLR0 (offset 0x28) clears them.
-# These are bit-mask write-only registers — concurrent pigpiod + mmap writes
-# to different pins on the same register are safe (no read-modify-write hazard).
+# ── /dev/gpiomem mmap — BCM2711 GPIO register offsets ────────────────────────
 _gpio_mem: mmap.mmap | None = None
-_GPSET0 = 0x1C
-_GPCLR0 = 0x28
+_GPSET0 = 0x1C   # set  pins 0-31 (bit-mask, write-only semantics)
+_GPCLR0 = 0x28   # clear pins 0-31
+_GPLEV0 = 0x34   # read  pins 0-31
 
-# ── fast-reaction hook — set by start_monitoring(), called before queue post ──
+# ── fast-reaction hook ────────────────────────────────────────────────────────
 _fast_reaction_fn = None
 
 
@@ -74,11 +73,9 @@ def _set_rt_priority(priority: int = 75) -> None:
     if ret != 0:
         logger.warning("SCHED_FIFO unavailable — ensure service runs as root")
     try:
-        os.sched_setaffinity(0, {3})  # isolate RT threads on core 3 (isolcpus=3)
+        os.sched_setaffinity(0, {3})
     except OSError:
         pass
-
-
 
 
 # ── internal helpers ──────────────────────────────────────────────────────────
@@ -93,70 +90,69 @@ def _init_fast_gpio() -> None:
         os.close(fd)
         logger.info("Direct GPIO mmap enabled — output writes ~1µs")
     except Exception as e:
-        logger.warning("Direct GPIO mmap unavailable: %s — falling back to pigpio", e)
+        logger.warning("Direct GPIO mmap unavailable: %s — falling back to gpiod", e)
 
 
 def _drive(pin: int, state: bool) -> None:
-    """Write a digital value to an output pin and record the new state.
-
-    Uses /dev/gpiomem (BCM GPSET0/GPCLR0) when available (~1µs) instead of
-    the pigpiod socket (~200µs).
-    """
+    """Write a digital value to an output pin via mmap (or gpiod fallback)."""
     if _gpio_mem is not None:
         struct.pack_into('I', _gpio_mem, _GPSET0 if state else _GPCLR0, 1 << pin)
     else:
-        _pi.write(pin, 1 if state else 0)
+        line = _gpiod_out_lines.get(pin)
+        if line is not None:
+            line.set_value(1 if state else 0)
     with _output_lock:
         _output_state[pin] = state
+
+
+def _read_pin_level(pin: int) -> bool:
+    """Read the current level of any pin via mmap GPLEV0 (or gpiod fallback)."""
+    if _gpio_mem is not None:
+        return bool(struct.unpack_from('I', _gpio_mem, _GPLEV0)[0] & (1 << pin))
+    line = _gpiod_out_lines.get(pin)
+    if line is not None:
+        return bool(line.get_value())
+    return False
 
 
 # ── public API ────────────────────────────────────────────────────────────────
 
 def setup() -> None:
-    """Connect to pigpiod, configure all GPIO pins; must be called once at process start."""
-    global _pi, _tick_anchor, _mono_anchor
-
-    _pi = pigpio.pi()
-    if not _pi.connected:
-        raise RuntimeError(
-            "Cannot connect to pigpiod — start it with: sudo systemctl start pigpiod"
-        )
-
-    for pin in LED_PINS.values():
-        _pi.set_mode(pin, pigpio.OUTPUT)
-        _pi.write(pin, 0)
-    for pin in VALVE_PINS.values():
-        _pi.set_mode(pin, pigpio.OUTPUT)
-        _pi.write(pin, 0)
-    for pin in AUDIO_PINS.values():
-        _pi.set_mode(pin, pigpio.OUTPUT)
-        _pi.write(pin, 0)
-    _pi.set_mode(FAN_PIN,   pigpio.OUTPUT)
-    _pi.write(FAN_PIN, 0)
-    _pi.set_mode(STRIP_PIN, pigpio.OUTPUT)
-    _pi.write(STRIP_PIN, 0)
-
-    # Configure PWM range for fan once so set_fan_pwm can use 0–100 directly
-    _pi.set_PWM_range(FAN_PIN, 100)
-
-    # Beam pins are NOT configured here — gpiod owns them exclusively.
-    # Configuring them via pigpiod AND gpiod causes a register write conflict.
-
-    all_output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
-                       list(AUDIO_PINS.values()) + [FAN_PIN, STRIP_PIN])
-    with _output_lock:
-        for pin in all_output_pins:
-            _output_state[pin] = False
+    """Configure all output GPIO pins via gpiod. Call once at process start."""
+    global _gpiod_out_chip, _gpiod_out_lines
 
     _init_fast_gpio()
-    logger.info("GPIO setup complete (pigpio for outputs + fan PWM; gpiod for beam inputs)")
+
+    _gpiod_out_chip  = gpiod.Chip('gpiochip0')
+    output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
+                   list(AUDIO_PINS.values()) + [FAN_PIN, STRIP_PIN])
+
+    for pin in output_pins:
+        line = _gpiod_out_chip.get_line(pin)
+        line.request(consumer='bmi-out', type=gpiod.LINE_REQ_DIR_OUT,
+                     default_vals=[0])
+        _gpiod_out_lines[pin] = line
+
+    with _output_lock:
+        for pin in output_pins:
+            _output_state[pin] = False
+
+    logger.info("GPIO setup complete (gpiod + mmap, pigpiod not used)")
 
 
 def cleanup() -> None:
-    """Run safety sweep, cancel callbacks, and disconnect from pigpiod."""
+    """Safety sweep and release all GPIO resources."""
     stop_monitoring()
     safety_sweep()
-    _pi.stop()
+    _stop_fan_pwm_thread()
+    for line in _gpiod_out_lines.values():
+        try:
+            line.release()
+        except Exception:
+            pass
+    _gpiod_out_lines.clear()
+    if _gpiod_out_chip is not None:
+        _gpiod_out_chip.close()
     logger.info("GPIO cleaned up")
 
 
@@ -172,22 +168,31 @@ def set_audio(target: str, state: bool) -> None:
     _drive(AUDIO_PINS[target], state)
 
 
+# ── fan ───────────────────────────────────────────────────────────────────────
+
+def _stop_fan_pwm_thread() -> None:
+    global _fan_pwm_thread, _fan_pwm_active, _fan_pwm_duty
+    _fan_pwm_stop.set()
+    if _fan_pwm_thread is not None and _fan_pwm_thread.is_alive():
+        _fan_pwm_thread.join(timeout=0.5)
+    _fan_pwm_thread  = None
+    _fan_pwm_active  = False
+    _fan_pwm_duty    = 0.0
+
+
 def set_fan(state: bool) -> None:
-    """Drive fan fully on or off (binary). Stops any active PWM first."""
-    global _fan_pwm_active, _fan_pwm_duty
+    """Drive fan fully on or off. Stops any active software PWM first."""
     with _fan_pwm_lock:
         if _fan_pwm_active:
-            _pi.set_PWM_dutycycle(FAN_PIN, 0)
-            _fan_pwm_active = False
-            _fan_pwm_duty   = 0.0
+            _stop_fan_pwm_thread()
     _drive(FAN_PIN, state)
 
 
 def set_fan_pwm(duty: float, freq: float = FAN_PWM_FREQ) -> None:
-    """Control fan speed via PWM. duty is 0–100 (percent)."""
-    global _fan_pwm_active, _fan_pwm_duty
-    duty = max(0.0, min(100.0, float(duty)))
+    """Control fan speed via software PWM thread. duty is 0–100 (percent)."""
+    global _fan_pwm_thread, _fan_pwm_active, _fan_pwm_duty
 
+    duty = max(0.0, min(100.0, float(duty)))
     if duty < FAN_MIN_DUTY:
         set_fan(False)
         return
@@ -196,14 +201,29 @@ def set_fan_pwm(duty: float, freq: float = FAN_PWM_FREQ) -> None:
         return
 
     with _fan_pwm_lock:
-        _pi.set_PWM_frequency(FAN_PIN, int(freq))
-        _pi.set_PWM_dutycycle(FAN_PIN, int(duty))
-        _fan_pwm_active = True
+        _stop_fan_pwm_thread()
+        _fan_pwm_stop.clear()
+        period   = 1.0 / freq
+        on_time  = period * duty / 100.0
+        off_time = period - on_time
         _fan_pwm_duty   = duty
+        _fan_pwm_active = True
+
+        def _pwm_loop():
+            while not _fan_pwm_stop.is_set():
+                _drive(FAN_PIN, True)
+                _fan_pwm_stop.wait(on_time)
+                if _fan_pwm_stop.is_set():
+                    break
+                _drive(FAN_PIN, False)
+                _fan_pwm_stop.wait(off_time)
+            _drive(FAN_PIN, False)
+
+        _fan_pwm_thread = threading.Thread(target=_pwm_loop, daemon=True, name='fan-pwm')
+        _fan_pwm_thread.start()
 
     with _output_lock:
         _output_state[FAN_PIN] = True
-
     logger.debug("Fan PWM: duty=%.1f%% freq=%.1fHz", duty, freq)
 
 
@@ -229,21 +249,17 @@ def safety_sweep() -> None:
     logger.info("Safety sweep complete")
 
 
-def _read_active(target: str, pin: int) -> bool:
-    """Return the normalised logical state of a beam sensor (True = beam broken)."""
-    raw = _pi.read(pin)
-    return (raw == 0) if BEAM_ACTIVE_LOW[target] else (raw == 1)
-
+# ── beam sensor monitoring ────────────────────────────────────────────────────
 
 def start_monitoring(on_event, fast_reaction=None) -> None:
-    """Begin monitoring all IR sensors via kernel GPIO interrupts (gpiod).
+    """Begin monitoring all IR beam sensors via kernel GPIO interrupts.
 
-    Uses poll() on hardware interrupt event fds — no DMA ring buffer or pigpiod
-    IPC hop. The monitor thread is elevated to SCHED_FIFO 75 and pinned to the
-    RT core. The kernel timestamps edges at interrupt time (CLOCK_MONOTONIC).
+    gpiod requests edge-event fds; _gpiod_monitor blocks on poll(). The kernel
+    timestamps each edge at interrupt time (CLOCK_MONOTONIC nanoseconds) — more
+    accurate than pigpiod DMA and with no IPC hop.
 
-    fast_reaction(target, is_active), if provided, is called before on_event
-    so LED/valve writes happen immediately without a queue hop.
+    fast_reaction(target, is_active) fires before the queue post so that
+    LED/valve writes happen in the monitor thread itself.
     """
     global _gpiod_chip, _gpiod_fd_map, _monitoring, _fast_reaction_fn
 
@@ -267,7 +283,7 @@ def start_monitoring(on_event, fast_reaction=None) -> None:
 
 
 def _gpiod_monitor(on_event) -> None:
-    """Monitor thread: blocks on poll(), fires on hardware GPIO interrupt."""
+    """Monitor thread: blocks on poll(), fires immediately on GPIO interrupt."""
     _set_rt_priority(75)
     fds = list(_gpiod_fd_map.keys())
     while _monitoring:
@@ -280,14 +296,14 @@ def _gpiod_monitor(on_event) -> None:
             is_active = (ev.type == gpiod.LineEvent.FALLING_EDGE) \
                         if BEAM_ACTIVE_LOW[target] \
                         else (ev.type == gpiod.LineEvent.RISING_EDGE)
-            t_mono    = ev.sec + ev.nsec / 1e9  # kernel interrupt timestamp, CLOCK_MONOTONIC
+            t_mono    = ev.sec + ev.nsec / 1e9   # kernel interrupt timestamp
             if _fast_reaction_fn is not None:
                 _fast_reaction_fn(target, is_active)
             on_event(target, is_active, t_mono)
 
 
 def stop_monitoring() -> None:
-    """Stop the gpiod monitor thread and release all beam sensor lines."""
+    """Stop the monitor thread and release all beam sensor lines."""
     global _monitoring, _gpiod_fd_map, _gpiod_chip, _fast_reaction_fn
     _monitoring       = False
     _fast_reaction_fn = None
@@ -304,28 +320,20 @@ def stop_monitoring() -> None:
 
 
 def get_snapshot() -> dict:
-    """
-    Return the current binary state of all hardware as a flat dict.
-    For output pins both sources are included so they can be compared:
-      *_tracked  — internal _output_state dict (what we wrote)
-      *_readback — pigpio read on the output pin (what the hardware reports)
-    """
+    """Return the current binary state of all hardware as a flat dict."""
     snapshot = {}
 
     for target, pin in BEAM_PINS.items():
-        raw    = _pi.read(pin)
-        active = (raw == 0) if BEAM_ACTIVE_LOW[target] else (raw == 1)
+        active = _read_pin_level(pin)
+        if BEAM_ACTIVE_LOW[target]:
+            active = not active
         snapshot[f"beam_{target}"] = int(active)
 
-    all_output_pins = {
-        "led":   LED_PINS,
-        "valve": VALVE_PINS,
-    }
     with _output_lock:
-        for prefix, pins in all_output_pins.items():
+        for prefix, pins in {"led": LED_PINS, "valve": VALVE_PINS}.items():
             for target, pin in pins.items():
                 tracked  = int(_output_state.get(pin, False))
-                readback = int(_pi.read(pin))
+                readback = int(_read_pin_level(pin))
                 snapshot[f"{prefix}_{target}_tracked"]  = tracked
                 snapshot[f"{prefix}_{target}_readback"] = readback
                 if tracked != readback:
