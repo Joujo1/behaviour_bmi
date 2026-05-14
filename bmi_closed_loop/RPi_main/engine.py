@@ -160,7 +160,7 @@ class Engine:
 
         gpio_handler.start_monitoring(
             self._on_beam_event,
-            fast_reaction=self._fast_reaction if self._fast_table else None,
+            fast_reaction=None,   # disabled for latency testing
         )
         self._event_queue.put(('enter', self._initial_state))
 
@@ -253,8 +253,7 @@ class Engine:
 
     def _on_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
         """Hold timer callback. Fire LED/valve writes immediately before queuing."""
-        if self._current_state_id == expected_state:
-            self._fast_execute_transition(expected_state, next_state)
+        # fast_execute_transition disabled for latency testing
         self._event_queue.put(('hold', target, next_state, expected_state))
 
     # ------------------------------------------------------------------ #
