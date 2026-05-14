@@ -1,17 +1,17 @@
 """
-GPIO hardware abstraction layer — gpiod + /dev/gpiomem mmap, no pigpiod.
+GPIO hardware abstraction layer — gpiod v2 + /dev/gpiomem mmap, no pigpiod.
 
 All pin numbers and all GPIO calls are confined to this module.
 Engine and actions interact with hardware exclusively through the functions here.
 
-Input monitoring  : kernel GPIO character device via gpiod (hardware interrupts
+Input monitoring  : kernel GPIO character device via gpiod v2 (hardware interrupts
                     delivered to poll() — no DMA ring buffer or IPC hop).
 Output writes     : /dev/gpiomem mmap GPSET0/GPCLR0 (~1µs, no IPC).
 Fan PWM           : software PWM thread (200 Hz) — GPIO8 has no hardware PWM.
 pigpiod           : NOT used. Can be stopped/disabled.
 
 Requires:
-  sudo apt install python3-gpiod
+  sudo apt install python3-gpiod   # must be gpiod v2.x
 """
 
 import ctypes
@@ -23,6 +23,7 @@ import struct
 import threading
 
 import gpiod
+from gpiod.line import Bias, Direction, Edge, Value
 
 from config import (
     LED_PINS, VALVE_PINS, AUDIO_PINS, BEAM_PINS,
@@ -32,14 +33,13 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# ── gpiod output lines (held open for process lifetime) ───────────────────────
-_gpiod_out_chip:  gpiod.Chip | None = None
-_gpiod_out_lines: dict              = {}   # pin → gpiod.Line
+# ── gpiod v2 output request (all output pins, held open for process lifetime) ──
+_gpiod_out_req: gpiod.LineRequest | None = None
 
-# ── gpiod input monitoring ────────────────────────────────────────────────────
-_gpiod_chip:   gpiod.Chip | None = None
-_gpiod_fd_map: dict              = {}    # event_fd → (target, line)
-_monitoring:   bool              = False
+# ── gpiod v2 input monitoring ─────────────────────────────────────────────────
+_gpiod_in_req:  gpiod.LineRequest | None = None
+_pin_to_target: dict                     = {}   # beam pin → target name
+_monitoring:    bool                     = False
 
 # ── internal output-state tracking ───────────────────────────────────────────
 _output_state: dict[int, bool] = {}
@@ -94,65 +94,74 @@ def _init_fast_gpio() -> None:
 
 
 def _drive(pin: int, state: bool) -> None:
-    """Write a digital value to an output pin via mmap (or gpiod fallback)."""
+    """Write a digital value to an output pin via mmap (or gpiod v2 fallback)."""
     if _gpio_mem is not None:
         struct.pack_into('I', _gpio_mem, _GPSET0 if state else _GPCLR0, 1 << pin)
-    else:
-        line = _gpiod_out_lines.get(pin)
-        if line is not None:
-            line.set_value(1 if state else 0)
+    elif _gpiod_out_req is not None:
+        _gpiod_out_req.set_value(pin, Value.ACTIVE if state else Value.INACTIVE)
     with _output_lock:
         _output_state[pin] = state
 
 
 def _read_pin_level(pin: int) -> bool:
-    """Read the current level of any pin via mmap GPLEV0 (or gpiod fallback)."""
+    """Read the current level of any pin via mmap GPLEV0 (or gpiod v2 fallback)."""
     if _gpio_mem is not None:
         return bool(struct.unpack_from('I', _gpio_mem, _GPLEV0)[0] & (1 << pin))
-    line = _gpiod_out_lines.get(pin)
-    if line is not None:
-        return bool(line.get_value())
+    try:
+        if _gpiod_out_req is not None:
+            return _gpiod_out_req.get_value(pin) == Value.ACTIVE
+    except Exception:
+        pass
+    try:
+        if _gpiod_in_req is not None:
+            return _gpiod_in_req.get_value(pin) == Value.ACTIVE
+    except Exception:
+        pass
     return False
 
 
 # ── public API ────────────────────────────────────────────────────────────────
 
 def setup() -> None:
-    """Configure all output GPIO pins via gpiod. Call once at process start."""
-    global _gpiod_out_chip, _gpiod_out_lines
+    """Configure all output GPIO pins via gpiod v2. Call once at process start."""
+    global _gpiod_out_req
 
     _init_fast_gpio()
 
-    _gpiod_out_chip  = gpiod.Chip('/dev/gpiochip0')
     output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
                    list(AUDIO_PINS.values()) + [FAN_PIN, STRIP_PIN])
 
-    for pin in output_pins:
-        line = _gpiod_out_chip.get_line(pin)
-        line.request(consumer='bmi-out', type=gpiod.LINE_REQ_DIR_OUT,
-                     default_vals=[0])
-        _gpiod_out_lines[pin] = line
+    _gpiod_out_req = gpiod.request_lines(
+        '/dev/gpiochip0',
+        consumer='bmi-out',
+        config={
+            pin: gpiod.LineSettings(
+                direction=Direction.OUTPUT,
+                output_value=Value.INACTIVE,
+            )
+            for pin in output_pins
+        },
+    )
 
     with _output_lock:
         for pin in output_pins:
             _output_state[pin] = False
 
-    logger.info("GPIO setup complete (gpiod + mmap, pigpiod not used)")
+    logger.info("GPIO setup complete (gpiod v2 + mmap, pigpiod not used)")
 
 
 def cleanup() -> None:
     """Safety sweep and release all GPIO resources."""
+    global _gpiod_out_req
     stop_monitoring()
     safety_sweep()
     _stop_fan_pwm_thread()
-    for line in _gpiod_out_lines.values():
+    if _gpiod_out_req is not None:
         try:
-            line.release()
+            _gpiod_out_req.release()
         except Exception:
             pass
-    _gpiod_out_lines.clear()
-    if _gpiod_out_chip is not None:
-        _gpiod_out_chip.close()
+        _gpiod_out_req = None
     logger.info("GPIO cleaned up")
 
 
@@ -254,49 +263,58 @@ def safety_sweep() -> None:
 def start_monitoring(on_event, fast_reaction=None) -> None:
     """Begin monitoring all IR beam sensors via kernel GPIO interrupts.
 
-    gpiod requests edge-event fds; _gpiod_monitor blocks on poll(). The kernel
-    timestamps each edge at interrupt time (CLOCK_MONOTONIC nanoseconds) — more
-    accurate than pigpiod DMA and with no IPC hop.
+    gpiod v2 requests edge-event lines on a single LineRequest fd; the monitor
+    thread blocks on poll(). The kernel timestamps each edge at interrupt time
+    (CLOCK_MONOTONIC nanoseconds) — more accurate than pigpiod DMA and with no
+    IPC hop.
 
     fast_reaction(target, is_active) fires before the queue post so that
     LED/valve writes happen in the monitor thread itself.
     """
-    global _gpiod_chip, _gpiod_fd_map, _monitoring, _fast_reaction_fn
+    global _gpiod_in_req, _pin_to_target, _monitoring, _fast_reaction_fn
 
     _fast_reaction_fn = fast_reaction
     _monitoring       = True
-    _gpiod_chip       = gpiod.Chip('/dev/gpiochip0')
-    _gpiod_fd_map     = {}
+    _pin_to_target    = {pin: tgt for tgt, pin in BEAM_PINS.items()}
 
-    for target, pin in BEAM_PINS.items():
-        line  = _gpiod_chip.get_line(pin)
-        flags = (gpiod.LINE_REQ_FLAG_BIAS_PULL_UP if BEAM_ACTIVE_LOW[target]
-                 else gpiod.LINE_REQ_FLAG_BIAS_PULL_DOWN)
-        line.request(consumer='bmi-beam',
-                     type=gpiod.LINE_REQ_EV_BOTH_EDGES,
-                     flags=flags)
-        _gpiod_fd_map[line.event_get_fd()] = (target, line)
+    _gpiod_in_req = gpiod.request_lines(
+        '/dev/gpiochip0',
+        consumer='bmi-beam',
+        config={
+            pin: gpiod.LineSettings(
+                direction=Direction.INPUT,
+                edge_detection=Edge.BOTH,
+                bias=Bias.PULL_UP if BEAM_ACTIVE_LOW[tgt] else Bias.PULL_DOWN,
+            )
+            for tgt, pin in BEAM_PINS.items()
+        },
+    )
 
     threading.Thread(target=_gpiod_monitor, args=(on_event,),
                      daemon=True, name='gpio-mon').start()
-    logger.info("Beam monitoring started (gpiod hardware interrupts)")
+    logger.info("Beam monitoring started (gpiod v2 hardware interrupts)")
 
 
 def _gpiod_monitor(on_event) -> None:
     """Monitor thread: blocks on poll(), fires immediately on GPIO interrupt."""
     _set_rt_priority(75)
-    fds = list(_gpiod_fd_map.keys())
+    req = _gpiod_in_req   # capture locally so stop_monitoring() can safely clear global
+    fd  = req.fd
     while _monitoring:
-        ready = _select.select(fds, [], [], 0.1)[0]
-        for fd in ready:
+        ready = _select.select([fd], [], [], 0.1)[0]
+        if not ready or not _monitoring:
+            continue
+        for ev in req.read_edge_events():
             if not _monitoring:
                 return
-            target, line = _gpiod_fd_map[fd]
-            ev        = line.event_read()
-            is_active = (ev.type == gpiod.LineEvent.FALLING_EDGE) \
+            pin    = ev.line_offset
+            target = _pin_to_target.get(pin)
+            if target is None:
+                continue
+            is_active = (ev.event_type.name == 'FALLING_EDGE') \
                         if BEAM_ACTIVE_LOW[target] \
-                        else (ev.type == gpiod.LineEvent.RISING_EDGE)
-            t_mono    = ev.sec + ev.nsec / 1e9   # kernel interrupt timestamp
+                        else (ev.event_type.name == 'RISING_EDGE')
+            t_mono = ev.timestamp_ns / 1e9   # kernel interrupt timestamp (CLOCK_MONOTONIC)
             if _fast_reaction_fn is not None:
                 _fast_reaction_fn(target, is_active)
             on_event(target, is_active, t_mono)
@@ -304,18 +322,16 @@ def _gpiod_monitor(on_event) -> None:
 
 def stop_monitoring() -> None:
     """Stop the monitor thread and release all beam sensor lines."""
-    global _monitoring, _gpiod_fd_map, _gpiod_chip, _fast_reaction_fn
+    global _monitoring, _gpiod_in_req, _pin_to_target, _fast_reaction_fn
     _monitoring       = False
     _fast_reaction_fn = None
-    for _, line in _gpiod_fd_map.values():
+    _pin_to_target    = {}
+    if _gpiod_in_req is not None:
         try:
-            line.release()
+            _gpiod_in_req.release()
         except Exception:
             pass
-    _gpiod_fd_map = {}
-    if _gpiod_chip is not None:
-        _gpiod_chip.close()
-        _gpiod_chip = None
+        _gpiod_in_req = None
     logger.info("Beam monitoring stopped")
 
 

@@ -26,7 +26,7 @@ pop_frame_events() is called from the picamera2 encoder thread.
 Timestamp policy
 ----------------
 - Sensor inputs  : stamped from the kernel GPIO interrupt timestamp
-                   (ev.sec + ev.nsec) passed into _on_beam_event() by the
+                   (ev.timestamp_ns / 1e9) passed into _on_beam_event() by the
                    gpiod monitor thread. Reflects the exact moment the
                    hardware interrupt fired, not when Python ran the callback.
 - Hardware outputs: stamped in _dispatch_action() *after* actions.dispatch()
