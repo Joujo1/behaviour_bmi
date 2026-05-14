@@ -64,7 +64,7 @@ def _stop_audio(target: str) -> None:
 # Pre-built click waveform — constructed once at import time.
 _CLICK = audio.build_click(srate=AUDIO_SRATE)
 
-_CHUNK = 512
+_CHUNK = 48
 
 # Persistent OutputStream with a global callback.
 _stream:  sd.OutputStream | None = None
