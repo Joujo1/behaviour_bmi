@@ -15,6 +15,8 @@ CPUSchedulingPolicy=fifo
 CPUSchedulingPriority=90
 IOSchedulingClass=realtime
 IOSchedulingPriority=0
+CPUAffinity=3
+LimitMEMLOCK=infinity
 
 [Install]
 WantedBy=multi-user.target
@@ -39,9 +41,38 @@ StandardOutput=journal
 StandardError=journal
 CPUSchedulingPolicy=fifo
 CPUSchedulingPriority=70
+LimitMEMLOCK=infinity
 
 [Install]
 WantedBy=multi-user.target
+
+
+# ── cpu-governor.service ──────────────────────────────────────────────────────
+# Save to: /etc/systemd/system/cpu-governor.service
+# Sets all 4 cores to the performance cpufreq governor at boot.
+# Prevents frequency-scaling latency spikes (CPU ramping up from idle).
+
+[Unit]
+Description=Set CPU scaling governor to performance
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c "echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+
+[Install]
+WantedBy=multi-user.target
+
+
+# ── sysctl RT tuning ─────────────────────────────────────────────────────────
+# Save to: /etc/sysctl.d/99-rt.conf
+# Removes the kernel's RT budget throttle (default: SCHED_FIFO threads are
+# capped at 95% CPU time, causing a forced ~50ms stall every second).
+# Writing -1 gives RT tasks unlimited CPU. Done at runtime in main.py too,
+# but this file makes it survive reboots without depending on the service.
+#
+# kernel.sched_rt_runtime_us = -1
 
 
 # ── Setup ────────────────────────────────────────────────────────────────────
@@ -54,18 +85,53 @@ sudo nano /etc/systemd/system/pigpiod.service
 sudo nano /etc/systemd/system/cage_controller.service
 # Paste the [cage_controller.service] block above, then save (Ctrl+X → Y → Enter)
 
-# Step 3: Enable and start both services
+# Step 3: Create the cpu-governor service file
+sudo nano /etc/systemd/system/cpu-governor.service
+# Paste the [cpu-governor.service] block above, then save (Ctrl+X → Y → Enter)
+
+# Step 4: Create the RT sysctl config
+sudo nano /etc/sysctl.d/99-rt.conf
+# Paste this single line (without the leading #), then save:
+#   kernel.sched_rt_runtime_us = -1
+
+# Step 5: Enable and start all services
 sudo systemctl daemon-reload
 sudo systemctl enable pigpiod
 sudo systemctl start pigpiod
+sudo systemctl enable cpu-governor.service
+sudo systemctl start cpu-governor.service
 sudo systemctl enable cage_controller.service
 sudo systemctl start cage_controller.service
+
+# Step 6: Apply the RT sysctl immediately (no reboot needed)
+sudo sysctl -p /etc/sysctl.d/99-rt.conf
+
+# Step 7: Isolate CPU core 3 from the OS scheduler (requires reboot)
+# Edit /boot/firmware/cmdline.txt — add to the END of the existing single line:
+#   isolcpus=3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2
+# Then reboot. After this the H264 encoder, network stack, and kernel threads
+# are confined to cores 0-2; pigpiod and the RT Python threads run on core 3 only.
+sudo nano /boot/firmware/cmdline.txt
+sudo reboot
 
 
 # ── Useful commands ───────────────────────────────────────────────────────────
 
 # Check status
 sudo systemctl status cage_controller.service
+sudo systemctl status pigpiod.service
+sudo systemctl status cpu-governor.service
+
+# Verify CPU governor is active
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+# Verify RT throttle is disabled
+cat /proc/sys/kernel/sched_rt_runtime_us   # should print -1
+
+# Verify core isolation (after reboot with isolcpus=3)
+# pigpiod should show only cpu3:
+ps -eo pid,comm,psr | grep pigpiod
+# RT Python threads should show cpu3 in /proc/<pid>/task/<tid>/status
 
 # Live logs
 journalctl -u cage_controller.service -f
