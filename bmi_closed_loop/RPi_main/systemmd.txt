@@ -7,7 +7,7 @@ After=network.target
 
 [Service]
 Type=forking
-ExecStart=/usr/local/bin/pigpiod -s 1
+ExecStart=/usr/local/bin/pigpiod -s 1 -x -1
 ExecStop=/usr/local/bin/pigpiod -t 0 -p 8888
 Restart=on-failure
 User=root
