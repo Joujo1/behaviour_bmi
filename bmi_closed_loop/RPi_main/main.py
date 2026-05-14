@@ -34,6 +34,10 @@ from udp_sender_pi import UDPSender
 from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
 
+# Reduce GIL check interval from default 5ms → 100µs so the pigpio callback
+# thread acquires the GIL faster after delivering a beam-break notification.
+sys.setswitchinterval(0.0001)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",

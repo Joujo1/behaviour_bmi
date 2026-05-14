@@ -15,6 +15,9 @@ Requires pigpiod to be running: sudo systemctl start pigpiod
 
 import ctypes
 import logging
+import mmap
+import os
+import struct
 import threading
 import time
 
@@ -50,6 +53,17 @@ _fan_pwm_lock  = threading.Lock()
 _fan_pwm_duty: float = 0.0
 _fan_pwm_active: bool = False
 
+# ── direct /dev/gpiomem mmap for sub-µs output writes (RPi 4 BCM2711) ────────
+# GPSET0 (offset 0x1C) sets pins 0-31; GPCLR0 (offset 0x28) clears them.
+# These are bit-mask write-only registers — concurrent pigpiod + mmap writes
+# to different pins on the same register are safe (no read-modify-write hazard).
+_gpio_mem: mmap.mmap | None = None
+_GPSET0 = 0x1C
+_GPCLR0 = 0x28
+
+# ── fast-reaction hook — set by start_monitoring(), called before queue post ──
+_fast_reaction_fn = None
+
 
 # ── RT scheduling ─────────────────────────────────────────────────────────────
 
@@ -78,9 +92,29 @@ def _tick_to_mono(tick: int) -> float:
 
 # ── internal helpers ──────────────────────────────────────────────────────────
 
+def _init_fast_gpio() -> None:
+    """Open /dev/gpiomem and mmap the BCM GPIO registers for direct writes."""
+    global _gpio_mem
+    try:
+        fd = os.open('/dev/gpiomem', os.O_RDWR | os.O_SYNC)
+        _gpio_mem = mmap.mmap(fd, 256, mmap.MAP_SHARED,
+                              mmap.PROT_READ | mmap.PROT_WRITE)
+        os.close(fd)
+        logger.info("Direct GPIO mmap enabled — output writes ~1µs")
+    except Exception as e:
+        logger.warning("Direct GPIO mmap unavailable: %s — falling back to pigpio", e)
+
+
 def _drive(pin: int, state: bool) -> None:
-    """Write a digital value to an output pin and record the new state."""
-    _pi.write(pin, 1 if state else 0)
+    """Write a digital value to an output pin and record the new state.
+
+    Uses /dev/gpiomem (BCM GPSET0/GPCLR0) when available (~1µs) instead of
+    the pigpiod socket (~200µs).
+    """
+    if _gpio_mem is not None:
+        struct.pack_into('I', _gpio_mem, _GPSET0 if state else _GPCLR0, 1 << pin)
+    else:
+        _pi.write(pin, 1 if state else 0)
     with _output_lock:
         _output_state[pin] = state
 
@@ -129,6 +163,7 @@ def setup() -> None:
     _mono_anchor = time.clock_gettime(time.CLOCK_MONOTONIC)
     _tick_anchor  = _pi.get_current_tick()
 
+    _init_fast_gpio()
     logger.info("GPIO setup complete (pigpio daemon connected)")
 
 
@@ -215,22 +250,27 @@ def _read_active(target: str, pin: int) -> bool:
     return (raw == 0) if BEAM_ACTIVE_LOW[target] else (raw == 1)
 
 
-def start_monitoring(on_event) -> None:
+def start_monitoring(on_event, fast_reaction=None) -> None:
     """Begin monitoring all IR sensors for the duration of a trial.
 
     on_event(target, is_active, t_mono) is called from the pigpio callback
     thread with a hardware tick timestamp converted to CLOCK_MONOTONIC seconds.
     The callback thread is elevated to SCHED_FIFO priority 75 on its first
     invocation so it is never preempted by the FSM thread (priority 70).
+
+    fast_reaction(target, is_active), if provided, is called BEFORE on_event
+    so that LED/valve writes happen in the callback thread itself, cutting
+    out the queue-to-FSM-thread hop (~1.5–2ms).
     """
-    global _callbacks, _tick_anchor, _mono_anchor, _gpio_cb_rt_set
+    global _callbacks, _tick_anchor, _mono_anchor, _gpio_cb_rt_set, _fast_reaction_fn
 
     # Refresh anchor at every trial start to keep the wrap window well below
     # the 71.6-minute tick rollover (trials are max 20 minutes)
-    _mono_anchor    = time.clock_gettime(time.CLOCK_MONOTONIC)
-    _tick_anchor    = _pi.get_current_tick()
-    _gpio_cb_rt_set = False
-    _callbacks      = []
+    _mono_anchor       = time.clock_gettime(time.CLOCK_MONOTONIC)
+    _tick_anchor       = _pi.get_current_tick()
+    _gpio_cb_rt_set    = False
+    _callbacks         = []
+    _fast_reaction_fn  = fast_reaction
 
     for target, pin in BEAM_PINS.items():
         def _handler(gpio, level, tick, t=target, p=pin):
@@ -238,7 +278,10 @@ def start_monitoring(on_event) -> None:
             if not _gpio_cb_rt_set:
                 _set_rt_priority(75)
                 _gpio_cb_rt_set = True
-            on_event(t, level == 0, _tick_to_mono(tick))
+            is_active = (level == 0) if BEAM_ACTIVE_LOW[t] else (level == 1)
+            if _fast_reaction_fn is not None:
+                _fast_reaction_fn(t, is_active)
+            on_event(t, is_active, _tick_to_mono(tick))
 
         _callbacks.append(_pi.callback(pin, pigpio.EITHER_EDGE, _handler))
 
@@ -247,10 +290,11 @@ def start_monitoring(on_event) -> None:
 
 def stop_monitoring() -> None:
     """Cancel all beam callbacks; called at trial end."""
-    global _callbacks
+    global _callbacks, _fast_reaction_fn
     for cb in _callbacks:
         cb.cancel()
-    _callbacks = []
+    _callbacks        = []
+    _fast_reaction_fn = None
     logger.info("Beam monitoring stopped")
 
 

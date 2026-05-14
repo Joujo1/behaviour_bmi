@@ -11,6 +11,10 @@ ExecStart=/usr/local/bin/pigpiod -s 1 -x -1
 ExecStop=/usr/local/bin/pigpiod -t 0 -p 8888
 Restart=on-failure
 User=root
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=90
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
 
 [Install]
 WantedBy=multi-user.target
@@ -33,6 +37,8 @@ User=root
 Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=70
 
 [Install]
 WantedBy=multi-user.target

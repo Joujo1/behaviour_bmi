@@ -108,6 +108,10 @@ class Engine:
         self._event_lock = threading.Lock()
         self._clicks_active = False
 
+        # Fast-reaction table: (state_id, beam_target) → list of action dicts
+        # for zero-hold beam_break transitions. Populated in _build_fast_table().
+        self._fast_table: dict = {}
+
     # ------------------------------------------------------------------ #
     # Public interface                                                     #
     # ------------------------------------------------------------------ #
@@ -126,7 +130,9 @@ class Engine:
         self._trial_id      = data.get("trial_id", "unknown")
         self._initial_state = data["initial_state"]
         self._states        = {s["id"]: s for s in data["states"]}
-        logger.info("Trial '%s' loaded — %d states", self._trial_id, len(self._states))
+        self._build_fast_table()
+        logger.info("Trial '%s' loaded — %d states, %d fast-path reactions",
+                    self._trial_id, len(self._states), len(self._fast_table))
 
     def start(self) -> None:
         """Launch the FSM thread, arm the watchdog, and start beam monitoring."""
@@ -143,7 +149,10 @@ class Engine:
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
 
-        gpio_handler.start_monitoring(self._on_beam_event)
+        gpio_handler.start_monitoring(
+            self._on_beam_event,
+            fast_reaction=self._fast_reaction if self._fast_table else None,
+        )
         self._event_queue.put(('enter', self._initial_state))
 
     def stop(self) -> None:
@@ -234,8 +243,85 @@ class Engine:
         self._event_queue.put(('watchdog',))
 
     def _on_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
-        """Hold timer callback."""
+        """Hold timer callback. Fire LED/valve writes immediately before queuing."""
+        if self._current_state_id == expected_state:
+            self._fast_execute_transition(expected_state, next_state)
         self._event_queue.put(('hold', target, next_state, expected_state))
+
+    # ------------------------------------------------------------------ #
+    # Fast-path reaction — runs in the pigpio callback thread (prio 75)  #
+    # ----------------------------------------------------------------- #
+
+    def _build_fast_table(self) -> None:
+        """Precompute (state_id, beam_target) → [action_dicts] for immediate
+        beam_break transitions (hold_ms == 0).  Called once per load().
+
+        Only LED and valve actions are included — they are idempotent and safe
+        to call from the callback thread.  play_clicks is excluded (needs its
+        own thread).  hold_ms > 0 transitions are excluded (must wait for hold).
+        """
+        _FAST_TYPES = frozenset(('led_on', 'led_off', 'valve_open', 'valve_close'))
+        table = {}
+        for state_id, state in self._states.items():
+            for tr in state.get('transitions', []):
+                if tr.get('trigger') != 'beam_break':
+                    continue
+                if tr.get('hold_ms', 0):
+                    continue
+                tgt = tr.get('target')
+                fast_acts = [a for a in state.get('exit_actions', [])
+                             if a.get('type') in _FAST_TYPES]
+                next_state = self._states.get(tr.get('next_state', ''))
+                if next_state:
+                    fast_acts += [a for a in next_state.get('entry_actions', [])
+                                  if a.get('type') in _FAST_TYPES]
+                if fast_acts:
+                    table[(state_id, tgt)] = fast_acts
+        self._fast_table = table
+
+    def _fast_reaction(self, target: str, is_active: bool) -> None:
+        """Execute LED/valve writes immediately in the pigpio callback thread.
+
+        Called before the beam event is posted to the FSM queue, eliminating
+        the ~1.5–2ms queue-to-FSM-thread hop for the critical output path.
+        The FSM thread re-executes the same writes later (idempotent).
+        """
+        if not is_active:
+            return
+        state_id = self._current_state_id   # GIL-atomic read in CPython
+        if state_id is None:
+            return
+        fast_acts = self._fast_table.get((state_id, target))
+        if fast_acts:
+            self._fast_execute(fast_acts)
+
+    def _fast_execute_transition(self, from_state_id: str, to_state_id: str) -> None:
+        """Execute LED/valve exit_actions + entry_actions for a transition immediately.
+
+        Called from timer callbacks (hold, timeout) to fire output writes without
+        waiting for the FSM thread to dequeue the event.
+        """
+        _FAST_TYPES = frozenset(('led_on', 'led_off', 'valve_open', 'valve_close'))
+        fast_acts = []
+        from_state = self._states.get(from_state_id)
+        if from_state:
+            fast_acts += [a for a in from_state.get('exit_actions', [])
+                          if a.get('type') in _FAST_TYPES]
+        to_state = self._states.get(to_state_id)
+        if to_state:
+            fast_acts += [a for a in to_state.get('entry_actions', [])
+                          if a.get('type') in _FAST_TYPES]
+        self._fast_execute(fast_acts)
+
+    def _fast_execute(self, actions_list: list) -> None:
+        """Drive GPIO pins for a precomputed list of LED/valve action dicts."""
+        for act in actions_list:
+            atype = act['type']
+            tgt   = act.get('target')
+            if   atype == 'led_on':      gpio_handler.set_led(tgt, True)
+            elif atype == 'led_off':     gpio_handler.set_led(tgt, False)
+            elif atype == 'valve_open':  gpio_handler.set_valve(tgt, True)
+            elif atype == 'valve_close': gpio_handler.set_valve(tgt, False)
 
     # ------------------------------------------------------------------ #
     # FSM handlers — run exclusively in the FSM thread                    #
