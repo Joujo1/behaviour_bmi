@@ -7,9 +7,10 @@ After=network.target
 
 [Service]
 Type=forking
-ExecStart=/usr/local/bin/pigpiod
-ExecStop=/bin/systemctl kill pigpiod
+ExecStart=/usr/local/bin/pigpiod -s 1
+ExecStop=/usr/local/bin/pigpiod -t 0 -p 8888
 Restart=on-failure
+User=root
 
 [Install]
 WantedBy=multi-user.target
