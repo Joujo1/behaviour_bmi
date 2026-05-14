@@ -346,7 +346,7 @@ class Engine:
 
     def _handle_beam(self, target: str, is_active: bool, t: float) -> None:
         """Process a beam sensor edge. t was captured at interrupt time."""
-        logger.info("Beam event  target=%-6s  active=%s", target, is_active)
+        logger.debug("Beam event  target=%-6s  active=%s", target, is_active)
 
         if self._current_state_id is None:
             return
@@ -368,13 +368,13 @@ class Engine:
             if tr.get("trigger") == "beam_break" and tr.get("target") == target:
                 hold_ms = tr.get("hold_ms", 0) or 0
                 if hold_ms > 0:
-                    logger.info("Beam break on '%s' — starting hold timer %.0fms", target, hold_ms)
+                    logger.debug("Beam break on '%s' — starting hold timer %.0fms", target, hold_ms)
                     self._start_hold_timer(target, tr["next_state"], hold_ms)
                 else:
                     self.transition_to(tr["next_state"])
                 return  # first matching transition wins
 
-        logger.info("Beam break on '%s' — no transition in state '%s' (recorded only)",
+        logger.debug("Beam break on '%s' — no transition in state '%s' (recorded only)",
                     target, self._current_state_id)
 
     def _handle_timeout(self) -> None:
@@ -388,7 +388,7 @@ class Engine:
 
         for tr in state.get("transitions", []):
             if tr.get("trigger") == "timeout":
-                logger.info("Timeout in state '%s' → '%s'", self._current_state_id, tr["next_state"])
+                logger.debug("Timeout in state '%s' → '%s'", self._current_state_id, tr["next_state"])
                 self.transition_to(tr["next_state"])
                 return
 
@@ -407,7 +407,7 @@ class Engine:
 
         for tr in state.get("transitions", []):
             if tr.get("trigger") == "clicks_done":
-                logger.info("Clicks done in state '%s' → '%s'",
+                logger.debug("Clicks done in state '%s' → '%s'",
                             self._current_state_id, tr["next_state"])
                 self.transition_to(tr["next_state"])
                 return
@@ -415,7 +415,7 @@ class Engine:
         if self._clicks_active:
             self._log_output("clicks", False)
             self._clicks_active = False
-        logger.info("Clicks done in state '%s' — no clicks_done transition (ignoring)",
+        logger.debug("Clicks done in state '%s' — no clicks_done transition (ignoring)",
                     self._current_state_id)
 
     def _handle_watchdog(self) -> None:
@@ -427,10 +427,10 @@ class Engine:
     def _handle_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
         """Process hold timer expiry."""
         if self._current_state_id != expected_state:
-            logger.info("Hold complete for '%s' but state changed — ignoring", target)
+            logger.debug("Hold complete for '%s' but state changed — ignoring", target)
             return
         self._hold_timers.pop(target, None)
-        logger.info("Hold complete for '%s' — transitioning to '%s'", target, next_state)
+        logger.debug("Hold complete for '%s' — transitioning to '%s'", target, next_state)
         self.transition_to(next_state)
 
     # ------------------------------------------------------------------ #
@@ -452,7 +452,7 @@ class Engine:
 
         self._current_state_id = state_id
         duration = state.get("duration")
-        logger.info("Entering state '%s'  (duration: %ss)",
+        logger.debug("Entering state '%s'  (duration: %ss)",
                     state_id, duration if duration is not None else "none")
 
         for action in state.get("entry_actions", []):
@@ -477,7 +477,7 @@ class Engine:
             for action in current.get("exit_actions", []):
                 self._dispatch_action(action)
 
-        logger.info("Transition  '%s' → '%s'", self._current_state_id, next_state_id)
+        logger.debug("Transition  '%s' → '%s'", self._current_state_id, next_state_id)
         with self._event_lock:
             entry = {
                 "t":    time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
@@ -582,7 +582,7 @@ class Engine:
         if entry is not None:
             _, stop_ev = entry
             stop_ev.set()
-            logger.info("Hold timer cancelled for sensor '%s'", target)
+            logger.debug("Hold timer cancelled for sensor '%s'", target)
 
     def _cancel_all_hold_timers(self) -> None:
         for target in list(self._hold_timers):

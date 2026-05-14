@@ -238,7 +238,7 @@ def init_audio() -> None:
 def stop_clicks() -> None:
     """Interrupt any in-progress click train playback immediately."""
     _click_stop.set()
-    logger.info("Click trains stopped")
+    logger.debug("Click trains stopped")
 
 
 ACTIONS: dict = {
@@ -276,7 +276,7 @@ def dispatch(action_dict: dict, on_complete=None, log_cb=None, latency_cb=None) 
             action_dict["latency_cb"] = latency_cb
 
     try:
-        logger.info("Action  %s  %s", action_type, action_dict)
+        logger.debug("Action  %s  %s", action_type, action_dict)
         fn(**action_dict)
     except TypeError as e:
         logger.error("Bad arguments for action '%s': %s", action_type, e)
