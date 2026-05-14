@@ -123,7 +123,7 @@ def setup() -> None:
 
     _init_fast_gpio()
 
-    _gpiod_out_chip  = gpiod.Chip('gpiochip0')
+    _gpiod_out_chip  = gpiod.Chip('/dev/gpiochip0')
     output_pins = (list(LED_PINS.values()) + list(VALVE_PINS.values()) +
                    list(AUDIO_PINS.values()) + [FAN_PIN, STRIP_PIN])
 
@@ -265,7 +265,7 @@ def start_monitoring(on_event, fast_reaction=None) -> None:
 
     _fast_reaction_fn = fast_reaction
     _monitoring       = True
-    _gpiod_chip       = gpiod.Chip('gpiochip0')
+    _gpiod_chip       = gpiod.Chip('/dev/gpiochip0')
     _gpiod_fd_map     = {}
 
     for target, pin in BEAM_PINS.items():

@@ -25,10 +25,10 @@ pop_frame_events() is called from the picamera2 encoder thread.
 
 Timestamp policy
 ----------------
-- Sensor inputs  : stamped from the pigpio hardware tick passed into
-                   _on_beam_event(), converted to CLOCK_MONOTONIC in
-                   gpio_handler. Reflects the moment the pigpio daemon
-                   detected the edge, not when Python ran the callback.
+- Sensor inputs  : stamped from the kernel GPIO interrupt timestamp
+                   (ev.sec + ev.nsec) passed into _on_beam_event() by the
+                   gpiod monitor thread. Reflects the exact moment the
+                   hardware interrupt fired, not when Python ran the callback.
 - Hardware outputs: stamped in _dispatch_action() *after* actions.dispatch()
                    returns, so t reflects when the GPIO pin actually changed.
 - State transitions: stamped in transition_to() at decision time (FSM thread).
@@ -230,8 +230,8 @@ class Engine:
     # ------------------------------------------------------------------ #
 
     def _on_beam_event(self, target: str, is_active: bool, t_mono: float) -> None:
-        """GPIO interrupt callback. t_mono is CLOCK_MONOTONIC seconds derived from
-        the pigpio hardware tick, recorded at the moment the daemon detected the edge."""
+        """GPIO interrupt callback. t_mono is CLOCK_MONOTONIC seconds from the
+        kernel hardware interrupt timestamp, recorded at the moment the edge fired."""
         t = t_mono - self._trial_start
         self._event_queue.put(('beam', target, is_active, t))
 
@@ -254,7 +254,7 @@ class Engine:
         self._event_queue.put(('hold', target, next_state, expected_state))
 
     # ------------------------------------------------------------------ #
-    # Fast-path reaction — runs in the pigpio callback thread (prio 75)  #
+    # Fast-path reaction — runs in the gpiod monitor thread (prio 75)    #
     # ----------------------------------------------------------------- #
 
     def _build_fast_table(self) -> None:
@@ -285,7 +285,7 @@ class Engine:
         self._fast_table = table
 
     def _fast_reaction(self, target: str, is_active: bool) -> None:
-        """Execute LED/valve writes immediately in the pigpio callback thread.
+        """Execute LED/valve writes immediately in the gpiod monitor thread.
 
         Called before the beam event is posted to the FSM queue, eliminating
         the ~1.5–2ms queue-to-FSM-thread hop for the critical output path.

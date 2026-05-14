@@ -37,8 +37,8 @@ from udp_sender_pi import UDPSender
 from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
 
-# Reduce GIL check interval from default 5ms → 100µs so the pigpio callback
-# thread acquires the GIL faster after delivering a beam-break notification.
+# Reduce GIL check interval from default 5ms → 100µs so the gpiod monitor
+# thread acquires the GIL faster after a beam-break interrupt.
 sys.setswitchinterval(0.0001)
 
 # Remove the kernel's RT throttle (default: RT tasks capped at 95% CPU time,
@@ -50,7 +50,7 @@ except OSError:
     pass  # non-fatal if not root; set permanently via sysctl.d instead
 
 # Lock all current and future memory pages to prevent page-fault latency spikes
-# in the pigpio callback and FSM threads. Requires root / CAP_IPC_LOCK.
+# in the gpiod monitor and FSM threads. Requires root / CAP_IPC_LOCK.
 try:
     _libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
     if _libc.mlockall(ctypes.c_int(3)) != 0:  # MCL_CURRENT=1 | MCL_FUTURE=2

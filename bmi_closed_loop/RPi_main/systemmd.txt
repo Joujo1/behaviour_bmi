@@ -1,29 +1,6 @@
-# ── pigpiod.service (built from source — no apt package) ─────────────────────
-# Save to: /etc/systemd/system/pigpiod.service
-
-[Unit]
-Description=Pigpio Daemon
-After=network.target
-
-[Service]
-Type=forking
-ExecStart=/usr/local/bin/pigpiod -s 1 -x -1
-ExecStop=/usr/local/bin/pigpiod -t 0 -p 8888
-Restart=on-failure
-User=root
-CPUSchedulingPolicy=fifo
-CPUSchedulingPriority=90
-IOSchedulingClass=realtime
-IOSchedulingPriority=0
-CPUAffinity=3
-LimitMEMLOCK=infinity
-
-[Install]
-WantedBy=multi-user.target
-
-
 # ── cage_controller.service ───────────────────────────────────────────────────
 # Save to: /etc/systemd/system/cage_controller.service
+# Note: pigpiod is NOT used — GPIO is handled via gpiod + /dev/gpiomem mmap.
 
 [Unit]
 Description=Cage Controller
@@ -77,49 +54,46 @@ WantedBy=multi-user.target
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
-# Step 1: Create the pigpiod service file (built from source)
-sudo nano /etc/systemd/system/pigpiod.service
-# Paste the [pigpiod.service] block above, then save (Ctrl+X → Y → Enter)
-
-# Step 2: Create the cage_controller service file
+# Step 1: Create the cage_controller service file
 sudo nano /etc/systemd/system/cage_controller.service
 # Paste the [cage_controller.service] block above, then save (Ctrl+X → Y → Enter)
 
-# Step 3: Create the cpu-governor service file
+# Step 2: Create the cpu-governor service file
 sudo nano /etc/systemd/system/cpu-governor.service
 # Paste the [cpu-governor.service] block above, then save (Ctrl+X → Y → Enter)
 
-# Step 4: Create the RT sysctl config
+# Step 3: Create the RT sysctl config
 sudo nano /etc/sysctl.d/99-rt.conf
 # Paste this single line (without the leading #), then save:
 #   kernel.sched_rt_runtime_us = -1
 
-# Step 5: Enable and start all services
+# Step 4: Enable and start all services
 sudo systemctl daemon-reload
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
 sudo systemctl enable cpu-governor.service
 sudo systemctl start cpu-governor.service
 sudo systemctl enable cage_controller.service
 sudo systemctl start cage_controller.service
 
-# Step 6: Apply the RT sysctl immediately (no reboot needed)
+# Step 5: Apply the RT sysctl immediately (no reboot needed)
 sudo sysctl -p /etc/sysctl.d/99-rt.conf
 
-# Step 7: Isolate CPU core 3 from the OS scheduler (requires reboot)
+# Step 6: Isolate CPU core 3 from the OS scheduler (requires reboot)
 # Edit /boot/firmware/cmdline.txt — add to the END of the existing single line:
 #   isolcpus=3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2
 # Then reboot. After this the H264 encoder, network stack, and kernel threads
-# are confined to cores 0-2; pigpiod and the RT Python threads run on core 3 only.
+# are confined to cores 0-2; the RT Python threads (gpiod monitor, FSM) run on core 3 only.
 sudo nano /boot/firmware/cmdline.txt
 sudo reboot
+
+# Step 7 (if migrating from pigpiod): stop and disable the old daemon
+sudo systemctl stop pigpiod
+sudo systemctl disable pigpiod
 
 
 # ── Useful commands ───────────────────────────────────────────────────────────
 
 # Check status
 sudo systemctl status cage_controller.service
-sudo systemctl status pigpiod.service
 sudo systemctl status cpu-governor.service
 
 # Verify CPU governor is active
@@ -129,9 +103,8 @@ cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 cat /proc/sys/kernel/sched_rt_runtime_us   # should print -1
 
 # Verify core isolation (after reboot with isolcpus=3)
-# pigpiod should show only cpu3:
-ps -eo pid,comm,psr | grep pigpiod
 # RT Python threads should show cpu3 in /proc/<pid>/task/<tid>/status
+grep Cpus_allowed_list /proc/$(pgrep -f main.py)/status
 
 # Live logs
 journalctl -u cage_controller.service -f
