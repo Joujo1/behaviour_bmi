@@ -1,3 +1,23 @@
+# ── pigpiod.service (built from source — no apt package) ─────────────────────
+# Save to: /etc/systemd/system/pigpiod.service
+
+[Unit]
+Description=Pigpio Daemon
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/pigpiod
+ExecStop=/bin/systemctl kill pigpiod
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
+
+# ── cage_controller.service ───────────────────────────────────────────────────
+# Save to: /etc/systemd/system/cage_controller.service
+
 [Unit]
 Description=Cage Controller
 After=network-online.target pigpiod.service
@@ -19,16 +39,18 @@ WantedBy=multi-user.target
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
-# Step 1: Enable pigpiod to start at boot (pre-installed on Raspberry Pi OS)
-sudo systemctl enable pigpiod
+# Step 1: Create the pigpiod service file (built from source)
+sudo nano /etc/systemd/system/pigpiod.service
+# Paste the [pigpiod.service] block above, then save (Ctrl+X → Y → Enter)
 
-# Step 2: Create the service file
+# Step 2: Create the cage_controller service file
 sudo nano /etc/systemd/system/cage_controller.service
+# Paste the [cage_controller.service] block above, then save (Ctrl+X → Y → Enter)
 
-# Step 3: Paste the contents above, then save (Ctrl+X → Y → Enter)
-
-# Step 4: Enable and start
+# Step 3: Enable and start both services
 sudo systemctl daemon-reload
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
 sudo systemctl enable cage_controller.service
 sudo systemctl start cage_controller.service
 
