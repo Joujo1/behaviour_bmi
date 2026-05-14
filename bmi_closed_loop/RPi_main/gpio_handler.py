@@ -1,26 +1,30 @@
 """
-GPIO hardware abstraction layer — pigpio backend.
+GPIO hardware abstraction layer — pigpio + gpiod backend.
 
-All pin numbers and all pigpio calls are confined to this module.
+All pin numbers and all pigpio/gpiod calls are confined to this module.
 Engine and actions interact with hardware exclusively through the functions here.
 
-All beam sensors are monitored continuously for the entire trial with both
-entry and exit edges. Callbacks receive a hardware tick timestamp from the
-pigpio daemon, which is more accurate than calling clock_gettime inside the
-callback because it reflects when the edge was detected by the daemon rather
-than when Python woke up.
+Input monitoring (beam sensors) uses the kernel GPIO character device via gpiod,
+which delivers hardware interrupts directly to poll() — no DMA ring buffer or
+IPC hop. Output writes use /dev/gpiomem mmap for sub-µs latency.
 
-Requires pigpiod to be running: sudo systemctl start pigpiod
+pigpiod is still used for initial pin setup and fan PWM.
+
+Requires:
+  sudo systemctl start pigpiod
+  sudo apt install python3-gpiod
 """
 
 import ctypes
 import logging
 import mmap
 import os
+import select as _select
 import struct
 import threading
 import time
 
+import gpiod
 import pigpio
 
 from config import (
@@ -31,18 +35,13 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# ── pigpio daemon connection ──────────────────────────────────────────────────
+# ── pigpio daemon conection (used for setup and fan PWM only) ───────────────
 _pi: pigpio.pi = None
 
-# ── tick → CLOCK_MONOTONIC anchor (refreshed on every start_monitoring call) ─
-_tick_anchor: int   = 0
-_mono_anchor: float = 0.0
-
-# ── callback handles (stored so they can be cancelled in stop_monitoring) ─────
-_callbacks: list = []
-
-# ── one-shot flag: elevate the pigpio callback thread to SCHED_FIFO on first fire
-_gpio_cb_rt_set: bool = False
+# ── gpiod input monitoring ────────────────────────────────────────────────────
+_gpiod_chip: gpiod.Chip | None = None
+_gpiod_fd_map: dict = {}   # event_fd → (target, line)
+_monitoring: bool  = False
 
 # ── internal output-state tracking ───────────────────────────────────────────
 _output_state: dict[int, bool] = {}
@@ -81,17 +80,6 @@ def _set_rt_priority(priority: int = 75) -> None:
         pass
 
 
-# ── tick → CLOCK_MONOTONIC conversion ────────────────────────────────────────
-
-def _tick_to_mono(tick: int) -> float:
-    """Convert a 32-bit pigpio tick (µs since pigpiod start) to CLOCK_MONOTONIC seconds.
-
-    Uses 32-bit unsigned subtraction to handle the ~71.6-minute wrap-around.
-    The anchor is refreshed at every trial start so the wrap window is always
-    smaller than the 20-minute trial watchdog limit.
-    """
-    delta_us = (tick - _tick_anchor) & 0xFFFFFFFF
-    return _mono_anchor + delta_us / 1_000_000
 
 
 # ── internal helpers ──────────────────────────────────────────────────────────
@@ -255,50 +243,70 @@ def _read_active(target: str, pin: int) -> bool:
 
 
 def start_monitoring(on_event, fast_reaction=None) -> None:
-    """Begin monitoring all IR sensors for the duration of a trial.
+    """Begin monitoring all IR sensors via kernel GPIO interrupts (gpiod).
 
-    on_event(target, is_active, t_mono) is called from the pigpio callback
-    thread with a hardware tick timestamp converted to CLOCK_MONOTONIC seconds.
-    The callback thread is elevated to SCHED_FIFO priority 75 on its first
-    invocation so it is never preempted by the FSM thread (priority 70).
+    Uses poll() on hardware interrupt event fds — no DMA ring buffer or pigpiod
+    IPC hop. The monitor thread is elevated to SCHED_FIFO 75 and pinned to the
+    RT core. The kernel timestamps edges at interrupt time (CLOCK_MONOTONIC).
 
-    fast_reaction(target, is_active), if provided, is called BEFORE on_event
-    so that LED/valve writes happen in the callback thread itself, cutting
-    out the queue-to-FSM-thread hop (~1.5–2ms).
+    fast_reaction(target, is_active), if provided, is called before on_event
+    so LED/valve writes happen immediately without a queue hop.
     """
-    global _callbacks, _tick_anchor, _mono_anchor, _gpio_cb_rt_set, _fast_reaction_fn
+    global _gpiod_chip, _gpiod_fd_map, _monitoring, _fast_reaction_fn
 
-    # Refresh anchor at every trial start to keep the wrap window well below
-    # the 71.6-minute tick rollover (trials are max 20 minutes)
-    _mono_anchor       = time.clock_gettime(time.CLOCK_MONOTONIC)
-    _tick_anchor       = _pi.get_current_tick()
-    _gpio_cb_rt_set    = False
-    _callbacks         = []
-    _fast_reaction_fn  = fast_reaction
+    _fast_reaction_fn = fast_reaction
+    _monitoring       = True
+    _gpiod_chip       = gpiod.Chip('gpiochip0')
+    _gpiod_fd_map     = {}
 
     for target, pin in BEAM_PINS.items():
-        def _handler(gpio, level, tick, t=target, p=pin):
-            global _gpio_cb_rt_set
-            if not _gpio_cb_rt_set:
-                _set_rt_priority(75)
-                _gpio_cb_rt_set = True
-            is_active = (level == 0) if BEAM_ACTIVE_LOW[t] else (level == 1)
+        line  = _gpiod_chip.get_line(pin)
+        flags = (gpiod.LINE_REQ_FLAG_BIAS_PULL_UP if BEAM_ACTIVE_LOW[target]
+                 else gpiod.LINE_REQ_FLAG_BIAS_PULL_DOWN)
+        line.request(consumer='bmi-beam',
+                     type=gpiod.LINE_REQ_EV_BOTH_EDGES,
+                     flags=flags)
+        _gpiod_fd_map[line.event_get_fd()] = (target, line)
+
+    threading.Thread(target=_gpiod_monitor, args=(on_event,),
+                     daemon=True, name='gpio-mon').start()
+    logger.info("Beam monitoring started (gpiod hardware interrupts)")
+
+
+def _gpiod_monitor(on_event) -> None:
+    """Monitor thread: blocks on poll(), fires on hardware GPIO interrupt."""
+    _set_rt_priority(75)
+    fds = list(_gpiod_fd_map.keys())
+    while _monitoring:
+        ready = _select.select(fds, [], [], 0.1)[0]
+        for fd in ready:
+            if not _monitoring:
+                return
+            target, line = _gpiod_fd_map[fd]
+            ev        = line.event_read()
+            is_active = (ev.type == gpiod.LineEvent.FALLING_EDGE) \
+                        if BEAM_ACTIVE_LOW[target] \
+                        else (ev.type == gpiod.LineEvent.RISING_EDGE)
+            t_mono    = ev.sec + ev.nsec / 1e9  # kernel interrupt timestamp, CLOCK_MONOTONIC
             if _fast_reaction_fn is not None:
-                _fast_reaction_fn(t, is_active)
-            on_event(t, is_active, _tick_to_mono(tick))
-
-        _callbacks.append(_pi.callback(pin, pigpio.EITHER_EDGE, _handler))
-
-    logger.info("Beam monitoring started")
+                _fast_reaction_fn(target, is_active)
+            on_event(target, is_active, t_mono)
 
 
 def stop_monitoring() -> None:
-    """Cancel all beam callbacks; called at trial end."""
-    global _callbacks, _fast_reaction_fn
-    for cb in _callbacks:
-        cb.cancel()
-    _callbacks        = []
+    """Stop the gpiod monitor thread and release all beam sensor lines."""
+    global _monitoring, _gpiod_fd_map, _gpiod_chip, _fast_reaction_fn
+    _monitoring       = False
     _fast_reaction_fn = None
+    for _, line in _gpiod_fd_map.values():
+        try:
+            line.release()
+        except Exception:
+            pass
+    _gpiod_fd_map = {}
+    if _gpiod_chip is not None:
+        _gpiod_chip.close()
+        _gpiod_chip = None
     logger.info("Beam monitoring stopped")
 
 
