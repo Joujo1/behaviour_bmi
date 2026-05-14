@@ -66,6 +66,10 @@ from config import TRIAL_WATCHDOG_S
 
 logger = logging.getLogger(__name__)
 
+# Busy-wait the last 300µs of every hold timer for sub-millisecond accuracy.
+# The coarse sleep releases the CPU; the tail burns one core for ≤300µs per hold.
+_HOLD_BUSY_TAIL_S = 0.0003
+
 
 def _set_rt_priority(priority: int = 70) -> None:
     """Elevate the calling thread to SCHED_FIFO and pin it to the RT core."""
@@ -543,19 +547,33 @@ class Engine:
 
     def _start_hold_timer(self, target: str, next_state: str, hold_ms: float) -> None:
         self._cancel_hold_timer(target)
-        timer = threading.Timer(
-            hold_ms / 1000.0,
-            self._on_hold_complete,
-            args=(target, next_state, self._current_state_id),
-        )
-        timer.daemon = True
-        self._hold_timers[target] = timer
-        timer.start()
+        stop_ev      = threading.Event()
+        deadline     = time.clock_gettime(time.CLOCK_MONOTONIC) + hold_ms / 1000.0
+        expect_state = self._current_state_id
+
+        def _hold_run():
+            # SCHED_FIFO 72 — preempts FSM (70) but not gpiod monitor (75).
+            # Coarse sleep releases the CPU, busy-wait tail gives µs-level accuracy.
+            _set_rt_priority(72)
+            sleep_for = deadline - time.clock_gettime(time.CLOCK_MONOTONIC) - _HOLD_BUSY_TAIL_S
+            if sleep_for > 0:
+                if stop_ev.wait(sleep_for):   # returns True if cancelled
+                    return
+            while not stop_ev.is_set():
+                if time.clock_gettime(time.CLOCK_MONOTONIC) >= deadline:
+                    break
+            if not stop_ev.is_set():
+                self._on_hold_complete(target, next_state, expect_state)
+
+        t = threading.Thread(target=_hold_run, daemon=True, name=f'hold-{target}')
+        self._hold_timers[target] = (t, stop_ev)
+        t.start()
 
     def _cancel_hold_timer(self, target: str) -> None:
-        timer = self._hold_timers.pop(target, None)
-        if timer is not None:
-            timer.cancel()
+        entry = self._hold_timers.pop(target, None)
+        if entry is not None:
+            _, stop_ev = entry
+            stop_ev.set()
             logger.info("Hold timer cancelled for sensor '%s'", target)
 
     def _cancel_all_hold_timers(self) -> None:
