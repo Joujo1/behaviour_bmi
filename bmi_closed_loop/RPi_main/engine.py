@@ -210,7 +210,7 @@ class Engine:
         _last_temp_log = time.monotonic()
         while self._running:
             try:
-                event = self._event_queue.get_nowait()
+                event = self._event_queue.get(timeout=0.1)
             except queue.Empty:
                 if time.monotonic() - _last_temp_log >= 10.0:
                     try:
