@@ -207,10 +207,19 @@ class Engine:
     def _run(self) -> None:
         """FSM thread main loop. Sole consumer of _event_queue."""
         _set_rt_priority(70)
+        _last_temp_log = time.monotonic()
         while self._running:
             try:
-                event = self._event_queue.get(timeout=0.1)
+                event = self._event_queue.get_nowait()
             except queue.Empty:
+                if time.monotonic() - _last_temp_log >= 10.0:
+                    try:
+                        with open('/sys/class/thermal/thermal_zone0/temp') as _f:
+                            _temp_c = int(_f.read()) / 1000.0
+                        logger.info("CPU temperature: %.1f°C", _temp_c)
+                    except OSError:
+                        pass
+                    _last_temp_log = time.monotonic()
                 continue
 
             kind = event[0]
