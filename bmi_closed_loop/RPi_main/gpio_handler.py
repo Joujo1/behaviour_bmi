@@ -58,8 +58,9 @@ _GPSET0 = 0x1C   # set  pins 0-31 (bit-mask, write-only semantics)
 _GPCLR0 = 0x28   # clear pins 0-31
 _GPLEV0 = 0x34   # read  pins 0-31
 
-# ── fast-reaction hook ────────────────────────────────────────────────────────
+# ── per-trial callbacks (swapped each trial, None between trials) ─────────────
 _fast_reaction_fn = None
+_on_event_fn      = None
 
 
 # ── RT scheduling ─────────────────────────────────────────────────────────────
@@ -260,22 +261,16 @@ def safety_sweep() -> None:
 
 # ── beam sensor monitoring ────────────────────────────────────────────────────
 
-def start_monitoring(on_event, fast_reaction=None) -> None:
-    """Begin monitoring all IR beam sensors via kernel GPIO interrupts.
+def start_monitoring() -> None:
+    """Open beam sensor lines and start the persistent monitor thread.
 
-    gpiod v2 requests edge-event lines on a single LineRequest fd; the monitor
-    thread blocks on poll(). The kernel timestamps each edge at interrupt time
-    (CLOCK_MONOTONIC nanoseconds) — more accurate than pigpiod DMA and with no
-    IPC hop.
-
-    fast_reaction(target, is_active) fires before the queue post so that
-    LED/valve writes happen in the monitor thread itself.
+    Called once at process start. Callbacks are initially None (events dropped
+    between trials). Use update_callbacks() each trial to register/clear them.
     """
-    global _gpiod_in_req, _pin_to_target, _monitoring, _fast_reaction_fn
+    global _gpiod_in_req, _pin_to_target, _monitoring
 
-    _fast_reaction_fn = fast_reaction
-    _monitoring       = True
-    _pin_to_target    = {pin: tgt for tgt, pin in BEAM_PINS.items()}
+    _monitoring    = True
+    _pin_to_target = {pin: tgt for tgt, pin in BEAM_PINS.items()}
 
     _gpiod_in_req = gpiod.request_lines(
         '/dev/gpiochip0',
@@ -290,15 +285,21 @@ def start_monitoring(on_event, fast_reaction=None) -> None:
         },
     )
 
-    threading.Thread(target=_gpiod_monitor, args=(on_event,),
-                     daemon=True, name='gpio-mon').start()
-    logger.info("Beam monitoring started (gpiod v2 hardware interrupts)")
+    threading.Thread(target=_gpiod_monitor, daemon=True, name='gpio-mon').start()
+    logger.info("Beam monitoring started (persistent, gpiod v2)")
 
 
-def _gpiod_monitor(on_event) -> None:
+def update_callbacks(on_event, fast_reaction=None) -> None:
+    """Swap the per-trial callbacks. Pass None for both to silence events (ITI)."""
+    global _on_event_fn, _fast_reaction_fn
+    _fast_reaction_fn = fast_reaction
+    _on_event_fn      = on_event
+
+
+def _gpiod_monitor() -> None:
     """Monitor thread: blocks on poll(), fires immediately on GPIO interrupt."""
     _set_rt_priority(75)
-    req = _gpiod_in_req   # capture locally so stop_monitoring() can safely clear global
+    req = _gpiod_in_req
     fd  = req.fd
     while _monitoring:
         ready = _select.select([fd], [], [], 0.1)[0]
@@ -315,16 +316,20 @@ def _gpiod_monitor(on_event) -> None:
                         if BEAM_ACTIVE_LOW[target] \
                         else (ev.event_type.name == 'RISING_EDGE')
             t_mono = ev.timestamp_ns / 1e9   # kernel interrupt timestamp (CLOCK_MONOTONIC)
-            if _fast_reaction_fn is not None:
-                _fast_reaction_fn(target, is_active)
-            on_event(target, is_active, t_mono)
+            fn = _fast_reaction_fn            # snapshot globals — GIL-atomic reads
+            if fn is not None:
+                fn(target, is_active)
+            fn = _on_event_fn
+            if fn is not None:
+                fn(target, is_active, t_mono)
 
 
 def stop_monitoring() -> None:
-    """Stop the monitor thread and release all beam sensor lines."""
-    global _monitoring, _gpiod_in_req, _pin_to_target, _fast_reaction_fn
+    """Stop the monitor thread and release beam sensor lines. Call at shutdown only."""
+    global _monitoring, _gpiod_in_req, _pin_to_target, _fast_reaction_fn, _on_event_fn
     _monitoring       = False
     _fast_reaction_fn = None
+    _on_event_fn      = None
     _pin_to_target    = {}
     if _gpiod_in_req is not None:
         try:

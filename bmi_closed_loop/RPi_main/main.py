@@ -85,6 +85,7 @@ class _GPIOAdapter:
 
 def main():
     gpio_handler.setup()
+    gpio_handler.start_monitoring()
     logger.info("GPIO ready")
     _actions.init_audio()
 

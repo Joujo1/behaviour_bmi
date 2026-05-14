@@ -158,7 +158,7 @@ class Engine:
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
 
-        gpio_handler.start_monitoring(
+        gpio_handler.update_callbacks(
             self._on_beam_event,
             fast_reaction=None,   # disabled for latency testing
         )
@@ -178,7 +178,7 @@ class Engine:
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
         actions.stop_clicks()
-        gpio_handler.stop_monitoring()
+        gpio_handler.update_callbacks(None, None)
         if self._fsm_thread and self._fsm_thread.is_alive():
             self._fsm_thread.join(timeout=1.0)
         actions.safety_sweep()
@@ -531,7 +531,7 @@ class Engine:
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
         actions.stop_clicks()
-        gpio_handler.stop_monitoring()
+        gpio_handler.update_callbacks(None, None)
         actions.safety_sweep()
         logger.info("Trial '%s' finished — outcome: %s", self._trial_id, outcome)
         if self._on_complete:

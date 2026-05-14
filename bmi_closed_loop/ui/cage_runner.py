@@ -120,6 +120,15 @@ class CageRunner:
                   self.cage_id, base_iti_s, fail_iti_s)
         trial_count = 0
 
+        # Pre-compute the first trial before the loop so every iteration
+        # only needs a TCP send when the ITI expires (not resolve+expand+send).
+        resolved, correct_side = _resolve_sides(trial_definition)
+        click_seed = random.randrange(2**32)
+        trial_to_send = _expand_clicks(resolved, seed=click_seed)
+        with self._lock:
+            self._correct_side = correct_side
+            self._click_seed   = click_seed
+
         while True:
             with self._lock:
                 if self._stop:
@@ -135,19 +144,18 @@ class CageRunner:
                 fail_iti_s       = switch["fail_iti_s"]
                 _log.info("Cage %d: switched to substage %d (iti=%.1fs fail_iti=%.1fs)",
                           self.cage_id, switch["substage_id"], base_iti_s, fail_iti_s)
+                # Re-compute trial immediately after a substage switch
+                resolved, correct_side = _resolve_sides(trial_definition)
+                click_seed = random.randrange(2**32)
+                trial_to_send = _expand_clicks(resolved, seed=click_seed)
+                with self._lock:
+                    self._correct_side = correct_side
+                    self._click_seed   = click_seed
 
             trial_count += 1
-            _log.info("Cage %d: trial %d — sending", self.cage_id, trial_count)
-            self._event.clear()
-
-            resolved, correct_side = _resolve_sides(trial_definition)
-            click_seed = random.randrange(2**32)
-            trial_to_send = _expand_clicks(resolved, seed=click_seed)
-            with self._lock:
-                self._correct_side = correct_side
-                self._click_seed   = click_seed
-            _log.info("Cage %d: trial %d — correct_side=%s",
+            _log.info("Cage %d: trial %d — sending (correct_side=%s)",
                       self.cage_id, trial_count, correct_side)
+            self._event.clear()
 
             ok, msg = sender.send(json.dumps(trial_to_send))
             if not ok:
@@ -173,6 +181,14 @@ class CageRunner:
             iti     = fail_iti_s if failed else base_iti_s
             _log.info("Cage %d: trial %d done (outcome=%s) — ITI %.1fs",
                       self.cage_id, trial_count, outcome, iti)
+
+            # Pre-compute next trial during the ITI so it's ready to send immediately.
+            resolved, correct_side = _resolve_sides(trial_definition)
+            click_seed = random.randrange(2**32)
+            trial_to_send = _expand_clicks(resolved, seed=click_seed)
+            with self._lock:
+                self._correct_side = correct_side
+                self._click_seed   = click_seed
 
             # ITI — interruptible by stop()
             self._event.clear()
