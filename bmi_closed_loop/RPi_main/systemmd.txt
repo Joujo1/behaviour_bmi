@@ -1,3 +1,7 @@
+# ── cage_controller.service ───────────────────────────────────────────────────
+# Save to: /etc/systemd/system/cage_controller.service
+# Note: pigpiod is NOT used — GPIO is handled via gpiod + /dev/gpiomem mmap.
+
 [Unit]
 Description=Cage Controller
 After=network-online.target
@@ -8,32 +12,99 @@ ExecStart=/usr/bin/python3 /home/pi/behaviour_bmi/bmi_closed_loop/RPi_main/main.
 WorkingDirectory=/home/pi/behaviour_bmi/bmi_closed_loop/RPi_main
 Restart=always
 RestartSec=5
-User=pi
+User=root
 Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=70
+LimitMEMLOCK=infinity
 
 [Install]
 WantedBy=multi-user.target
 
 
+# ── cpu-governor.service ──────────────────────────────────────────────────────
+# Save to: /etc/systemd/system/cpu-governor.service
+# Sets all 4 cores to the performance cpufreq governor at boot.
+# Prevents frequency-scaling latency spikes (CPU ramping up from idle).
+
+[Unit]
+Description=Set CPU scaling governor to performance
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c "echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+
+[Install]
+WantedBy=multi-user.target
+
+
+# ── sysctl RT tuning ─────────────────────────────────────────────────────────
+# Save to: /etc/sysctl.d/99-rt.conf
+# Removes the kernel's RT budget throttle (default: SCHED_FIFO threads are
+# capped at 95% CPU time, causing a forced ~50ms stall every second).
+# Writing -1 gives RT tasks unlimited CPU. Done at runtime in main.py too,
+# but this file makes it survive reboots without depending on the service.
+#
+# kernel.sched_rt_runtime_us = -1
+
+
 # ── Setup ────────────────────────────────────────────────────────────────────
 
-# Step 1: Create the service file
+# Step 1: Create the cage_controller service file
 sudo nano /etc/systemd/system/cage_controller.service
+# Paste the [cage_controller.service] block above, then save (Ctrl+X → Y → Enter)
 
-# Step 2: Paste the contents above, then save (Ctrl+X → Y → Enter)
+# Step 2: Create the cpu-governor service file
+sudo nano /etc/systemd/system/cpu-governor.service
+# Paste the [cpu-governor.service] block above, then save (Ctrl+X → Y → Enter)
 
-# Step 3: Enable and start
+# Step 3: Create the RT sysctl config
+sudo nano /etc/sysctl.d/99-rt.conf
+# Paste this single line (without the leading #), then save:
+#   kernel.sched_rt_runtime_us = -1
+
+# Step 4: Enable and start all services
 sudo systemctl daemon-reload
+sudo systemctl enable cpu-governor.service
+sudo systemctl start cpu-governor.service
 sudo systemctl enable cage_controller.service
 sudo systemctl start cage_controller.service
+
+# Step 5: Apply the RT sysctl immediately (no reboot needed)
+sudo sysctl -p /etc/sysctl.d/99-rt.conf
+
+# Step 6: Isolate CPU core 3 from the OS scheduler (requires reboot)
+# Edit /boot/firmware/cmdline.txt — add to the END of the existing single line:
+#   isolcpus=3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2
+# Then reboot. After this the H264 encoder, network stack, and kernel threads
+# are confined to cores 0-2; the RT Python threads (gpiod monitor, FSM) run on core 3 only.
+sudo nano /boot/firmware/cmdline.txt
+sudo reboot
+
+# Step 7 (if migrating from pigpiod): stop and disable the old daemon
+sudo systemctl stop pigpiod
+sudo systemctl disable pigpiod
 
 
 # ── Useful commands ───────────────────────────────────────────────────────────
 
 # Check status
 sudo systemctl status cage_controller.service
+sudo systemctl status cpu-governor.service
+
+# Verify CPU governor is active
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+# Verify RT throttle is disabled
+cat /proc/sys/kernel/sched_rt_runtime_us   # should print -1
+
+# Verify core isolation (after reboot with isolcpus=3)
+# RT Python threads should show cpu3 in /proc/<pid>/task/<tid>/status
+grep Cpus_allowed_list /proc/$(pgrep -f main.py)/status
 
 # Live logs
 journalctl -u cage_controller.service -f
@@ -43,30 +114,3 @@ sudo systemctl restart cage_controller.service
 
 # Stop
 sudo systemctl stop cage_controller.service
-
-
-
-echo 'KERNEL=="pps0", GROUP="dialout", MODE="0660"' | sudo tee /etc/udev/rules.d/99-pps.rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger /dev/pps0
-
-
-
-
-sudo apt install pps-tools strace
-sudo strace ppstest /dev/pps0 2>&1 | grep ioctl | head -20
-
-
-
-python3 -c "
-import ctypes
-class K(ctypes.Structure):
-    _fields_ = [('sec', ctypes.c_int64), ('nsec', ctypes.c_int32), ('flags', ctypes.c_uint32)]
-class I(ctypes.Structure):
-    _fields_ = [('aseq', ctypes.c_uint32), ('cseq', ctypes.c_uint32),
-                ('atu', K), ('ctu', K), ('mode', ctypes.c_int32)]
-class F(ctypes.Structure):
-    _fields_ = [('info', I), ('timeout', K)]
-print('K=%d I=%d F=%d ioctl=%s' % (ctypes.sizeof(K), ctypes.sizeof(I), ctypes.sizeof(F),
-    hex((3<<30)|(ctypes.sizeof(F)<<16)|(ord('p')<<8)|0xa4)))
-"

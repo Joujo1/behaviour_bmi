@@ -19,8 +19,11 @@ TCP protocol (newline-terminated):
   Pi → PC   {"event": "trial_aborted",  "trial_id": "...", "events": [...]}\n
 """
 
+import ctypes
+import ctypes.util
 import json
 import logging
+import os
 import queue
 import time
 import sys
@@ -33,6 +36,27 @@ from streamer import CameraStreamer
 from udp_sender_pi import UDPSender
 from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
+
+# Reduce GIL check interval from default 5ms → 100µs so the gpiod monitor
+# thread acquires the GIL faster after a beam-break interrupt.
+sys.setswitchinterval(0.0001)
+
+# Remove the kernel's RT throttle (default: RT tasks capped at 95% CPU time,
+# causing a ~50ms stall every second). Writing -1 gives RT tasks unlimited CPU.
+try:
+    with open('/proc/sys/kernel/sched_rt_runtime_us', 'w') as _f:
+        _f.write('-1\n')
+except OSError:
+    pass  # non-fatal if not root; set permanently via sysctl.d instead
+
+# Lock all current and future memory pages to prevent page-fault latency spikes
+# in the gpiod monitor and FSM threads. Requires root / CAP_IPC_LOCK.
+try:
+    _libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+    if _libc.mlockall(ctypes.c_int(3)) != 0:  # MCL_CURRENT=1 | MCL_FUTURE=2
+        raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
+except OSError:
+    pass  # non-fatal; add LimitMEMLOCK=infinity to service file if needed
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +85,7 @@ class _GPIOAdapter:
 
 def main():
     gpio_handler.setup()
+    gpio_handler.start_monitoring()
     logger.info("GPIO ready")
     _actions.init_audio()
 

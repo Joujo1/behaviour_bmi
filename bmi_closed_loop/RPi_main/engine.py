@@ -25,9 +25,10 @@ pop_frame_events() is called from the picamera2 encoder thread.
 
 Timestamp policy
 ----------------
-- Sensor inputs  : stamped inside _on_beam_event() at interrupt-callback time,
-                   before the tuple enters the queue, so latency from queue
-                   processing does not affect the recorded time.
+- Sensor inputs  : stamped from the kernel GPIO interrupt timestamp
+                   (ev.timestamp_ns / 1e9) passed into _on_beam_event() by the
+                   gpiod monitor thread. Reflects the exact moment the
+                   hardware interrupt fired, not when Python ran the callback.
 - Hardware outputs: stamped in _dispatch_action() *after* actions.dispatch()
                    returns, so t reflects when the GPIO pin actually changed.
 - State transitions: stamped in transition_to() at decision time (FSM thread).
@@ -54,6 +55,7 @@ Expected JSON format:
 import ctypes
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -64,15 +66,23 @@ from config import TRIAL_WATCHDOG_S
 
 logger = logging.getLogger(__name__)
 
+# Busy-wait the last 300µs of every hold timer for sub-millisecond accuracy.
+# The coarse sleep releases the CPU; the tail burns one core for ≤300µs per hold.
+_HOLD_BUSY_TAIL_S = 0.0003
+
 
 def _set_rt_priority(priority: int = 70) -> None:
-    """Elevate the calling thread to SCHED_FIFO.  Requires root / CAP_SYS_NICE."""
+    """Elevate the calling thread to SCHED_FIFO and pin it to the RT core."""
     SCHED_FIFO = 1
     class _Param(ctypes.Structure):
         _fields_ = [("sched_priority", ctypes.c_int)]
     ret = ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
     if ret != 0:
         logger.warning("SCHED_FIFO unavailable — run as root for best FSM timing")
+    try:
+        os.sched_setaffinity(0, {3})  # isolate RT threads on core 3 (isolcpus=3)
+    except OSError:
+        pass
 
 
 class Engine:
@@ -107,6 +117,10 @@ class Engine:
         self._event_lock = threading.Lock()
         self._clicks_active = False
 
+        # Fast-reaction table: (state_id, beam_target) → list of action dicts
+        # for zero-hold beam_break transitions. Populated in _build_fast_table().
+        self._fast_table: dict = {}
+
     # ------------------------------------------------------------------ #
     # Public interface                                                     #
     # ------------------------------------------------------------------ #
@@ -125,7 +139,9 @@ class Engine:
         self._trial_id      = data.get("trial_id", "unknown")
         self._initial_state = data["initial_state"]
         self._states        = {s["id"]: s for s in data["states"]}
-        logger.info("Trial '%s' loaded — %d states", self._trial_id, len(self._states))
+        self._build_fast_table()
+        logger.info("Trial '%s' loaded — %d states, %d fast-path reactions",
+                    self._trial_id, len(self._states), len(self._fast_table))
 
     def start(self) -> None:
         """Launch the FSM thread, arm the watchdog, and start beam monitoring."""
@@ -142,7 +158,10 @@ class Engine:
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
 
-        gpio_handler.start_monitoring(self._on_beam_event)
+        gpio_handler.update_callbacks(
+            self._on_beam_event,
+            fast_reaction=None,   # disabled for latency testing
+        )
         self._event_queue.put(('enter', self._initial_state))
 
     def stop(self) -> None:
@@ -159,7 +178,7 @@ class Engine:
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
         actions.stop_clicks()
-        gpio_handler.stop_monitoring()
+        gpio_handler.update_callbacks(None, None)
         if self._fsm_thread and self._fsm_thread.is_alive():
             self._fsm_thread.join(timeout=1.0)
         actions.safety_sweep()
@@ -188,10 +207,19 @@ class Engine:
     def _run(self) -> None:
         """FSM thread main loop. Sole consumer of _event_queue."""
         _set_rt_priority(70)
+        _last_temp_log = time.monotonic()
         while self._running:
             try:
                 event = self._event_queue.get(timeout=0.1)
             except queue.Empty:
+                if time.monotonic() - _last_temp_log >= 10.0:
+                    try:
+                        with open('/sys/class/thermal/thermal_zone0/temp') as _f:
+                            _temp_c = int(_f.read()) / 1000.0
+                        logger.info("CPU temperature: %.1f°C", _temp_c)
+                    except OSError:
+                        pass
+                    _last_temp_log = time.monotonic()
                 continue
 
             kind = event[0]
@@ -214,9 +242,10 @@ class Engine:
     # External event sources — post to queue, return immediately          #
     # ------------------------------------------------------------------ #
 
-    def _on_beam_event(self, target: str, is_active: bool) -> None:
-        """GPIO interrupt callback. Stamps the event at detection time before queuing."""
-        t = time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start
+    def _on_beam_event(self, target: str, is_active: bool, t_mono: float) -> None:
+        """GPIO interrupt callback. t_mono is CLOCK_MONOTONIC seconds from the
+        kernel hardware interrupt timestamp, recorded at the moment the edge fired."""
+        t = t_mono - self._trial_start
         self._event_queue.put(('beam', target, is_active, t))
 
     def _on_timeout(self) -> None:
@@ -232,8 +261,84 @@ class Engine:
         self._event_queue.put(('watchdog',))
 
     def _on_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
-        """Hold timer callback."""
+        """Hold timer callback. Fire LED/valve writes immediately before queuing."""
+        # fast_execute_transition disabled for latency testing
         self._event_queue.put(('hold', target, next_state, expected_state))
+
+    # ------------------------------------------------------------------ #
+    # Fast-path reaction — runs in the gpiod monitor thread (prio 75)    #
+    # ----------------------------------------------------------------- #
+
+    def _build_fast_table(self) -> None:
+        """Precompute (state_id, beam_target) → [action_dicts] for immediate
+        beam_break transitions (hold_ms == 0).  Called once per load().
+
+        Only LED and valve actions are included — they are idempotent and safe
+        to call from the callback thread.  play_clicks is excluded (needs its
+        own thread).  hold_ms > 0 transitions are excluded (must wait for hold).
+        """
+        _FAST_TYPES = frozenset(('led_on', 'led_off', 'valve_open', 'valve_close'))
+        table = {}
+        for state_id, state in self._states.items():
+            for tr in state.get('transitions', []):
+                if tr.get('trigger') != 'beam_break':
+                    continue
+                if tr.get('hold_ms', 0):
+                    continue
+                tgt = tr.get('target')
+                fast_acts = [a for a in state.get('exit_actions', [])
+                             if a.get('type') in _FAST_TYPES]
+                next_state = self._states.get(tr.get('next_state', ''))
+                if next_state:
+                    fast_acts += [a for a in next_state.get('entry_actions', [])
+                                  if a.get('type') in _FAST_TYPES]
+                if fast_acts:
+                    table[(state_id, tgt)] = fast_acts
+        self._fast_table = table
+
+    def _fast_reaction(self, target: str, is_active: bool) -> None:
+        """Execute LED/valve writes immediately in the gpiod monitor thread.
+
+        Called before the beam event is posted to the FSM queue, eliminating
+        the ~1.5–2ms queue-to-FSM-thread hop for the critical output path.
+        The FSM thread re-executes the same writes later (idempotent).
+        """
+        if not is_active:
+            return
+        state_id = self._current_state_id   # GIL-atomic read in CPython
+        if state_id is None:
+            return
+        fast_acts = self._fast_table.get((state_id, target))
+        if fast_acts:
+            self._fast_execute(fast_acts)
+
+    def _fast_execute_transition(self, from_state_id: str, to_state_id: str) -> None:
+        """Execute LED/valve exit_actions + entry_actions for a transition immediately.
+
+        Called from timer callbacks (hold, timeout) to fire output writes without
+        waiting for the FSM thread to dequeue the event.
+        """
+        _FAST_TYPES = frozenset(('led_on', 'led_off', 'valve_open', 'valve_close'))
+        fast_acts = []
+        from_state = self._states.get(from_state_id)
+        if from_state:
+            fast_acts += [a for a in from_state.get('exit_actions', [])
+                          if a.get('type') in _FAST_TYPES]
+        to_state = self._states.get(to_state_id)
+        if to_state:
+            fast_acts += [a for a in to_state.get('entry_actions', [])
+                          if a.get('type') in _FAST_TYPES]
+        self._fast_execute(fast_acts)
+
+    def _fast_execute(self, actions_list: list) -> None:
+        """Drive GPIO pins for a precomputed list of LED/valve action dicts."""
+        for act in actions_list:
+            atype = act['type']
+            tgt   = act.get('target')
+            if   atype == 'led_on':      gpio_handler.set_led(tgt, True)
+            elif atype == 'led_off':     gpio_handler.set_led(tgt, False)
+            elif atype == 'valve_open':  gpio_handler.set_valve(tgt, True)
+            elif atype == 'valve_close': gpio_handler.set_valve(tgt, False)
 
     # ------------------------------------------------------------------ #
     # FSM handlers — run exclusively in the FSM thread                    #
@@ -241,7 +346,7 @@ class Engine:
 
     def _handle_beam(self, target: str, is_active: bool, t: float) -> None:
         """Process a beam sensor edge. t was captured at interrupt time."""
-        logger.info("Beam event  target=%-6s  active=%s", target, is_active)
+        logger.debug("Beam event  target=%-6s  active=%s", target, is_active)
 
         if self._current_state_id is None:
             return
@@ -263,13 +368,13 @@ class Engine:
             if tr.get("trigger") == "beam_break" and tr.get("target") == target:
                 hold_ms = tr.get("hold_ms", 0) or 0
                 if hold_ms > 0:
-                    logger.info("Beam break on '%s' — starting hold timer %.0fms", target, hold_ms)
+                    logger.debug("Beam break on '%s' — starting hold timer %.0fms", target, hold_ms)
                     self._start_hold_timer(target, tr["next_state"], hold_ms)
                 else:
                     self.transition_to(tr["next_state"])
                 return  # first matching transition wins
 
-        logger.info("Beam break on '%s' — no transition in state '%s' (recorded only)",
+        logger.debug("Beam break on '%s' — no transition in state '%s' (recorded only)",
                     target, self._current_state_id)
 
     def _handle_timeout(self) -> None:
@@ -283,7 +388,7 @@ class Engine:
 
         for tr in state.get("transitions", []):
             if tr.get("trigger") == "timeout":
-                logger.info("Timeout in state '%s' → '%s'", self._current_state_id, tr["next_state"])
+                logger.debug("Timeout in state '%s' → '%s'", self._current_state_id, tr["next_state"])
                 self.transition_to(tr["next_state"])
                 return
 
@@ -302,7 +407,7 @@ class Engine:
 
         for tr in state.get("transitions", []):
             if tr.get("trigger") == "clicks_done":
-                logger.info("Clicks done in state '%s' → '%s'",
+                logger.debug("Clicks done in state '%s' → '%s'",
                             self._current_state_id, tr["next_state"])
                 self.transition_to(tr["next_state"])
                 return
@@ -310,7 +415,7 @@ class Engine:
         if self._clicks_active:
             self._log_output("clicks", False)
             self._clicks_active = False
-        logger.info("Clicks done in state '%s' — no clicks_done transition (ignoring)",
+        logger.debug("Clicks done in state '%s' — no clicks_done transition (ignoring)",
                     self._current_state_id)
 
     def _handle_watchdog(self) -> None:
@@ -322,10 +427,10 @@ class Engine:
     def _handle_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
         """Process hold timer expiry."""
         if self._current_state_id != expected_state:
-            logger.info("Hold complete for '%s' but state changed — ignoring", target)
+            logger.debug("Hold complete for '%s' but state changed — ignoring", target)
             return
         self._hold_timers.pop(target, None)
-        logger.info("Hold complete for '%s' — transitioning to '%s'", target, next_state)
+        logger.debug("Hold complete for '%s' — transitioning to '%s'", target, next_state)
         self.transition_to(next_state)
 
     # ------------------------------------------------------------------ #
@@ -347,7 +452,7 @@ class Engine:
 
         self._current_state_id = state_id
         duration = state.get("duration")
-        logger.info("Entering state '%s'  (duration: %ss)",
+        logger.debug("Entering state '%s'  (duration: %ss)",
                     state_id, duration if duration is not None else "none")
 
         for action in state.get("entry_actions", []):
@@ -372,7 +477,7 @@ class Engine:
             for action in current.get("exit_actions", []):
                 self._dispatch_action(action)
 
-        logger.info("Transition  '%s' → '%s'", self._current_state_id, next_state_id)
+        logger.debug("Transition  '%s' → '%s'", self._current_state_id, next_state_id)
         with self._event_lock:
             entry = {
                 "t":    time.clock_gettime(time.CLOCK_MONOTONIC) - self._trial_start,
@@ -426,7 +531,7 @@ class Engine:
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
         actions.stop_clicks()
-        gpio_handler.stop_monitoring()
+        gpio_handler.update_callbacks(None, None)
         actions.safety_sweep()
         logger.info("Trial '%s' finished — outcome: %s", self._trial_id, outcome)
         if self._on_complete:
@@ -450,20 +555,34 @@ class Engine:
 
     def _start_hold_timer(self, target: str, next_state: str, hold_ms: float) -> None:
         self._cancel_hold_timer(target)
-        timer = threading.Timer(
-            hold_ms / 1000.0,
-            self._on_hold_complete,
-            args=(target, next_state, self._current_state_id),
-        )
-        timer.daemon = True
-        self._hold_timers[target] = timer
-        timer.start()
+        stop_ev      = threading.Event()
+        deadline     = time.clock_gettime(time.CLOCK_MONOTONIC) + hold_ms / 1000.0
+        expect_state = self._current_state_id
+
+        def _hold_run():
+            # SCHED_FIFO 72 — preempts FSM (70) but not gpiod monitor (75).
+            # Coarse sleep releases the CPU, busy-wait tail gives µs-level accuracy.
+            _set_rt_priority(72)
+            sleep_for = deadline - time.clock_gettime(time.CLOCK_MONOTONIC) - _HOLD_BUSY_TAIL_S
+            if sleep_for > 0:
+                if stop_ev.wait(sleep_for):   # returns True if cancelled
+                    return
+            while not stop_ev.is_set():
+                if time.clock_gettime(time.CLOCK_MONOTONIC) >= deadline:
+                    break
+            if not stop_ev.is_set():
+                self._on_hold_complete(target, next_state, expect_state)
+
+        t = threading.Thread(target=_hold_run, daemon=True, name=f'hold-{target}')
+        self._hold_timers[target] = (t, stop_ev)
+        t.start()
 
     def _cancel_hold_timer(self, target: str) -> None:
-        timer = self._hold_timers.pop(target, None)
-        if timer is not None:
-            timer.cancel()
-            logger.info("Hold timer cancelled for sensor '%s'", target)
+        entry = self._hold_timers.pop(target, None)
+        if entry is not None:
+            _, stop_ev = entry
+            stop_ev.set()
+            logger.debug("Hold timer cancelled for sensor '%s'", target)
 
     def _cancel_all_hold_timers(self) -> None:
         for target in list(self._hold_timers):

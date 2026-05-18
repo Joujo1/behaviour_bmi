@@ -55,7 +55,7 @@ import audio
 from config import AUDIO_DEVICE, AUDIO_SRATE, CLICK_WIDTH_S
 
 OUTPUT_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
-_CHUNK       = 512                              # must match actions._CHUNK
+_CHUNK       = 48                               # must match actions._CHUNK
 OSCI_PULSE_S = 0.003   # 3 ms GPIO pulse — matches click duration
 
 # Square-wave click for measurement: full amplitude for the entire click duration.
