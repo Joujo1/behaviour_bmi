@@ -170,17 +170,6 @@ def main():
             gpio_handler.set_strip(False)
             return True, "strip off"
 
-        if command.startswith("GPIO_CHIRP_TEST:"):
-            try:
-                payload = json.loads(command.split(":", 1)[1])
-                _actions._play_gpio_chirp_clicks(
-                    left_clicks=payload.get("left_clicks", []),
-                    right_clicks=payload.get("right_clicks", []),
-                )
-                return True, "chirp started"
-            except Exception as e:
-                return False, f"chirp error: {e}"
-
         try:
             trial_data = json.loads(command)
         except json.JSONDecodeError as e:

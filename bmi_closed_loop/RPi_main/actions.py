@@ -7,7 +7,6 @@ All hardware interaction goes exclusively through gpio_handler.
 
 import ctypes
 import logging
-import math
 import threading
 import time
 
@@ -155,78 +154,6 @@ def _play_clicks(left_clicks: list, right_clicks: list, on_complete=None,
     threading.Thread(target=_player, daemon=True, name="clicks-player").start()
     logger.info("Click trains started: %d left, %d right", len(left_clicks), len(right_clicks))
 
-
-_CHIRP_F_LO = 2_000
-_CHIRP_F_HI = 16_000
-_CHIRP_TOGGLES_NS: list | None = None
-
-
-def _build_chirp_toggles() -> list:
-    """Precompute GPIO toggle offsets (ns from click onset) for a 2→16→2 kHz hill chirp."""
-    T  = 0.003   # CLICK_WIDTH_S — 3 ms
-    dt = 1e-7                    # 100 ns integration step
-    toggles_ns = []
-    phase = 0.0
-    next_half = 0.5
-    for i in range(int(T / dt)):
-        t = i * dt
-        f = _CHIRP_F_LO + (_CHIRP_F_HI - _CHIRP_F_LO) * math.sin(math.pi * t / T)
-        phase += f * dt
-        if phase >= next_half:
-            toggles_ns.append(int(t * 1e9))
-            next_half += 0.5
-    return toggles_ns
-
-
-def _play_gpio_chirp_clicks(left_clicks: list, right_clicks: list,
-                             on_complete=None, log_cb=None, **_) -> None:
-    """Play click trains via GPIO hill-chirp (2→16→2 kHz over 3 ms per click).
-    Two threads run in parallel, one per audio pin, using busy-wait timing.
-    """
-    global _CHIRP_TOGGLES_NS
-    if _CHIRP_TOGGLES_NS is None:
-        _CHIRP_TOGGLES_NS = _build_chirp_toggles()
-    toggles_ns = _CHIRP_TOGGLES_NS
-
-    if log_cb:
-        log_cb("clicks", True)
-
-    start_ns   = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    done_count = [0]
-    done_lock  = threading.Lock()
-
-    def _finish():
-        with done_lock:
-            done_count[0] += 1
-            if done_count[0] == 2:
-                if log_cb:
-                    log_cb("clicks", False)
-                if on_complete:
-                    on_complete()
-
-    def _play_channel(clicks, target):
-        _set_rt_priority(85)
-        for click_t in sorted(clicks):
-            fire_ns = start_ns + int(click_t * 1e9)
-            while time.clock_gettime_ns(time.CLOCK_MONOTONIC) < fire_ns:
-                pass
-            state  = True
-            t0_ns  = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-            for offset_ns in toggles_ns:
-                wake_ns = t0_ns + offset_ns
-                while time.clock_gettime_ns(time.CLOCK_MONOTONIC) < wake_ns:
-                    pass
-                gpio_handler.set_audio(target, state)
-                state = not state
-            gpio_handler.set_audio(target, False)
-        _finish()
-
-    threading.Thread(target=_play_channel, args=(left_clicks,  "left"),
-                     daemon=True, name="chirp-L").start()
-    threading.Thread(target=_play_channel, args=(right_clicks, "right"),
-                     daemon=True, name="chirp-R").start()
-    logger.info("GPIO chirp clicks started: %d left, %d right",
-                len(left_clicks), len(right_clicks))
 
 
 def init_audio() -> None:

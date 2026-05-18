@@ -1,13 +1,11 @@
 import json
 import logging
-import random
 
 import graphviz
 import valkey as valkey_client
 from flask import Blueprint, Response, abort, jsonify, request, current_app
 
 import config
-from ui.click_generator import generate_clicks
 
 control_bp = Blueprint("control", __name__)
 _log = logging.getLogger("stream_control")
@@ -61,23 +59,6 @@ def strip_toggle(cage_id: int):
         _log.info(f"Cage {cage_id}: strip {'ON' if state else 'OFF'}")
     return jsonify({"ok": ok, "msg": msg})
 
-
-@control_bp.post("/cage/<int:cage_id>/test/gpio_chirp")
-def test_gpio_chirp(cage_id: int):
-    if not (1 <= cage_id <= config.N_CAGES):
-        abort(404)
-    body       = request.get_json(force=True) or {}
-    left_rate  = float(body.get("left_rate",  40.0))
-    right_rate = float(body.get("right_rate", 10.0))
-    duration   = float(body.get("duration",    1.0))
-    clicks     = generate_clicks(left_rate, right_rate, duration,
-                                 seed=random.randrange(2**32))
-    payload    = json.dumps({"left_clicks": clicks["left_clicks"],
-                             "right_clicks": clicks["right_clicks"]})
-    ok, msg    = _sender(cage_id).send(f"GPIO_CHIRP_TEST:{payload}")
-    return jsonify({"ok": ok, "msg": msg,
-                    "n_left": len(clicks["left_clicks"]),
-                    "n_right": len(clicks["right_clicks"])})
 
 
 @control_bp.post("/trial/graph")
