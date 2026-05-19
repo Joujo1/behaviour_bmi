@@ -87,7 +87,6 @@ def main():
     gpio_handler.setup()
     gpio_handler.start_monitoring()
     logger.info("GPIO ready")
-    _actions.init_audio()
 
     current_engine: Engine = None
     frame_queue: queue.Queue = None
