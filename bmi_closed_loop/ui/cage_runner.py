@@ -126,14 +126,20 @@ class CageRunner:
                   self.cage_id, base_iti_s, fail_iti_s)
         trial_count = 0
 
-        # Pre-compute the first trial before the loop so every iteration
-        # only needs a TCP send when the ITI expires (not resolve+expand+send).
-        resolved, correct_side = _resolve_sides(trial_definition)
+        # Pre-compute the first trial with bias applied (last_click_ratio=None:
+        # no previous trial yet). Every subsequent trial is pre-computed during
+        # the ITI so the send path never blocks on generation.
+        trial_for_resolve = (
+            _apply_bias(trial_definition, self.subject_id, last_click_ratio=None)
+            if self.subject_id is not None else trial_definition
+        )
+        resolved, correct_side = _resolve_sides(trial_for_resolve)
         click_seed = random.randrange(2**32)
         trial_to_send = _expand_clicks(resolved, seed=click_seed)
         with self._lock:
-            self._correct_side = correct_side
-            self._click_seed   = click_seed
+            self._correct_side     = correct_side
+            self._click_seed       = click_seed
+            self._last_click_ratio = _get_click_ratio(trial_to_send)
 
         while True:
             with self._lock:
@@ -150,8 +156,18 @@ class CageRunner:
                 fail_iti_s       = switch["fail_iti_s"]
                 _log.info("Cage %d: switched to substage %d (iti=%.1fs fail_iti=%.1fs)",
                           self.cage_id, switch["substage_id"], base_iti_s, fail_iti_s)
-                # Re-compute trial immediately after a substage switch
-                resolved, correct_side = _resolve_sides(trial_definition)
+                # Discard the ITI-pre-computed trial; recompute with the new definition.
+                # self._last_click_ratio was not updated during ITI pre-computation so
+                # it still holds the ratio of the last completed trial — correct input
+                # for bias on the first trial of the new substage.
+                with self._lock:
+                    last_click_ratio = self._last_click_ratio
+                trial_for_resolve = (
+                    _apply_bias(trial_definition, self.subject_id,
+                                last_click_ratio=last_click_ratio)
+                    if self.subject_id is not None else trial_definition
+                )
+                resolved, correct_side = _resolve_sides(trial_for_resolve)
                 click_seed = random.randrange(2**32)
                 trial_to_send = _expand_clicks(resolved, seed=click_seed)
                 with self._lock:
@@ -159,20 +175,9 @@ class CageRunner:
                     self._click_seed   = click_seed
 
             trial_count += 1
+            # Record the ratio of the trial we are about to send so it is
+            # available as bias input during the next ITI pre-computation.
             with self._lock:
-                last_click_ratio = self._last_click_ratio
-
-            trial_for_resolve = (
-                _apply_bias(trial_definition, self.subject_id,
-                            last_click_ratio=last_click_ratio)
-                if self.subject_id is not None else trial_definition
-            )
-            resolved, correct_side = _resolve_sides(trial_for_resolve)
-            click_seed = random.randrange(2**32)
-            trial_to_send = _expand_clicks(resolved, seed=click_seed)
-            with self._lock:
-                self._correct_side     = correct_side
-                self._click_seed       = click_seed
                 self._last_click_ratio = _get_click_ratio(trial_to_send)
             _log.info("Cage %d: trial %d — sending (correct_side=%s)",
                       self.cage_id, trial_count, correct_side)
@@ -203,8 +208,19 @@ class CageRunner:
             _log.info("Cage %d: trial %d done (outcome=%s) — ITI %.1fs",
                       self.cage_id, trial_count, outcome, iti)
 
-            # Pre-compute next trial during the ITI so it's ready to send immediately.
-            resolved, correct_side = _resolve_sides(trial_definition)
+            # Pre-compute the next trial during the ITI with bias applied.
+            # self._last_click_ratio holds the ratio of the trial just completed —
+            # exactly what the bias algorithms need. We intentionally do NOT update
+            # self._last_click_ratio here: the switch block above must still be able
+            # to read the last-completed ratio if a substage switch arrives mid-ITI.
+            with self._lock:
+                last_click_ratio = self._last_click_ratio
+            trial_for_resolve = (
+                _apply_bias(trial_definition, self.subject_id,
+                            last_click_ratio=last_click_ratio)
+                if self.subject_id is not None else trial_definition
+            )
+            resolved, correct_side = _resolve_sides(trial_for_resolve)
             click_seed = random.randrange(2**32)
             trial_to_send = _expand_clicks(resolved, seed=click_seed)
             with self._lock:
