@@ -73,16 +73,18 @@ _HOLD_BUSY_TAIL_S = 0.0003
 
 def _set_rt_priority(priority: int = 70) -> None:
     """Elevate the calling thread to SCHED_FIFO and pin it to the RT core."""
-    SCHED_FIFO = 1
-    class _Param(ctypes.Structure):
-        _fields_ = [("sched_priority", ctypes.c_int)]
-    ret = ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
-    if ret != 0:
-        logger.warning("SCHED_FIFO unavailable — run as root for best FSM timing")
-    try:
-        os.sched_setaffinity(0, {3})  # isolate RT threads on core 3 (isolcpus=3)
-    except OSError:
-        pass
+    if os.environ.get("DISABLE_FIFO", "0") != "1":
+        SCHED_FIFO = 1
+        class _Param(ctypes.Structure):
+            _fields_ = [("sched_priority", ctypes.c_int)]
+        ret = ctypes.CDLL("libc.so.6").sched_setscheduler(0, SCHED_FIFO, ctypes.byref(_Param(priority)))
+        if ret != 0:
+            logger.warning("SCHED_FIFO unavailable — run as root for best FSM timing")
+    if os.environ.get("DISABLE_AFFINITY", "0") != "1":
+        try:
+            os.sched_setaffinity(0, {3})  # isolate RT threads on core 3 (isolcpus=3)
+        except OSError:
+            pass
 
 
 class Engine:

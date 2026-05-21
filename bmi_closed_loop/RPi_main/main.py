@@ -37,26 +37,38 @@ from udp_sender_pi import UDPSender
 from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
 
-# Reduce GIL check interval from default 5ms → 100µs so the gpiod monitor
-# thread acquires the GIL faster after a beam-break interrupt.
-sys.setswitchinterval(0.0001)
+# ── Ablation-study env var overrides ─────────────────────────────────────────
+# Set any of these to "1" to disable that specific tuning for benchmarking.
+# Normal production runs leave all unset (all tunings active).
+_DISABLE_GIL      = os.environ.get("DISABLE_GIL",      "0") == "1"
+_DISABLE_THROTTLE = os.environ.get("DISABLE_THROTTLE",  "0") == "1"
+_DISABLE_MLOCK    = os.environ.get("DISABLE_MLOCK",     "0") == "1"
+_DISABLE_FIFO     = os.environ.get("DISABLE_FIFO",      "0") == "1"
+_DISABLE_AFFINITY = os.environ.get("DISABLE_AFFINITY",  "0") == "1"
 
-# Remove the kernel's RT throttle (default: RT tasks capped at 95% CPU time,
-# causing a ~50ms stall every second). Writing -1 gives RT tasks unlimited CPU.
-try:
-    with open('/proc/sys/kernel/sched_rt_runtime_us', 'w') as _f:
-        _f.write('-1\n')
-except OSError:
-    pass  # non-fatal if not root; set permanently via sysctl.d instead
+if not _DISABLE_GIL:
+    # Reduce GIL check interval from default 5ms → 100µs so the gpiod monitor
+    # thread acquires the GIL faster after a beam-break interrupt.
+    sys.setswitchinterval(0.0001)
 
-# Lock all current and future memory pages to prevent page-fault latency spikes
-# in the gpiod monitor and FSM threads. Requires root / CAP_IPC_LOCK.
-try:
-    _libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-    if _libc.mlockall(ctypes.c_int(3)) != 0:  # MCL_CURRENT=1 | MCL_FUTURE=2
-        raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
-except OSError:
-    pass  # non-fatal; add LimitMEMLOCK=infinity to service file if needed
+if not _DISABLE_THROTTLE:
+    # Remove the kernel's RT throttle (default: RT tasks capped at 95% CPU time,
+    # causing a ~50ms stall every second). Writing -1 gives RT tasks unlimited CPU.
+    try:
+        with open('/proc/sys/kernel/sched_rt_runtime_us', 'w') as _f:
+            _f.write('-1\n')
+    except OSError:
+        pass  # non-fatal if not root; set permanently via sysctl.d instead
+
+if not _DISABLE_MLOCK:
+    # Lock all current and future memory pages to prevent page-fault latency spikes
+    # in the gpiod monitor and FSM threads. Requires root / CAP_IPC_LOCK.
+    try:
+        _libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+        if _libc.mlockall(ctypes.c_int(3)) != 0:  # MCL_CURRENT=1 | MCL_FUTURE=2
+            raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
+    except OSError:
+        pass  # non-fatal; add LimitMEMLOCK=infinity to service file if needed
 
 logging.basicConfig(
     level=logging.INFO,
