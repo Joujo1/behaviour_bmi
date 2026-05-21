@@ -6,6 +6,7 @@ import psycopg2.extras
 from flask import Blueprint, abort, jsonify, render_template, request
 
 import config
+from ui.cage_runner import runners
 
 subjects_bp = Blueprint("subjects", __name__)
 _log = logging.getLogger("subjects")
@@ -199,16 +200,38 @@ def set_substage(subject_id: int):
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE subjects SET current_substage_id = %s WHERE id = %s RETURNING id",
+                    "UPDATE subjects SET current_substage_id = %s, substage_entered_at = NOW() WHERE id = %s RETURNING id",
                     (substage_id, subject_id),
                 )
                 if cur.fetchone() is None:
                     abort(404)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT task_config FROM training_substages WHERE id = %s",
+                (substage_id,),
+            )
+            tc_row = cur.fetchone()
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT cage_id FROM sessions WHERE subject_id = %s AND closed_at IS NULL ORDER BY started_at DESC LIMIT 1",
+                (subject_id,),
+            )
+            sess_row = cur.fetchone()
     finally:
         conn.close()
 
-    _log.info("Subject %d manually moved to substage %d", subject_id, substage_id)
-    return jsonify({"ok": True})
+    live_switched = False
+    cage_id = sess_row[0] if sess_row else None
+    if cage_id and tc_row and tc_row[0].get("base_iti_s") is not None:
+        runner = runners.get(cage_id)
+        if runner:
+            live_switched = runner.switch_substage(tc_row[0], substage_id)
+
+    _log.info("Subject %d manually moved to substage %d (cage=%s live_switched=%s)",
+              subject_id, substage_id, cage_id, live_switched)
+    return jsonify({"ok": True, "live_switched": live_switched})
 
 
 @subjects_bp.delete("/subjects/<int:subject_id>")

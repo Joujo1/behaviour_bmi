@@ -387,7 +387,7 @@
       });
       const data = await res.json();
       if (data.ok) {
-        toast('Substage updated');
+        toast(data.live_switched ? 'Substage updated — switch queued for next trial boundary' : 'Substage updated');
         closeSubstageModal();
         loadSubjects();
       } else {
