@@ -100,19 +100,17 @@ void TC3_Handler() {
 // GCLK0 = 120 MHz → 120 000 000 / 625 = 192 000 Hz
 // ---------------------------------------------------------------------------
 static void setup_tc3_192kHz() {
-    // Route GCLK0 (120 MHz) to the TC2/TC3 peripheral channel
-    GCLK->PCHCTRL[GCM_TC2_TC3].reg = GCLK_PCHCTRL_GEN_GCLK0 | GCLK_PCHCTRL_CHEN;
-    while (!GCLK->PCHCTRL[GCM_TC2_TC3].bit.CHEN);
+    // Route GCLK0 (120 MHz) to TC3 (SAMD51 uses per-peripheral PCHCTRL with TC3_GCLK_ID)
+    GCLK->PCHCTRL[TC3_GCLK_ID].reg = GCLK_PCHCTRL_GEN_GCLK0 | GCLK_PCHCTRL_CHEN;
+    while (!GCLK->PCHCTRL[TC3_GCLK_ID].bit.CHEN);
 
     // Software reset
     TC3->COUNT16.CTRLA.bit.SWRST = 1;
     while (TC3->COUNT16.SYNCBUSY.bit.SWRST);
 
-    // 16-bit mode, no prescaler, Match-Frequency waveform
-    // (counter resets to 0 when it reaches CC[0])
-    TC3->COUNT16.CTRLA.reg = TC_CTRLA_MODE_COUNT16    |
-                              TC_CTRLA_PRESCALER_DIV1  |
-                              TC_CTRLA_WAVEGEN_MFRQ;
+    // 16-bit mode, no prescaler (SAMD51: WAVEGEN moved to separate WAVE register)
+    TC3->COUNT16.CTRLA.reg = TC_CTRLA_MODE_COUNT16 | TC_CTRLA_PRESCALER_DIV1;
+    TC3->COUNT16.WAVE.reg  = TC_WAVE_WAVEGEN_MFRQ;  // counter resets to 0 at CC[0]
     TC3->COUNT16.CC[0].reg = 624;   // period = 625 counts = 192 kHz
     while (TC3->COUNT16.SYNCBUSY.bit.CC0);
 
