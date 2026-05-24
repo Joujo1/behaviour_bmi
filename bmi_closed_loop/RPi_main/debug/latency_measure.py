@@ -19,10 +19,10 @@ Three quantities recorded per click:
     variation      = within-trial jitter (sample clock precision)
 
 Oscilloscope verification (--osci-pin):
-  Fires a 400 µs GPIO pulse at each click's predicted DAC time so the scope
-  can compare "software's prediction" (Ch2/GPIO) against "actual waveform" (Ch1/audio).
+  Fires a 1 ms pulse at t_play (scheduler start, t=0) then 3 ms pulses at
+  each click's scheduled time (t_play + t_click).  Measure the gap between
+  Ch2 edges and Ch1 audio edges on the scope to get real onset/click latency.
   Wire: BCM pin → scope Ch2 probe tip.  Pi GND → scope Ch2 ground clip.
-  Export scope CSV (time, ch1_V, ch2_V) and load with latency_plot.py --osci-csv.
 
 Usage:
     python3 debug/latency_measure.py [--n 500] [--rate 40] [--dur 1.0] [--iti 0.5]
@@ -56,7 +56,8 @@ from config import AUDIO_DEVICE, AUDIO_SRATE, CLICK_WIDTH_S
 
 OUTPUT_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 _CHUNK       = 48                               # must match actions._CHUNK
-OSCI_PULSE_S = 0.003   # 3 ms GPIO pulse — matches click duration
+OSCI_START_PULSE_S = 0.001   # 1 ms pulse at scheduler start (t=0)
+OSCI_CLICK_PULSE_S = 0.003   # 3 ms pulse at each scheduled click time
 
 # Square-wave click for measurement: full amplitude for the entire click duration.
 # Gives a perfectly sharp rising edge for reliable threshold detection on scope.
@@ -91,18 +92,8 @@ def _stream_callback(outdata, frames, time_info, _status) -> None:
         outdata[:] = 0
         return
 
-    block_idx = a['block_idx'][0]
     a['block_dac_mono'].append(t_dac_block)
     a['block_idx'][0] += 1
-
-    if a['marker_q'] is not None:
-        block_s = a['block_s']
-        for t_c in a['left_clicks']:
-            b = int(t_c / block_s)
-            if b == block_idx:
-                t_marker = t_dac_block + (t_c - b * block_s)
-                print(f"[marker] queued click t_c={t_c:.4f} → DAC {t_marker:.4f}")
-                a['marker_q'].put_nowait(t_marker)
 
     buf = a['buf']
     pos = a['pos']
@@ -137,6 +128,10 @@ def _play_and_measure(left_clicks: list, duration: float,
     """
     Arm the persistent stream with a new click buffer.
 
+    If marker_q is provided, queues a 1 ms pulse at t_play (t=0, scheduler
+    start) followed by 3 ms pulses at each scheduled click time so the
+    oscilloscope shows exactly when clicks were intended to play.
+
     Returns (t_play, block_dac_mono):
       t_play         : CLOCK_MONOTONIC just before _active is set
       block_dac_mono : per-block inferred DAC time in CLOCK_MONOTONIC seconds
@@ -148,14 +143,18 @@ def _play_and_measure(left_clicks: list, duration: float,
     block_dac_mono: list = []
 
     t_play  = time.clock_gettime(time.CLOCK_MONOTONIC)
+
+    if marker_q is not None:
+        marker_q.put_nowait((t_play, OSCI_START_PULSE_S))
+        for t_c in left_clicks:
+            marker_q.put_nowait((t_play + t_c, OSCI_CLICK_PULSE_S))
+
     _active = {
         'buf':            buf,
         'pos':            [0],
         'done':           done,
         'block_dac_mono': block_dac_mono,
         'block_idx':      [0],
-        'marker_q':       marker_q,
-        'left_clicks':    left_clicks,
         'block_s':        _CHUNK / AUDIO_SRATE,
     }
     done.wait(timeout=duration + 1.5)
@@ -164,26 +163,28 @@ def _play_and_measure(left_clicks: list, duration: float,
 
 def _marker_worker(pin: int, q: _queue.Queue) -> None:
     """
-    Pull predicted DAC times from q and fire a short GPIO pulse at each one.
-    Sleeps to within 1 ms then busy-waits for microsecond-level precision.
-    Stopped by putting None into the queue.
+    Pull (t_target, pulse_s) tuples from q and fire a GPIO pulse of the given
+    duration at each target time. Sleeps to within 1 ms then busy-waits for
+    microsecond precision. Stopped by putting None into the queue.
     """
     print(f"[marker] worker started on BCM pin {pin}")
     _GPIO.setmode(_GPIO.BCM)
     _GPIO.setup(pin, _GPIO.OUT, initial=_GPIO.LOW)
     try:
         while True:
-            t_target = q.get()
-            if t_target is None:
+            item = q.get()
+            if item is None:
                 break
-            print(f"[marker] firing pulse at {t_target:.4f}")
+            t_target, pulse_s = item
             slack = t_target - time.clock_gettime(time.CLOCK_MONOTONIC) - 0.001
             if slack > 0:
                 time.sleep(slack)
             while time.clock_gettime(time.CLOCK_MONOTONIC) < t_target:
                 pass
             _GPIO.output(pin, _GPIO.HIGH)
-            time.sleep(OSCI_PULSE_S)
+            deadline = t_target + pulse_s
+            while time.clock_gettime(time.CLOCK_MONOTONIC) < deadline:
+                pass
             _GPIO.output(pin, _GPIO.LOW)
     finally:
         _GPIO.output(pin, _GPIO.LOW)

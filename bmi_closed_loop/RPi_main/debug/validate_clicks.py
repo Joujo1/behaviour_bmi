@@ -1,196 +1,187 @@
 """
-Poisson click train distribution validator.
+Poisson click train distribution validator (sec:val_click_stats).
 
-Generates N click trains at several rates and verifies:
-  1. Mean observed rate matches requested rate
-  2. Inter-click intervals follow Exp(1/rate) — KS test + visual overlay
-  3. min_ici constraint is always respected (no two clicks closer than 3 ms)
-  4. No clicks fall outside [0, duration)
+Generates N click trains using the production click_generator routine and
+produces the thesis figure (fig:click_stats):
+  Left panel  — log-y ICI histogram across rates with theoretical Exp overlaid;
+                theoretical line dashed below the min_ici support boundary.
+  Right panel — zoom on the first 20 ms showing the point mass at min_ici.
+
+Also prints the KS test results and clamp fraction table for the thesis.
 
 Runs anywhere (no hardware needed).
 
 Usage:
-    python3 debug/validate_clicks.py [--n 2000] [--dur 1.0]
-    python3 debug/validate_clicks.py --out output/validate_clicks.png
+    python debug/validate_clicks.py
+    python debug/validate_clicks.py --n 2000 --dur 1.0
+    python debug/validate_clicks.py --out output/click_stats.png
 """
 
 import argparse
 import os
+import sys
 from datetime import datetime
 
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+from ui.click_generator import generate_clicks, CLICK_WIDTH_S
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
-CLICK_WIDTH_S = 0.003   # min_ici default — matches config.py
-TEST_RATES    = [5, 10, 20, 40, 80]   # clicks/s
+MIN_ICI    = 2 * CLICK_WIDTH_S          # 6 ms — matches generate_clicks() default
+TEST_RATES = [5, 10, 20, 40]             # per-channel click rates (clicks/s)
+COLORS     = ["#4e79a7", "#f28e2b", "#e15759", "#59a14f"]
 
 
-def _poisson_train(rate: float, duration: float, rng, min_ici: float) -> list:
-    if rate <= 0:
-        return []
-    clicks, t, last_t = [], 0.0, float("-inf")
-    while True:
-        t += rng.exponential(1.0 / rate)
-        t = max(t, last_t + min_ici)
-        if t >= duration:
-            break
-        clicks.append(float(t))
-        last_t = t
-    return clicks
+def collect_icis(rate: float, n_trains: int, duration: float) -> list[float]:
+    """Generate n_trains via the production routine and return all ICIs (seconds)."""
+    icis = []
+    for seed in range(n_trains):
+        result = generate_clicks(rate, rate, duration, seed=seed, min_ici=MIN_ICI)
+        for channel in ("left_clicks", "right_clicks"):
+            clicks = result[channel]
+            for i in range(1, len(clicks)):
+                icis.append(clicks[i] - clicks[i - 1])
+    return icis
 
 
-def validate_rate(rate: float, n_trains: int, duration: float,
-                  min_ici: float, rng) -> dict:
-    all_icis      = []
-    all_counts    = []
-    min_ici_violations = 0
-    out_of_bounds = 0
+def validate_rate(rate: float, icis: list[float]) -> dict:
+    """Compute KS test and clamp statistics for one rate."""
+    ks_stat, ks_p = np.nan, np.nan
+    clamp_tol = 1e-4
 
-    for _ in range(n_trains):
-        clicks = _poisson_train(rate, duration, rng, min_ici)
-        if not clicks:
-            all_counts.append(0)
-            continue
+    n_clamped  = sum(1 for ici in icis if ici < MIN_ICI + clamp_tol)
+    clamp_frac = n_clamped / len(icis) if icis else np.nan
+    clamp_frac_theory = 1.0 - np.exp(-rate * MIN_ICI)
 
-        all_counts.append(len(clicks))
-
-        # Check bounds
-        if any(c < 0 or c >= duration for c in clicks):
-            out_of_bounds += 1
-
-        # Check min_ici
-        for i in range(1, len(clicks)):
-            ici = clicks[i] - clicks[i - 1]
-            if ici < min_ici - 1e-9:
-                min_ici_violations += 1
-            all_icis.append(ici)
-
-    obs_rate = np.mean(all_counts) / duration
-    ks_stat, ks_p = (np.nan, np.nan)
-
-    if len(all_icis) >= 20:
-        # KS test: ICI ~ Exp(1/rate). With min_ici shift, true mean is 1/rate + min_ici.
-        # Use the empirical mean to fit rather than the theoretical rate directly.
-        emp_mean = np.mean(all_icis)
-        ks_stat, ks_p = stats.kstest(all_icis, "expon",
-                                      args=(0, emp_mean))
+    # KS test on the unclamped (continuous) portion against Expon(loc=MIN_ICI, scale=1/rate)
+    unclamped = [ici for ici in icis if ici >= MIN_ICI + clamp_tol]
+    if len(unclamped) >= 10:
+        ks_stat, ks_p = stats.kstest(
+            unclamped, stats.expon(loc=MIN_ICI, scale=1.0 / rate).cdf
+        )
 
     return {
-        "rate":               rate,
-        "obs_rate":           obs_rate,
-        "rate_error_pct":     100 * (obs_rate - rate) / rate,
-        "mean_ici_ms":        np.mean(all_icis) * 1000 if all_icis else np.nan,
-        "std_ici_ms":         np.std(all_icis)  * 1000 if all_icis else np.nan,
-        "min_ici_ms":         np.min(all_icis)  * 1000 if all_icis else np.nan,
-        "ks_stat":            ks_stat,
-        "ks_p":               ks_p,
-        "min_ici_violations": min_ici_violations,
-        "out_of_bounds":      out_of_bounds,
-        "all_icis":           all_icis,
-        "all_counts":         all_counts,
+        "rate":              rate,
+        "n_icis":            len(icis),
+        "ks_stat":           ks_stat,
+        "ks_p":              ks_p,
+        "clamp_frac":        clamp_frac,
+        "clamp_frac_theory": clamp_frac_theory,
     }
 
 
-def main():
+def plot(results: dict, ici_data: dict, duration: float, n_trains: int,
+         save_path: str) -> None:
+
+    fig, (ax_main, ax_zoom) = plt.subplots(1, 2, figsize=(12, 5))
+
+    x_max  = max(float(np.percentile(np.array(ici_data[r]), 99.5)) for r in TEST_RATES)
+    x_full = np.linspace(0, x_max, 5000)
+    x_zoom = np.linspace(0, 0.020, 2000)
+
+    x_full_ms = x_full * 1000
+    x_zoom_ms = x_zoom * 1000
+    min_ici_ms = MIN_ICI * 1000
+
+    for i, rate in enumerate(TEST_RATES):
+        icis_ms = np.array(ici_data[rate]) * 1000
+        color   = COLORS[i]
+        r       = results[rate]
+
+        # ── Main panel: log-y ICI density ────────────────────────────────────
+        x_max_ms = float(np.percentile(icis_ms, 99.5))
+        bins     = np.linspace(0, x_max_ms, 80)
+        ax_main.hist(icis_ms, bins=bins, density=True, alpha=0.35, color=color,
+                     edgecolor="none", label=f"{rate} Hz (D={r['ks_stat']:.4f})")
+
+        # Theoretical Exp: solid for x >= min_ici, dashed for x < min_ici
+        pdf = (rate / 1000) * np.exp(-(rate / 1000) * x_full_ms)
+        ax_main.plot(x_full_ms[x_full_ms >= min_ici_ms], pdf[x_full_ms >= min_ici_ms],
+                     color=color, lw=1.5)
+        ax_main.plot(x_full_ms[x_full_ms <  min_ici_ms], pdf[x_full_ms <  min_ici_ms],
+                     color=color, lw=1.0, linestyle="--")
+
+    # Dummy lines for legend entries explaining line styles
+    ax_main.plot([], [], color="gray", lw=1.5, label="Exp($\\lambda$) theoretical")
+    ax_main.plot([], [], color="gray", lw=1.0, linestyle="--", label="Theoretical (below $\\Delta t_{\\min}$)")
+    ax_main.axvline(min_ici_ms, color="black", lw=1.0, linestyle=":",
+                    label=f"$\\Delta t_{{\\min}}$ = {min_ici_ms:.0f} ms")
+    ax_main.set_yscale("log")
+    ax_main.set_xlabel("Inter-click interval (ms)")
+    ax_main.set_ylabel("Density (log scale)")
+    ax_main.legend(fontsize=8, loc="upper right")
+    ax_main.set_xlim(left=0)
+
+    # ── Zoom panel: clamp boundary at max rate ────────────────────────────────
+    max_rate  = TEST_RATES[-1]
+    icis_max  = np.array(ici_data[max_rate]) * 1000
+    zoom_ms   = 20
+    zoom_bins = np.linspace(0, zoom_ms, 60)
+
+    ax_zoom.hist(icis_max, bins=zoom_bins, density=True, color=COLORS[-1],
+                 alpha=0.6, edgecolor="white", linewidth=0.3,
+                 label=f"Observed ({max_rate} Hz)")
+
+    pdf_zoom = (max_rate / 1000) * np.exp(-(max_rate / 1000) * x_zoom_ms)
+    ax_zoom.plot(x_zoom_ms[x_zoom_ms >= min_ici_ms], pdf_zoom[x_zoom_ms >= min_ici_ms],
+                 color="black", lw=1.8, label=f"Exp({max_rate} Hz)")
+    ax_zoom.plot(x_zoom_ms[x_zoom_ms <  min_ici_ms], pdf_zoom[x_zoom_ms <  min_ici_ms],
+                 color="black", lw=1.2, linestyle="--", label="Theoretical (below $\\Delta t_{\\min}$)")
+    ax_zoom.axvline(min_ici_ms, color="black", lw=1.0, linestyle=":",
+                    label=f"$\\Delta t_{{\\min}}$ = {min_ici_ms:.0f} ms")
+
+    r_max = results[max_rate]
+    ax_zoom.text(0.97, 0.97,
+                 f"Clamp fraction:\n  observed: {r_max['clamp_frac']*100:.1f}%\n"
+                 f"  $\\lambda \\cdot \\Delta t_{{\\min}}$:  {r_max['clamp_frac_theory']*100:.1f}%",
+                 transform=ax_zoom.transAxes, ha="right", va="top", fontsize=8,
+                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+    ax_zoom.set_xlabel("Inter-click interval (ms)")
+    ax_zoom.set_ylabel("Density")
+    ax_zoom.set_xlim(0, zoom_ms)
+    ax_zoom.legend(fontsize=8)
+
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    print(f"Plot saved → {save_path}")
+    plt.show()
+
+
+def main() -> None:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_out = os.path.join(OUTPUT_DIR, f"validate_clicks_{ts}.png")
 
     p = argparse.ArgumentParser(description="Poisson click distribution validator")
-    p.add_argument("--n",   type=int,   default=2000,       help="Trains per rate (default: 2000)")
-    p.add_argument("--dur", type=float, default=1.0,        help="Train duration s (default: 1.0)")
-    p.add_argument("--out", default=default_out,            help="Output PNG path")
+    p.add_argument("--n",   type=int,   default=2000, help="Trains per rate (default: 2000)")
+    p.add_argument("--dur", type=float, default=1.0,  help="Train duration s (default: 1.0)")
+    p.add_argument("--out", default=default_out,      help="Output PNG path")
     args = p.parse_args()
 
-    rng = np.random.default_rng(42)
-    results = {}
+    print(f"Generating {len(TEST_RATES)} rates × {args.n} trains × {args.dur:.1f} s "
+          f"(min_ici={MIN_ICI*1000:.0f} ms) ...")
 
-    print(f"Validating {len(TEST_RATES)} rates × {args.n} trains × {args.dur:.1f} s ...")
-    print(f"\n{'Rate':>6}  {'Obs rate':>9}  {'Error':>7}  "
-          f"{'Mean ICI':>9}  {'Min ICI':>8}  {'KS p':>8}  {'Violations':>10}")
-    print("─" * 70)
-
+    ici_data = {}
     for rate in TEST_RATES:
-        r = validate_rate(rate, args.n, args.dur, CLICK_WIDTH_S, rng)
-        results[rate] = r
-        ok = "✓" if r["min_ici_violations"] == 0 and r["out_of_bounds"] == 0 else "✗"
-        print(f"  {rate:4.0f}  {r['obs_rate']:9.2f}  {r['rate_error_pct']:+6.2f}%  "
-              f"{r['mean_ici_ms']:8.2f} ms  {r['min_ici_ms']:7.2f} ms  "
-              f"{r['ks_p']:8.4f}  {r['min_ici_violations']:>6} viol  {ok}")
+        ici_data[rate] = collect_icis(rate, args.n, args.dur)
+        print(f"  {rate:3.0f} Hz: {len(ici_data[rate]):,} ICIs collected")
 
-    # --- Plot ---
-    n_rates = len(TEST_RATES)
-    fig = plt.figure(figsize=(4 * n_rates, 10))
-    fig.suptitle(
-        f"Poisson click train validation  —  {args.n} trains × {args.dur:.1f} s per rate",
-        fontsize=12, fontweight="bold",
-    )
-    gs = gridspec.GridSpec(3, n_rates, figure=fig, hspace=0.55, wspace=0.35)
+    results = {rate: validate_rate(rate, ici_data[rate]) for rate in TEST_RATES}
 
-    for col, rate in enumerate(TEST_RATES):
+    # Terminal table
+    print(f"\n{'Rate':>6}  {'N ICIs':>8}  {'KS D':>8}  {'KS p':>8}  "
+          f"{'Clamp % obs':>12}  {'Clamp % theory (λΔt)':>20}")
+    print("─" * 75)
+    for rate in TEST_RATES:
         r = results[rate]
-        icis = np.array(r["all_icis"])
-        counts = np.array(r["all_counts"])
+        print(f"  {rate:4.0f}  {r['n_icis']:8,}  {r['ks_stat']:8.4f}  {r['ks_p']:8.4f}  "
+              f"{r['clamp_frac']*100:11.2f}%  {r['clamp_frac_theory']*100:19.2f}%")
 
-        # Row 0: ICI histogram vs theoretical Exponential
-        ax = fig.add_subplot(gs[0, col])
-        if len(icis) > 0:
-            x_max = np.percentile(icis, 99)
-            bins  = np.linspace(0, x_max, 50)
-            ax.hist(icis, bins=bins, density=True, color="#4e79a7",
-                    alpha=0.75, edgecolor="white", linewidth=0.3, label="observed")
-            x = np.linspace(0, x_max, 300)
-            # Theoretical: shifted exponential (mean = 1/rate + min_ici)
-            lam = 1.0 / (1.0 / rate)
-            ax.plot(x, lam * np.exp(-lam * x), color="red", linewidth=1.5,
-                    linestyle="--", label=f"Exp({rate:.0f} Hz)")
-        ax.set_xlabel("ICI (s)")
-        ax.set_ylabel("Density")
-        ax.set_title(f"{rate:.0f} Hz\nobs={r['obs_rate']:.1f} Hz  "
-                     f"err={r['rate_error_pct']:+.1f}%\nKS p={r['ks_p']:.3f}",
-                     fontsize=8)
-        ax.legend(fontsize=7)
-
-        # Row 1: Clicks-per-train distribution
-        ax = fig.add_subplot(gs[1, col])
-        expected_mean = rate * args.dur
-        ax.hist(counts, bins=range(max(0, int(expected_mean - 4 * expected_mean**0.5)),
-                                    int(expected_mean + 4 * expected_mean**0.5) + 2),
-                color="#f28e2b", alpha=0.75, edgecolor="white", linewidth=0.3,
-                density=True, label="observed")
-        # Theoretical Poisson PMF
-        k = np.arange(max(0, int(expected_mean - 5 * expected_mean**0.5)),
-                       int(expected_mean + 5 * expected_mean**0.5) + 1)
-        from scipy.stats import poisson as _poisson
-        ax.plot(k, _poisson.pmf(k, expected_mean), "ko-", markersize=3,
-                linewidth=1.0, label=f"Poisson({expected_mean:.0f})")
-        ax.set_xlabel("Clicks per train")
-        ax.set_ylabel("Density")
-        ax.set_title(f"Clicks/train\nmean={np.mean(counts):.1f}  "
-                     f"std={np.std(counts):.1f}", fontsize=8)
-        ax.legend(fontsize=7)
-
-        # Row 2: Minimum ICI check
-        ax = fig.add_subplot(gs[2, col])
-        if len(icis) > 0:
-            ax.hist(icis * 1000, bins=50, color="#e15759", alpha=0.75,
-                    edgecolor="white", linewidth=0.3)
-            ax.axvline(CLICK_WIDTH_S * 1000, color="black", linewidth=1.2,
-                       linestyle="--", label=f"min_ici={CLICK_WIDTH_S*1000:.0f} ms")
-        violations = r["min_ici_violations"]
-        ax.set_xlabel("ICI (ms)")
-        ax.set_ylabel("Count")
-        ax.set_title(f"ICI distribution (ms)\n"
-                     f"min={r['min_ici_ms']:.2f} ms  viol={violations}", fontsize=8)
-        ax.legend(fontsize=7)
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    fig.savefig(args.out, dpi=150, bbox_inches="tight")
-    print(f"\nPlot saved → {args.out}")
-    plt.show()
+    plot(results, ici_data, args.dur, args.n, args.out)
 
 
 if __name__ == "__main__":

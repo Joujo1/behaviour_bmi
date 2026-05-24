@@ -196,6 +196,18 @@ def main():
     print(f"\nFIXED mode: always high-rate side = {'✓' if fxd['always_high_side'] else '✗ FAIL'}  "
           f"(left={fxd['n_left']} right={fxd['n_right']})")
 
+    # Thesis table (tab:side_modes)
+    print("\n── Thesis table: tab:side_modes " + "─" * 44)
+    print(f"  {'Mode':<18}  {'Target P(left)':>14}  {'Observed P(left)':>16}  {'N':>6}  {'Result':>6}")
+    print("  " + "─" * 67)
+    print(f"  {'Random':<18}  {'0.500':>14}  {rnd['obs_frac']:>16.4f}  {n:>6}  "
+          f"{'PASS' if rnd['p_val'] > 0.01 else 'FAIL':>6}")
+    for r in wgt:
+        print(f"  {'Weighted':<18}  {r['p_left']:>14.3f}  {r['obs_frac']:>16.4f}  {n:>6}  "
+              f"{'PASS' if r['p_val'] > 0.01 else 'FAIL':>6}")
+    print(f"  {'Fixed':<18}  {'1.000 (left)':>14}  {fxd['n_left']/n:>16.4f}  {n:>6}  "
+          f"{'PASS' if fxd['always_high_side'] else 'FAIL':>6}")
+
     # --- Plot ---
     fig = plt.figure(figsize=(14, 8))
     fig.suptitle(f"Side assignment validation  —  {n} trials per test",
