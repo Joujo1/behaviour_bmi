@@ -1,19 +1,32 @@
+"""
+Flask application entry point.
+
+Creates the app, registers all blueprints, initialises per-cage
+TCPCommandSender and CageRunner instances, and clears stale Valkey
+state left over from any previous server run.
+
+Run with:
+    python main.py   (calls app.run via ui_main.app)
+"""
+
 import logging
-import config
+
 import valkey as valkey_client
-from command.tcp_command_sender import TCPCommandSender
 from flask import Flask, render_template
 from flask_sock import Sock
+
+import config
+from command.tcp_command_sender import TCPCommandSender
 from ui.cage_runner import CageRunner, runners
 from ui.endpoints.builder import builder_bp
 from ui.endpoints.control import control_bp
-from ui.endpoints.dev import dev_bp
-from ui.endpoints.session import session_bp
-from ui.endpoints.subjects import subjects_bp
 from ui.endpoints.curriculum import curriculum_bp
-from ui.endpoints.stream import stream_bp
+from ui.endpoints.dev import dev_bp
 from ui.endpoints.metrics import metrics_bp
 from ui.endpoints.scoresheet import scoresheet_bp
+from ui.endpoints.session import session_bp
+from ui.endpoints.stream import stream_bp
+from ui.endpoints.subjects import subjects_bp
 from ui.endpoints.trial import trial_bp
 from ui.event_handler import handle_trial_event
 
@@ -22,7 +35,7 @@ sock = Sock(app)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
-# Clear stale streaming state from previous sessions
+# Clear stale streaming/recording/peripheral state from previous server run.
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 for _cage_id in range(1, config.N_CAGES + 1):
     _valkey.set(f"cage:{_cage_id}:streaming",       "0")

@@ -19,11 +19,12 @@ import config
 from ui.cage_runner import runners
 from ui import advancement
 
+logger = logging.getLogger(__name__)
+
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
-_log = logging.getLogger("event_handler")
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
@@ -41,8 +42,8 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
     events         = event.get("events", [])
     trial_start_us = event.get("trial_start_us")
 
-    _log.info("Cage %d: %s  outcome=%s  trial_id=%s  n_events=%d",
-              cage_id, event_type, outcome, trial_id, len(events))
+    logger.info("Cage %d: %s  outcome=%s  trial_id=%s  n_events=%d",
+                cage_id, event_type, outcome, trial_id, len(events))
 
     runner = runners.get(cage_id)
     if runner:
@@ -89,14 +90,14 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                         if tc_row and tc_row[0].get("base_iti_s") is not None:
                             switched = runner.switch_substage(tc_row[0], new_substage)
                             if switched:
-                                _log.info("Cage %d: auto-switched substage — subject %d %s to substage %d",
-                                          cage_id, subject_id, decision, new_substage)
+                                logger.info("Cage %d: auto-switched substage — subject %d %s to substage %d",
+                                            cage_id, subject_id, decision, new_substage)
                             else:
-                                _log.warning("Cage %d: switch_substage failed, stopping instead", cage_id)
+                                logger.warning("Cage %d: switch_substage failed, stopping instead", cage_id)
                                 runner.stop()
                         else:
-                            _log.warning("Cage %d: new substage %d has no ITI — stopping runner",
-                                         cage_id, new_substage)
+                            logger.warning("Cage %d: new substage %d has no ITI — stopping runner",
+                                           cage_id, new_substage)
                             runner.stop()
 
                     # Write UI notification to Valkey (expires after 20 seconds)
@@ -117,10 +118,10 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                             ex=20,
                         )
                     except Exception as ve:
-                        _log.warning("Cage %d: could not write advancement notification: %s",
-                                     cage_id, ve)
+                        logger.warning("Cage %d: could not write advancement notification: %s",
+                                       cage_id, ve)
 
     except Exception as e:
-        _log.error("Cage %d: failed to write trial result: %s", cage_id, e)
+        logger.error("Cage %d: failed to write trial result: %s", cage_id, e)
     finally:
         conn.close()

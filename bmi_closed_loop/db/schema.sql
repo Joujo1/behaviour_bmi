@@ -1,17 +1,13 @@
--- =============================================================================
 -- BMI Closed-Loop — Full Schema
--- =============================================================================
+--
 -- Normal use (safe to re-run on existing DB):
 --   psql <DSN> -f db/schema.sql
 --
 -- Fresh reset (drops everything and recreates):
 --   psql <DSN> -v RESET=1 -f db/schema.sql
--- =============================================================================
 
 
--- ---------------------------------------------------------------------------
--- Optional reset: uncomment the block below OR run with -v RESET=1
--- ---------------------------------------------------------------------------
+-- Optional reset: run with -v RESET=1 or uncomment the block below
 
 \if :{?RESET}
     DROP TABLE IF EXISTS trial_results        CASCADE;
@@ -23,13 +19,11 @@
 \endif
 
 
--- ---------------------------------------------------------------------------
 -- Training curriculum
 --
--- training_stages   — top-level groupings, e.g. "Habituation", "Easy clicks"
+-- training_stages    — top-level groupings, e.g. "Habituation", "Easy clicks"
 -- training_substages — one row per level; carries the trial definition and
 --                      advancement rules. task_config is the JSON sent to the Pi.
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS training_stages (
     id          SERIAL PRIMARY KEY,
@@ -57,9 +51,7 @@ CREATE TABLE IF NOT EXISTS training_substages (
 );
 
 
--- ---------------------------------------------------------------------------
 -- Subjects (animals)
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS subjects (
     id                  SERIAL       PRIMARY KEY,
@@ -82,12 +74,10 @@ ALTER TABLE subjects ADD COLUMN IF NOT EXISTS side_bias_alg       TEXT DEFAULT '
     CHECK (side_bias_alg IN ('none', 'brody', 'ibl'));
 
 
--- ---------------------------------------------------------------------------
 -- Sessions
 -- One row per sitting. Links an animal to a cage on a given day.
 -- substage_id is snapshotted at session-open time so the record is stable
 -- even if the animal advances mid-session.
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS sessions (
     id             SERIAL       PRIMARY KEY,
@@ -103,8 +93,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     closed_at      TIMESTAMPTZ,
     UNIQUE (subject_id, session_number)
 );
-
--- Idempotent migrations for existing databases
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS cage_id        INT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_number INT;
 DO $$ BEGIN
@@ -118,11 +106,9 @@ DO $$ BEGIN
 END $$;
 
 
--- ---------------------------------------------------------------------------
 -- Welfare scoresheet entries
--- One row per daily welfare check per subject.  Auto-created on session open;
+-- One row per daily welfare check per subject. Auto-created on session open;
 -- researchers fill in scores, weight, and notes via the scoresheet UI.
--- ---------------------------------------------------------------------------
 
 -- Rename migration for existing databases (no-op if already renamed)
 DO $$ BEGIN
@@ -152,12 +138,10 @@ CREATE TABLE IF NOT EXISTS scoresheet_entries (
 );
 
 
--- ---------------------------------------------------------------------------
 -- Trial results
 -- One row per trial completion or abort received from the Pi.
 -- session_id and substage_id are NULL for one-shot/dev runs that bypass
 -- the session workflow.
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS trial_results (
     id           SERIAL      PRIMARY KEY,
@@ -175,11 +159,9 @@ ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS trial_start_us BIGINT;
 ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS click_seed     BIGINT;
 
 
--- ---------------------------------------------------------------------------
 -- Recordings
 -- Written by frame_writer.py in chunks of config.DB_CHUNK_SIZE frames.
 -- Each row covers one chunk of a binary recording file for one cage.
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS recordings (
     id                 BIGSERIAL   PRIMARY KEY,
@@ -194,9 +176,7 @@ CREATE TABLE IF NOT EXISTS recordings (
 );
 
 
--- ---------------------------------------------------------------------------
 -- Indexes
--- ---------------------------------------------------------------------------
 
 CREATE INDEX IF NOT EXISTS idx_trial_results_cage       ON trial_results (cage_id);
 CREATE INDEX IF NOT EXISTS idx_trial_results_session    ON trial_results (session_id);
@@ -206,7 +186,5 @@ CREATE INDEX IF NOT EXISTS idx_subjects_substage        ON subjects (current_sub
 CREATE INDEX IF NOT EXISTS idx_substages_stage          ON training_substages (stage_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_cage          ON recordings (cage_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_subject         ON sessions (subject_id);
-CREATE INDEX IF NOT EXISTS idx_scoresheet_subject          ON scoresheet_entries (subject_id);
-CREATE INDEX IF NOT EXISTS idx_scoresheet_session          ON scoresheet_entries (session_id);
-
-
+CREATE INDEX IF NOT EXISTS idx_scoresheet_subject       ON scoresheet_entries (subject_id);
+CREATE INDEX IF NOT EXISTS idx_scoresheet_session       ON scoresheet_entries (session_id);

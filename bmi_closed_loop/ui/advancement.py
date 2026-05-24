@@ -4,12 +4,15 @@ Substage advancement evaluator.
 After each trial completes call evaluate(subject_id, substage_id, conn).
 Returns "advance", "fallback", or "stay".
 """
+
 import logging
 
-_log = logging.getLogger("advancement")
+import psycopg2.extensions
+
+logger = logging.getLogger(__name__)
 
 
-def evaluate(subject_id: int, substage_id: int, conn) -> str:
+def evaluate(subject_id: int, substage_id: int, conn: psycopg2.extensions.connection) -> str:
     """
     Check advancement and fallback criteria for a subject on a substage.
     """
@@ -23,27 +26,28 @@ def evaluate(subject_id: int, substage_id: int, conn) -> str:
         row = cur.fetchone()
 
     if row is None:
-        _log.warning("Substage %d not found — staying", substage_id)
+        logger.warning("Substage %d not found — staying", substage_id)
         return "stay"
 
     advance_criteria, fallback_criteria, advance_target, fallback_target = row
 
     if advance_criteria and advance_target:
         if _meets(advance_criteria, subject_id, substage_id, conn, is_fallback=False):
-            _log.info("Subject %d met advance criteria on substage %d → substage %d",
-                      subject_id, substage_id, advance_target)
+            logger.info("Subject %d met advance criteria on substage %d → substage %d",
+                        subject_id, substage_id, advance_target)
             return "advance"
 
     if fallback_criteria and fallback_target:
         if _meets(fallback_criteria, subject_id, substage_id, conn, is_fallback=True):
-            _log.info("Subject %d met fallback criteria on substage %d → substage %d",
-                      subject_id, substage_id, fallback_target)
+            logger.info("Subject %d met fallback criteria on substage %d → substage %d",
+                        subject_id, substage_id, fallback_target)
             return "fallback"
 
     return "stay"
 
 
-def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
+def apply(subject_id: int, substage_id: int, decision: str,
+          conn: psycopg2.extensions.connection) -> int | None:
     """
     Apply an advance/fallback decision by updating subjects.current_substage_id.
     Returns the new substage_id, or None if decision is "stay".
@@ -61,7 +65,7 @@ def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
         row = cur.fetchone()
 
     if not row or row[0] is None:
-        _log.warning("No %s target for substage %d — staying", decision, substage_id)
+        logger.warning("No %s target for substage %d — staying", decision, substage_id)
         return None
 
     new_substage_id = row[0]
@@ -72,23 +76,23 @@ def apply(subject_id: int, substage_id: int, decision: str, conn) -> int | None:
             (new_substage_id, subject_id)
         )
 
-    _log.info("Subject %d moved from substage %d → %d (%s)",
-              subject_id, substage_id, new_substage_id, decision)
+    logger.info("Subject %d moved from substage %d → %d (%s)",
+                subject_id, substage_id, new_substage_id, decision)
     return new_substage_id
 
 
-def _meets(criteria: dict, subject_id: int, substage_id: int, conn,
-           is_fallback: bool = False) -> bool:
+def _meets(criteria: dict, subject_id: int, substage_id: int,
+           conn: psycopg2.extensions.connection, is_fallback: bool = False) -> bool:
     ctype = criteria.get("type")
     handler = _CRITERIA_HANDLERS.get(ctype)
     if handler is None:
-        _log.warning("Unknown criteria type '%s' — treating as not met", ctype)
+        logger.warning("Unknown criteria type '%s' — treating as not met", ctype)
         return False
     return handler(criteria, subject_id, substage_id, conn, is_fallback)
 
 
-def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn,
-                 is_fallback: bool = False) -> bool:
+def _pct_correct(criteria: dict, subject_id: int, substage_id: int,
+                 conn: psycopg2.extensions.connection, is_fallback: bool = False) -> bool:
     """
     Advance: returns True when correct rate >= threshold over the last `window` trials.
     Fallback: returns True when correct rate <  threshold over the last `window` trials.
@@ -118,7 +122,7 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int, conn,
 
     correct = sum(1 for r in rows if r[0] == "correct")
     pct = correct / len(rows)
-    _log.info(
+    logger.info(
         "Subject %d substage %d: %.0f%% correct over last %d trials "
         "(threshold %.0f%%, checking %s)",
         subject_id, substage_id, pct * 100, len(rows), threshold * 100,

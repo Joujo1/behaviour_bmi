@@ -1,38 +1,41 @@
+"""
+Binary UDP packet parser for the cage camera stream.
+
+Each packet begins with a fixed-size header followed by a JSON events blob
+and a raw H264/JPEG frame. See udp_sender_pi.py for the full wire format.
+"""
+
 import json
 import struct
 from dataclasses import dataclass, field
-from typing import Optional
 
 HEADER_FORMAT = "<IQIIBBBBBBBBB"
-HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+HEADER_SIZE   = struct.calcsize(HEADER_FORMAT)
 
 
 @dataclass
 class ParsedFrame:
-    # used by the Postgres write (frame metadata + GPIO state per chunk)
-    pi_seq: int             # Pi's frame counter, used for network drop detection
-    timestamp: int          # microseconds, from Pi
-    jpeg_size: int
-    events_size: int        # bytes of JSON events between header and jpeg
-    led_center: int
-    led_left: int
-    led_right: int
-    valve_left: int
-    valve_right: int
-    beam_left: int
-    beam_right: int
-    beam_center: int
-    trial_state: int
-    events: list
-
-    # jpeg is sliced from here for Valkey: raw_packet[HEADER_SIZE + events_size:]
-    raw_packet: bytes
-
+    pi_seq:               int     # Pi's frame counter, used for network drop detection
+    timestamp:            int     # microseconds (CLOCK_MONOTONIC, from Pi)
+    jpeg_size:            int
+    events_size:          int     # bytes of JSON events between header and frame data
+    led_center:           int
+    led_left:             int
+    led_right:            int
+    valve_left:           int
+    valve_right:          int
+    beam_left:            int
+    beam_right:           int
+    beam_center:          int
+    trial_state:          int
+    events:               list
+    raw_packet:           bytes   # full packet; jpeg = raw_packet[HEADER_SIZE + events_size:]
     network_arrival_time: float
-    sender_ip: str
+    sender_ip:            str
 
 
-def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
+def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float) -> ParsedFrame | None:
+    """Parse a raw UDP datagram into a ParsedFrame. Returns None on malformed input."""
     if len(raw_data) < HEADER_SIZE:
         return None
 
@@ -44,7 +47,7 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
         trial_state,
     ) = struct.unpack(HEADER_FORMAT, raw_data[:HEADER_SIZE])
 
-    if not jpeg_size or jpeg_size <= 0 or jpeg_size > 10_000_000:
+    if jpeg_size <= 0 or jpeg_size > 10_000_000:
         return None
 
     expected_size = HEADER_SIZE + events_size + jpeg_size
@@ -54,9 +57,7 @@ def parse_packet(raw_data: bytes, sender_ip: str, network_arrival_time: float):
     events = []
     if events_size > 0:
         try:
-            events = json.loads(
-                raw_data[HEADER_SIZE : HEADER_SIZE + events_size].decode("utf-8")
-            )
+            events = json.loads(raw_data[HEADER_SIZE:HEADER_SIZE + events_size].decode("utf-8"))
         except Exception:
             pass
 

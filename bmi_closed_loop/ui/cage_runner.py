@@ -2,8 +2,8 @@
 Per-cage trial runner.
 
 One CageRunner instance lives for the lifetime of the application (created at
-startup in ui_main.py). start() launches a background thread that sends trials continuously;
-stop() signals it to finish after the current trial.
+startup in ui_main.py). start() launches a background thread that sends trials
+continuously; stop() signals it to finish after the current trial.
 
 Completion events are delivered by the TCP reader thread via on_trial_complete().
 """
@@ -20,29 +20,29 @@ import psycopg2
 import config
 from ui.click_generator import generate_clicks
 
-_log = logging.getLogger("runner")
+logger = logging.getLogger(__name__)
 
 
 class CageRunner:
     """Manages the continuous trial loop for one cage."""
 
     def __init__(self, cage_id: int) -> None:
-        self.cage_id = cage_id
+        self._cage_id = cage_id
 
-        self._thread: threading.Thread | None = None
+        self._thread = None
         self._event  = threading.Event()
         self._lock   = threading.Lock()
 
-        self._stop:              bool        = False
-        self._last_result:       dict | None = None
-        self._pending_switch:    dict | None = None
-        self.session_id:         int  | None = None
-        self.substage_id:        int  | None = None
-        self.subject_id:         int  | None = None
-        self._started_at:        float| None = None
-        self._correct_side:      str  | None = None
-        self._click_seed:        int  | None = None
-        self._last_click_ratio:  float| None = None   # high/low click ratio of the most recently sent trial
+        self._stop             = False
+        self._last_result      = None
+        self._pending_switch   = None
+        self._session_id       = None
+        self._substage_id      = None
+        self._subject_id       = None
+        self._started_at       = None
+        self._correct_side     = None
+        self._click_seed       = None
+        self._last_click_ratio = None   # high/low click ratio of the most recently sent trial
 
     @property
     def is_running(self) -> bool:
@@ -60,13 +60,17 @@ class CageRunner:
             self._stop           = False
             self._last_result    = None
             self._pending_switch = None
-            self.session_id      = session_id
-            self.substage_id     = substage_id
-            self.subject_id      = subject_id
+            self._session_id     = session_id
+            self._substage_id    = substage_id
+            self._subject_id     = subject_id
             self._started_at     = time.time()
             self._event.clear()
-            self._thread = threading.Thread(target=self._run_loop, args=(trial_definition, sender, base_iti_s, fail_iti_s),
-                                            daemon=True, name=f"runner-cage{self.cage_id}",)
+            self._thread = threading.Thread(
+                target=self._run_loop,
+                args=(trial_definition, sender, base_iti_s, fail_iti_s),
+                daemon=True,
+                name=f"runner-cage{self._cage_id}",
+            )
             self._thread.start()
         return True, "run started"
 
@@ -96,15 +100,15 @@ class CageRunner:
                 "base_iti_s":       max(0.0, float(trial_definition.get("base_iti_s", 5.0))),
                 "fail_iti_s":       max(0.0, float(trial_definition.get("fail_iti_s", 15.0))),
             }
-            self.substage_id = substage_id
+            self._substage_id = substage_id
         return True
 
     def get_context(self) -> dict:
         """Return {session_id, substage_id, correct_side, click_seed} for the active run."""
         with self._lock:
             return {
-                "session_id":   self.session_id,
-                "substage_id":  self.substage_id,
+                "session_id":   self._session_id,
+                "substage_id":  self._substage_id,
                 "correct_side": self._correct_side,
                 "click_seed":   self._click_seed,
             }
@@ -116,22 +120,22 @@ class CageRunner:
         with self._lock:
             return {
                 "running":     True,
-                "substage_id": self.substage_id,
+                "substage_id": self._substage_id,
                 "started_at":  self._started_at,
             }
 
     def _run_loop(self, trial_definition: dict, sender,
                   base_iti_s: float, fail_iti_s: float) -> None:
-        _log.info("Cage %d: starting continuous run (iti=%.1fs fail_iti=%.1fs)",
-                  self.cage_id, base_iti_s, fail_iti_s)
+        logger.info("Cage %d: starting continuous run (iti=%.1fs fail_iti=%.1fs)",
+                    self._cage_id, base_iti_s, fail_iti_s)
         trial_count = 0
 
         # Pre-compute the first trial with bias applied (last_click_ratio=None:
         # no previous trial yet). Every subsequent trial is pre-computed during
         # the ITI so the send path never blocks on generation.
         trial_for_resolve = (
-            _apply_bias(trial_definition, self.subject_id, last_click_ratio=None)
-            if self.subject_id is not None else trial_definition
+            _apply_bias(trial_definition, self._subject_id, last_click_ratio=None)
+            if self._subject_id is not None else trial_definition
         )
         resolved, correct_side = _resolve_sides(trial_for_resolve)
         click_seed = random.randrange(2**32)
@@ -144,8 +148,8 @@ class CageRunner:
         while True:
             with self._lock:
                 if self._stop:
-                    _log.info("Cage %d: stop requested — run ending after %d trial(s)",
-                              self.cage_id, trial_count)
+                    logger.info("Cage %d: stop requested — run ending after %d trial(s)",
+                                self._cage_id, trial_count)
                     break
                 switch = self._pending_switch
                 self._pending_switch = None
@@ -154,8 +158,8 @@ class CageRunner:
                 trial_definition = switch["trial_definition"]
                 base_iti_s       = switch["base_iti_s"]
                 fail_iti_s       = switch["fail_iti_s"]
-                _log.info("Cage %d: switched to substage %d (iti=%.1fs fail_iti=%.1fs)",
-                          self.cage_id, switch["substage_id"], base_iti_s, fail_iti_s)
+                logger.info("Cage %d: switched to substage %d (iti=%.1fs fail_iti=%.1fs)",
+                            self._cage_id, switch["substage_id"], base_iti_s, fail_iti_s)
                 # Discard the ITI-pre-computed trial; recompute with the new definition.
                 # self._last_click_ratio was not updated during ITI pre-computation so
                 # it still holds the ratio of the last completed trial — correct input
@@ -163,9 +167,9 @@ class CageRunner:
                 with self._lock:
                     last_click_ratio = self._last_click_ratio
                 trial_for_resolve = (
-                    _apply_bias(trial_definition, self.subject_id,
+                    _apply_bias(trial_definition, self._subject_id,
                                 last_click_ratio=last_click_ratio)
-                    if self.subject_id is not None else trial_definition
+                    if self._subject_id is not None else trial_definition
                 )
                 resolved, correct_side = _resolve_sides(trial_for_resolve)
                 click_seed = random.randrange(2**32)
@@ -179,19 +183,19 @@ class CageRunner:
             # available as bias input during the next ITI pre-computation.
             with self._lock:
                 self._last_click_ratio = _get_click_ratio(trial_to_send)
-            _log.info("Cage %d: trial %d — sending (correct_side=%s)",
-                      self.cage_id, trial_count, correct_side)
+            logger.info("Cage %d: trial %d — sending (correct_side=%s)",
+                        self._cage_id, trial_count, correct_side)
             self._event.clear()
 
             ok, msg = sender.send(json.dumps(trial_to_send))
             if not ok:
-                _log.error("Cage %d: failed to send trial: %s", self.cage_id, msg)
+                logger.error("Cage %d: failed to send trial: %s", self._cage_id, msg)
                 break
 
             completed = self._event.wait(timeout=config.TRIAL_TIMEOUT_S)
             if not completed:
-                _log.error("Cage %d: timed out waiting for trial completion (trial %d)",
-                           self.cage_id, trial_count)
+                logger.error("Cage %d: timed out waiting for trial completion (trial %d)",
+                             self._cage_id, trial_count)
                 break
 
             with self._lock:
@@ -199,14 +203,14 @@ class CageRunner:
                 stopped = self._stop
 
             if stopped:
-                _log.info("Cage %d: run stopped after trial %d", self.cage_id, trial_count)
+                logger.info("Cage %d: run stopped after trial %d", self._cage_id, trial_count)
                 break
 
             outcome = result.get("outcome", "correct")
             failed  = outcome != "correct"
             iti     = fail_iti_s if failed else base_iti_s
-            _log.info("Cage %d: trial %d done (outcome=%s) — ITI %.1fs",
-                      self.cage_id, trial_count, outcome, iti)
+            logger.info("Cage %d: trial %d done (outcome=%s) — ITI %.1fs",
+                        self._cage_id, trial_count, outcome, iti)
 
             # Pre-compute the next trial during the ITI with bias applied.
             # self._last_click_ratio holds the ratio of the trial just completed —
@@ -216,9 +220,9 @@ class CageRunner:
             with self._lock:
                 last_click_ratio = self._last_click_ratio
             trial_for_resolve = (
-                _apply_bias(trial_definition, self.subject_id,
+                _apply_bias(trial_definition, self._subject_id,
                             last_click_ratio=last_click_ratio)
-                if self.subject_id is not None else trial_definition
+                if self._subject_id is not None else trial_definition
             )
             resolved, correct_side = _resolve_sides(trial_for_resolve)
             click_seed = random.randrange(2**32)
@@ -233,15 +237,16 @@ class CageRunner:
             if interrupted:
                 with self._lock:
                     if self._stop:
-                        _log.info("Cage %d: run stopped during ITI after trial %d",
-                                  self.cage_id, trial_count)
+                        logger.info("Cage %d: run stopped during ITI after trial %d",
+                                    self._cage_id, trial_count)
                         break
 
-        _log.info("Cage %d: run finished (%d trial(s) completed)",
-                  self.cage_id, trial_count)
+        logger.info("Cage %d: run finished (%d trial(s) completed)",
+                    self._cage_id, trial_count)
 
 
 runners: dict[int, CageRunner] = {}
+
 
 def _resolve_sides(trial_definition: dict) -> tuple:
     """
@@ -400,7 +405,7 @@ def _get_subject_bias_alg(subject_id: int) -> str:
             row = cur.fetchone()
         return (row[0] or "none") if row else "none"
     except Exception:
-        _log.exception("bias_alg lookup failed for subject %d", subject_id)
+        logger.exception("bias_alg lookup failed for subject %d", subject_id)
         return "none"
     finally:
         conn.close()
@@ -421,7 +426,7 @@ def _query_recent_trials(subject_id: int, window: int = 20) -> list[dict]:
             rows = cur.fetchall()
         return [{"correct_side": r[0], "outcome": r[1]} for r in rows]
     except Exception:
-        _log.exception("recent trial query failed for subject %d", subject_id)
+        logger.exception("recent trial query failed for subject %d", subject_id)
         return []
     finally:
         conn.close()
@@ -456,7 +461,7 @@ def _apply_bias(trial_definition: dict, subject_id: int,
             fc_r  = sum(right_hits) / len(right_hits)
             total = fc_l + fc_r
             left_prob = (fc_r / total) if total > 0 else 0.5
-            _log.info("Brody bias: fc_l=%.2f fc_r=%.2f → P(left)=%.2f", fc_l, fc_r, left_prob)
+            logger.info("Brody bias: fc_l=%.2f fc_r=%.2f → P(left)=%.2f", fc_l, fc_r, left_prob)
 
     elif alg == "ibl":
         if recent and recent[0]["outcome"] == "wrong":
@@ -468,8 +473,8 @@ def _apply_bias(trial_definition: dict, subject_id: int,
             if (easy_min_ratio is not None
                     and last_click_ratio is not None
                     and last_click_ratio < easy_min_ratio):
-                _log.debug("IBL debias skipped: last trial ratio %.2f < threshold %.2f",
-                           last_click_ratio, easy_min_ratio)
+                logger.debug("IBL debias skipped: last trial ratio %.2f < threshold %.2f",
+                             last_click_ratio, easy_min_ratio)
             else:
                 responded = []
                 for t in recent[:10]:
@@ -481,8 +486,8 @@ def _apply_bias(trial_definition: dict, subject_id: int,
                 if responded:
                     avg_right = sum(1 for s in responded if s == "right") / len(responded)
                     left_prob = 1.0 - avg_right
-                    _log.info("IBL debias triggered: ratio=%.2f avg_right=%.2f → P(left)=%.2f",
-                              last_click_ratio or -1, avg_right, left_prob)
+                    logger.info("IBL debias triggered: ratio=%.2f avg_right=%.2f → P(left)=%.2f",
+                                last_click_ratio or -1, avg_right, left_prob)
 
     if left_prob is None:
         return trial_definition

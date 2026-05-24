@@ -59,6 +59,7 @@ import os
 import queue
 import threading
 import time
+from collections.abc import Callable
 
 import gpio_handler
 import actions
@@ -90,42 +91,36 @@ def _set_rt_priority(priority: int = 70) -> None:
 class Engine:
     """Loads a JSON trial definition and runs it via a dedicated FSM thread."""
 
-    def __init__(self, on_complete=None):
+    def __init__(self, on_complete: Callable[[str, str, list], None] | None = None):
         """
         Args:
-            on_complete: callable(trial_id, outcome, events) fired when the
+            on_complete: Called as on_complete(trial_id, outcome, events) when the
                          trial finishes naturally or is killed by the watchdog.
                          Not called on external stop() (STOP_TRIAL command).
         """
         self._on_complete = on_complete
 
-        self._states: dict          = {}
-        self._trial_id: str         = None
-        self._initial_state: str    = None
-        self._current_state_id: str = None
+        self._states           = {}
+        self._trial_id         = None
+        self._initial_state    = None
+        self._current_state_id = None
 
-        self._timeout_timer:  threading.Timer = None
-        self._watchdog_timer: threading.Timer = None
-        self._hold_timers:    dict            = {}
+        self._timeout_timer  = None
+        self._watchdog_timer = None
+        self._hold_timers    = {}
 
-        # FSM thread and its event queue
-        self._event_queue: queue.Queue    = queue.Queue()
-        self._fsm_thread:  threading.Thread = None
-        self._running:     bool           = False
+        self._event_queue    = queue.Queue()
+        self._fsm_thread     = None
+        self._running        = False
 
-        self._trial_start:  float = None
-        self._event_buffer: list  = []   # drained each frame by pop_frame_events()
-        self._trial_events: list  = []   # full log, sent at trial completion
-        self._event_lock = threading.Lock()
-        self._clicks_active = False
+        self._trial_start    = None
+        self._event_buffer   = []   # drained each frame by pop_frame_events()
+        self._trial_events   = []   # full log, sent at trial completion
+        self._event_lock     = threading.Lock()
+        self._clicks_active  = False
 
-        # Fast-reaction table: (state_id, beam_target) → list of action dicts
-        # for zero-hold beam_break transitions. Populated in _build_fast_table().
-        self._fast_table: dict = {}
 
-    # ------------------------------------------------------------------ #
-    # Public interface                                                     #
-    # ------------------------------------------------------------------ #
+    # -- Public interface --
 
     @property
     def trial_start_us(self) -> int | None:
@@ -141,9 +136,7 @@ class Engine:
         self._trial_id      = data.get("trial_id", "unknown")
         self._initial_state = data["initial_state"]
         self._states        = {s["id"]: s for s in data["states"]}
-        self._build_fast_table()
-        logger.info("Trial '%s' loaded — %d states, %d fast-path reactions",
-                    self._trial_id, len(self._states), len(self._fast_table))
+        logger.info("Trial '%s' loaded — %d states", self._trial_id, len(self._states))
 
     def start(self) -> None:
         """Launch the FSM thread, arm the watchdog, and start beam monitoring."""
@@ -160,10 +153,7 @@ class Engine:
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
 
-        gpio_handler.update_callbacks(
-            self._on_beam_event,
-            fast_reaction=None,   # disabled for latency testing
-        )
+        gpio_handler.update_callbacks(self._on_beam_event)
         self._event_queue.put(('enter', self._initial_state))
 
     def stop(self) -> None:
@@ -202,9 +192,7 @@ class Engine:
                 self._event_buffer = [e for e in self._event_buffer if e["t"] >  cutoff_t]
         return self._current_state_id, events
 
-    # ------------------------------------------------------------------ #
-    # FSM thread                                                           #
-    # ------------------------------------------------------------------ #
+    # -- FSM thread --
 
     def _run(self) -> None:
         """FSM thread main loop. Sole consumer of _event_queue."""
@@ -240,9 +228,7 @@ class Engine:
             elif kind == 'watchdog':
                 self._handle_watchdog()
 
-    # ------------------------------------------------------------------ #
-    # External event sources — post to queue, return immediately          #
-    # ------------------------------------------------------------------ #
+    # -- External event sources --
 
     def _on_beam_event(self, target: str, is_active: bool, t_mono: float) -> None:
         """GPIO interrupt callback. t_mono is CLOCK_MONOTONIC seconds from the
@@ -263,88 +249,10 @@ class Engine:
         self._event_queue.put(('watchdog',))
 
     def _on_hold_complete(self, target: str, next_state: str, expected_state: str) -> None:
-        """Hold timer callback. Fire LED/valve writes immediately before queuing."""
-        # fast_execute_transition disabled for latency testing
+        """Hold timer callback."""
         self._event_queue.put(('hold', target, next_state, expected_state))
 
-    # ------------------------------------------------------------------ #
-    # Fast-path reaction — runs in the gpiod monitor thread (prio 75)    #
-    # ----------------------------------------------------------------- #
-
-    def _build_fast_table(self) -> None:
-        """Precompute (state_id, beam_target) → [action_dicts] for immediate
-        beam_break transitions (hold_ms == 0).  Called once per load().
-
-        Only LED and valve actions are included — they are idempotent and safe
-        to call from the callback thread.  play_clicks is excluded (needs its
-        own thread).  hold_ms > 0 transitions are excluded (must wait for hold).
-        """
-        _FAST_TYPES = frozenset(('led_on', 'led_off', 'valve_open', 'valve_close'))
-        table = {}
-        for state_id, state in self._states.items():
-            for tr in state.get('transitions', []):
-                if tr.get('trigger') != 'beam_break':
-                    continue
-                if tr.get('hold_ms', 0):
-                    continue
-                tgt = tr.get('target')
-                fast_acts = [a for a in state.get('exit_actions', [])
-                             if a.get('type') in _FAST_TYPES]
-                next_state = self._states.get(tr.get('next_state', ''))
-                if next_state:
-                    fast_acts += [a for a in next_state.get('entry_actions', [])
-                                  if a.get('type') in _FAST_TYPES]
-                if fast_acts:
-                    table[(state_id, tgt)] = fast_acts
-        self._fast_table = table
-
-    def _fast_reaction(self, target: str, is_active: bool) -> None:
-        """Execute LED/valve writes immediately in the gpiod monitor thread.
-
-        Called before the beam event is posted to the FSM queue, eliminating
-        the ~1.5–2ms queue-to-FSM-thread hop for the critical output path.
-        The FSM thread re-executes the same writes later (idempotent).
-        """
-        if not is_active:
-            return
-        state_id = self._current_state_id   # GIL-atomic read in CPython
-        if state_id is None:
-            return
-        fast_acts = self._fast_table.get((state_id, target))
-        if fast_acts:
-            self._fast_execute(fast_acts)
-
-    def _fast_execute_transition(self, from_state_id: str, to_state_id: str) -> None:
-        """Execute LED/valve exit_actions + entry_actions for a transition immediately.
-
-        Called from timer callbacks (hold, timeout) to fire output writes without
-        waiting for the FSM thread to dequeue the event.
-        """
-        _FAST_TYPES = frozenset(('led_on', 'led_off', 'valve_open', 'valve_close'))
-        fast_acts = []
-        from_state = self._states.get(from_state_id)
-        if from_state:
-            fast_acts += [a for a in from_state.get('exit_actions', [])
-                          if a.get('type') in _FAST_TYPES]
-        to_state = self._states.get(to_state_id)
-        if to_state:
-            fast_acts += [a for a in to_state.get('entry_actions', [])
-                          if a.get('type') in _FAST_TYPES]
-        self._fast_execute(fast_acts)
-
-    def _fast_execute(self, actions_list: list) -> None:
-        """Drive GPIO pins for a precomputed list of LED/valve action dicts."""
-        for act in actions_list:
-            atype = act['type']
-            tgt   = act.get('target')
-            if   atype == 'led_on':      gpio_handler.set_led(tgt, True)
-            elif atype == 'led_off':     gpio_handler.set_led(tgt, False)
-            elif atype == 'valve_open':  gpio_handler.set_valve(tgt, True)
-            elif atype == 'valve_close': gpio_handler.set_valve(tgt, False)
-
-    # ------------------------------------------------------------------ #
-    # FSM handlers — run exclusively in the FSM thread                    #
-    # ------------------------------------------------------------------ #
+    # -- FSM handlers --
 
     def _handle_beam(self, target: str, is_active: bool, t: float) -> None:
         """Process a beam sensor edge. t was captured at interrupt time."""
@@ -435,9 +343,7 @@ class Engine:
         logger.debug("Hold complete for '%s' — transitioning to '%s'", target, next_state)
         self.transition_to(next_state)
 
-    # ------------------------------------------------------------------ #
-    # State machine core — run in FSM thread                              #
-    # ------------------------------------------------------------------ #
+    # -- State machine core --
 
     def enter_state(self, state_id: str) -> None:
         """Run entry_actions for the new state and arm its timeout timer."""
@@ -518,9 +424,7 @@ class Engine:
             self._event_buffer.append(entry)
             self._trial_events.append(entry)
 
-    # ------------------------------------------------------------------ #
-    # Trial lifecycle                                                      #
-    # ------------------------------------------------------------------ #
+    # -- Trial lifecycle --
 
     def _finish_trial_from_fsm(self, outcome: str) -> None:
         """Clean up and notify the caller. Must only be called from the FSM thread.
@@ -541,9 +445,7 @@ class Engine:
                 events = list(self._trial_events)
             self._on_complete(self._trial_id, outcome=outcome, events=events)
 
-    # ------------------------------------------------------------------ #
-    # Timer helpers                                                        #
-    # ------------------------------------------------------------------ #
+    # -- Timer helpers --
 
     def _cancel_timeout(self) -> None:
         if self._timeout_timer is not None:

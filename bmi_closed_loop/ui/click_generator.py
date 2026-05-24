@@ -19,7 +19,7 @@ CLICK_WIDTH_S = config.CLICK_WIDTH_S
 
 
 def generate_clicks(left_rate: float, right_rate: float, duration: float,
-                    seed: int = None,
+                    seed: int | None = None,
                     min_ici: float = 2 * CLICK_WIDTH_S) -> dict:
     """
     Args:
@@ -45,7 +45,7 @@ def generate_clicks(left_rate: float, right_rate: float, duration: float,
 
 
 def _poisson_train(rate: float, duration: float, rng: np.random.Generator,
-                   min_ici: float) -> list:
+                   min_ici: float) -> list[float]:
     if rate <= 0:
         return []
     clicks = []

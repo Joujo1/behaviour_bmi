@@ -1,3 +1,12 @@
+"""
+Subject (animal) CRUD endpoints.
+
+Subjects are the animals under experiment. Each subject tracks its current
+substage, welfare fields, and side-bias algorithm. Deletion is guarded by
+session references; moving a subject's substage live-switches the running trial
+loop if a session is active.
+"""
+
 import datetime
 import logging
 
@@ -9,10 +18,10 @@ import config
 from ui.cage_runner import runners
 
 subjects_bp = Blueprint("subjects", __name__)
-_log = logging.getLogger("subjects")
+logger = logging.getLogger(__name__)
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
@@ -101,7 +110,7 @@ def create_subject():
     finally:
         conn.close()
 
-    _log.info("Created subject %s (id=%d)", code, subject_id)
+    logger.info("Created subject %s (id=%d)", code, subject_id)
     return jsonify({"ok": True, "id": subject_id})
 
 
@@ -111,7 +120,6 @@ def get_subject(subject_id: int):
     conn = _get_db()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Subject + substage info
             cur.execute("""
                 SELECT
                     s.*,
@@ -129,7 +137,6 @@ def get_subject(subject_id: int):
                 abort(404)
             subject = dict(row)
 
-            # Recent trial stats on current substage
             substage_id = subject.get("current_substage_id")
             if substage_id is not None:
                 cur.execute("""
@@ -183,7 +190,7 @@ def update_subject(subject_id: int):
     finally:
         conn.close()
 
-    _log.info("Subject %d updated: %s", subject_id, list(updates.keys()))
+    logger.info("Subject %d updated: %s", subject_id, list(updates.keys()))
     return jsonify({"ok": True})
 
 
@@ -229,8 +236,8 @@ def set_substage(subject_id: int):
         if runner:
             live_switched = runner.switch_substage(tc_row[0], substage_id)
 
-    _log.info("Subject %d manually moved to substage %d (cage=%s live_switched=%s)",
-              subject_id, substage_id, cage_id, live_switched)
+    logger.info("Subject %d manually moved to substage %d (cage=%s live_switched=%s)",
+                subject_id, substage_id, cage_id, live_switched)
     return jsonify({"ok": True, "live_switched": live_switched})
 
 
@@ -253,8 +260,5 @@ def delete_subject(subject_id: int):
     finally:
         conn.close()
 
-    _log.info("Subject %d deleted", subject_id)
+    logger.info("Subject %d deleted", subject_id)
     return jsonify({"ok": True})
-
-
-

@@ -33,37 +33,36 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# ── gpiod v2 output request (all output pins, held open for process lifetime) ──
+# gpiod v2 output request (all output pins, held open for process lifetime)
 _gpiod_out_req: gpiod.LineRequest | None = None
 
-# ── gpiod v2 input monitoring ─────────────────────────────────────────────────
+# gpiod v2 input monitoring
 _gpiod_in_req:  gpiod.LineRequest | None = None
 _pin_to_target: dict                     = {}   # beam pin → target name
 _monitoring:    bool                     = False
 
-# ── internal output-state tracking ───────────────────────────────────────────
+# internal output-state tracking
 _output_state: dict[int, bool] = {}
 _output_lock   = threading.Lock()
 
-# ── fan software PWM ──────────────────────────────────────────────────────────
+# fan software PWM
 _fan_pwm_lock:   threading.Lock  = threading.Lock()
 _fan_pwm_duty:   float           = 0.0
 _fan_pwm_active: bool            = False
 _fan_pwm_stop:   threading.Event = threading.Event()
 _fan_pwm_thread: threading.Thread | None = None
 
-# ── /dev/gpiomem mmap — BCM2711 GPIO register offsets ────────────────────────
+# /dev/gpiomem mmap — BCM2711 GPIO register offsets
 _gpio_mem: mmap.mmap | None = None
-_GPSET0 = 0x1C   # set  pins 0-31 (bit-mask, write-only semantics)
+_GPSET0 = 0x1C   # set   pins 0-31 (bit-mask, write-only semantics)
 _GPCLR0 = 0x28   # clear pins 0-31
 _GPLEV0 = 0x34   # read  pins 0-31
 
-# ── per-trial callbacks (swapped each trial, None between trials) ─────────────
-_fast_reaction_fn = None
-_on_event_fn      = None
+# per-trial callback (swapped each trial, None between trials)
+_on_event_fn = None
 
 
-# ── RT scheduling ─────────────────────────────────────────────────────────────
+# -- RT scheduling --
 
 def _set_rt_priority(priority: int = 75) -> None:
     """Elevate the calling thread to SCHED_FIFO and pin it to the RT core."""
@@ -81,15 +80,14 @@ def _set_rt_priority(priority: int = 75) -> None:
             pass
 
 
-# ── internal helpers ──────────────────────────────────────────────────────────
+# -- Internal helpers --
 
 def _init_fast_gpio() -> None:
     """Open /dev/gpiomem and mmap the BCM GPIO registers for direct writes."""
     global _gpio_mem
     try:
         fd = os.open('/dev/gpiomem', os.O_RDWR | os.O_SYNC)
-        _gpio_mem = mmap.mmap(fd, 256, mmap.MAP_SHARED,
-                              mmap.PROT_READ | mmap.PROT_WRITE)
+        _gpio_mem = mmap.mmap(fd, 256, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE)
         os.close(fd)
         logger.info("Direct GPIO mmap enabled — output writes ~1µs")
     except Exception as e:
@@ -123,7 +121,7 @@ def _read_pin_level(pin: int) -> bool:
     return False
 
 
-# ── public API ────────────────────────────────────────────────────────────────
+# -- Public API --
 
 def setup() -> None:
     """Configure all output GPIO pins via gpiod v2. Call once at process start."""
@@ -138,10 +136,7 @@ def setup() -> None:
         '/dev/gpiochip0',
         consumer='bmi-out',
         config={
-            pin: gpiod.LineSettings(
-                direction=Direction.OUTPUT,
-                output_value=Value.INACTIVE,
-            )
+            pin: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE)
             for pin in output_pins
         },
     )
@@ -180,7 +175,7 @@ def set_audio(target: str, state: bool) -> None:
     _drive(AUDIO_PINS[target], state)
 
 
-# ── fan ───────────────────────────────────────────────────────────────────────
+# -- Fan --
 
 def _stop_fan_pwm_thread() -> None:
     global _fan_pwm_thread, _fan_pwm_active, _fan_pwm_duty
@@ -261,7 +256,7 @@ def safety_sweep() -> None:
     logger.info("Safety sweep complete")
 
 
-# ── beam sensor monitoring ────────────────────────────────────────────────────
+# -- Beam sensor monitoring --
 
 def start_monitoring() -> None:
     """Open beam sensor lines and start the persistent monitor thread.
@@ -291,11 +286,10 @@ def start_monitoring() -> None:
     logger.info("Beam monitoring started (persistent, gpiod v2)")
 
 
-def update_callbacks(on_event, fast_reaction=None) -> None:
-    """Swap the per-trial callbacks. Pass None for both to silence events (ITI)."""
-    global _on_event_fn, _fast_reaction_fn
-    _fast_reaction_fn = fast_reaction
-    _on_event_fn      = on_event
+def update_callbacks(on_event) -> None:
+    """Swap the per-trial beam callback. Pass None to silence events (ITI)."""
+    global _on_event_fn
+    _on_event_fn = on_event
 
 
 def _gpiod_monitor() -> None:
@@ -318,20 +312,16 @@ def _gpiod_monitor() -> None:
                         if BEAM_ACTIVE_LOW[target] \
                         else (ev.event_type.name == 'RISING_EDGE')
             t_mono = ev.timestamp_ns / 1e9   # kernel interrupt timestamp (CLOCK_MONOTONIC)
-            fn = _fast_reaction_fn            # snapshot globals — GIL-atomic reads
-            if fn is not None:
-                fn(target, is_active)
-            fn = _on_event_fn
+            fn = _on_event_fn                 # snapshot global — GIL-atomic read
             if fn is not None:
                 fn(target, is_active, t_mono)
 
 
 def stop_monitoring() -> None:
     """Stop the monitor thread and release beam sensor lines. Call at shutdown only."""
-    global _monitoring, _gpiod_in_req, _pin_to_target, _fast_reaction_fn, _on_event_fn
-    _monitoring       = False
-    _fast_reaction_fn = None
-    _on_event_fn      = None
+    global _monitoring, _gpiod_in_req, _pin_to_target, _on_event_fn
+    _monitoring  = False
+    _on_event_fn = None
     _pin_to_target    = {}
     if _gpiod_in_req is not None:
         try:

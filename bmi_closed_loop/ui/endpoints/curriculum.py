@@ -1,3 +1,11 @@
+"""
+Training curriculum endpoints.
+
+Manages training stages and substages: CRUD operations, advance/fallback
+criteria, and Graphviz SVG visualisations of the full curriculum flow and
+individual trial state machines.
+"""
+
 import logging
 
 import graphviz
@@ -8,10 +16,10 @@ from flask import Blueprint, Response, abort, jsonify, render_template, request
 import config
 
 curriculum_bp = Blueprint("curriculum", __name__)
-_log = logging.getLogger("curriculum")
+logger = logging.getLogger(__name__)
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
@@ -73,7 +81,7 @@ def create_stage():
     finally:
         conn.close()
 
-    _log.info("Created training stage '%s' (id=%d)", name, stage_id)
+    logger.info("Created training stage '%s' (id=%d)", name, stage_id)
     return jsonify({"ok": True, "id": stage_id})
 
 
@@ -233,7 +241,7 @@ def create_substage():
     finally:
         conn.close()
 
-    _log.info("Created substage '%s' (id=%d) under stage %d", label, substage_id, stage_id)
+    logger.info("Created substage '%s' (id=%d) under stage %d", label, substage_id, stage_id)
     return jsonify({"ok": True, "id": substage_id})
 
 
@@ -312,5 +320,5 @@ def delete_substage(substage_id: int):
     finally:
         conn.close()
 
-    _log.info("Deleted substage id=%d", substage_id)
+    logger.info("Deleted substage id=%d", substage_id)
     return jsonify({"ok": True})

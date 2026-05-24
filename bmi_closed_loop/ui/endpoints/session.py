@@ -1,3 +1,12 @@
+"""
+Session lifecycle endpoints.
+
+A session links one subject to one cage for a single sitting.
+Opening a session enables recording and auto-starts the trial runner;
+closing it disables recording and stops the runner.
+Active session state is mirrored to Valkey so the UI can restore state on page reload.
+"""
+
 import json
 import logging
 
@@ -11,11 +20,11 @@ from ui.endpoints.trial import start_runner
 from ui.endpoints.scoresheet import auto_create_scoresheet_entry
 
 session_bp = Blueprint("session", __name__)
-_log = logging.getLogger("session")
+logger = logging.getLogger(__name__)
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
@@ -53,8 +62,8 @@ def open_session():
 
         if row is None:
             return jsonify({"ok": False, "msg": f"subject {subject_id} not found"}), 404
-        substage_id       = row[0]
-        task_config       = row[1]
+        substage_id        = row[0]
+        task_config        = row[1]
         reference_weight_g = row[2]
 
     conn = _get_db()
@@ -123,7 +132,7 @@ def open_session():
             subject_id=subject_id,
         )
 
-    _log.info(
+    logger.info(
         "Session %d opened (cage=%s subject=%s substage=%s session_number=%s trials_started=%s)",
         session_id, cage_id, subject_id, substage_id, session_number, trials_started,
     )
@@ -133,14 +142,14 @@ def open_session():
         and reference_weight_g is None
     )
     return jsonify({
-        "ok":                  True,
-        "session_id":          session_id,
-        "session_number":      session_number,
-        "substage_id":         substage_id,
-        "trials_started":      trials_started,
-        "trials_msg":          trials_msg,
+        "ok":                     True,
+        "session_id":             session_id,
+        "session_number":         session_number,
+        "substage_id":            substage_id,
+        "trials_started":         trials_started,
+        "trials_msg":             trials_msg,
         "needs_reference_weight": needs_ref_weight,
-        "subject_id":          subject_id,
+        "subject_id":             subject_id,
     })
 
 
@@ -159,7 +168,7 @@ def close_session(session_id: int):
 
     values.append(session_id)
     cage_id = None
-    _log.info("close_session called: session_id=%s body=%s", session_id, body)
+    logger.info("close_session called: session_id=%s body=%s", session_id, body)
     conn = _get_db()
     try:
         with conn:
@@ -169,11 +178,11 @@ def close_session(session_id: int):
                     values,
                 )
                 row = cur.fetchone()
-                _log.info("close_session UPDATE returned row=%s", row)
+                logger.info("close_session UPDATE returned row=%s", row)
                 if row:
                     cage_id = row[0]
     except Exception as e:
-        _log.error("close_session DB error: %s", e)
+        logger.error("close_session DB error: %s", e)
         raise
     finally:
         conn.close()
@@ -189,7 +198,7 @@ def close_session(session_id: int):
         if sender:
             sender.send("STOP_TRIAL")
 
-    _log.info("Session %d closed (cage=%s)", session_id, cage_id)
+    logger.info("Session %d closed (cage=%s)", session_id, cage_id)
     return jsonify({"ok": True})
 
 

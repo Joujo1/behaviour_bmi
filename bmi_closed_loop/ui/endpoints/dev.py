@@ -1,9 +1,20 @@
+"""
+Development-only endpoints.
+
+These endpoints are only safe to expose in a local dev environment.
+They provide destructive operations (table truncation) for resetting
+the database between test runs.
+"""
+
+import logging
+
 import psycopg2
 from flask import Blueprint, jsonify
 
 import config
 
 dev_bp = Blueprint("dev", __name__)
+logger = logging.getLogger(__name__)
 
 _ALLOWED_TABLES = {
     "trial_results", "recordings", "sessions",
@@ -12,7 +23,7 @@ _ALLOWED_TABLES = {
 }
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
@@ -27,4 +38,5 @@ def truncate_table(table: str):
                 cur.execute(f"TRUNCATE {table} RESTART IDENTITY CASCADE")
     finally:
         conn.close()
+    logger.warning("Table '%s' truncated (dev endpoint)", table)
     return jsonify({"ok": True, "msg": f"{table} truncated"})

@@ -1,3 +1,11 @@
+"""
+Trial runner control endpoints.
+
+Provides HTTP endpoints to start/stop the continuous trial loop for a cage,
+query run status, and poll for pending advancement notifications.
+start_runner() is also imported by session.py for auto-start on session open.
+"""
+
 import json
 import logging
 
@@ -9,15 +17,14 @@ import config
 from ui.cage_runner import runners
 from ui.event_handler import handle_trial_event  # re-exported for ui_main wiring
 
+logger = logging.getLogger(__name__)
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 
 trial_bp = Blueprint("trial", __name__)
-_log = logging.getLogger("trial")
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
-
 
 
 def start_runner(cage_id: int, substage_id: int, session_id: int | None,
@@ -102,8 +109,6 @@ def run_stop(cage_id: int):
     runner = runners.get(cage_id)
     ok, msg = runner.stop() if runner else (False, "no runner for this cage")
     return jsonify({"ok": ok, "msg": msg})
-
-
 
 
 @trial_bp.get("/cage/<int:cage_id>/run/status")

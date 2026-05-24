@@ -1,14 +1,22 @@
+"""
+Hardware control endpoints.
+
+Fan PWM, strip toggle, and trial graph rendering (Graphviz SVG).
+Fan duty is mirrored to Valkey so the UI can show current state without
+querying the Pi each time.
+"""
+
 import json
 import logging
 
 import graphviz
 import valkey as valkey_client
-from flask import Blueprint, Response, abort, jsonify, request, current_app
+from flask import Blueprint, Response, abort, current_app, jsonify, request
 
 import config
 
 control_bp = Blueprint("control", __name__)
-_log = logging.getLogger("stream_control")
+logger = logging.getLogger(__name__)
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 
 
@@ -43,7 +51,7 @@ def fan_toggle(cage_id: int):
 
     if ok:
         _valkey.set(f"cage:{cage_id}:fan", str(int(round(duty))))
-        _log.info(f"Cage {cage_id}: fan duty={duty:.0f}%")
+        logger.info("Cage %d: fan duty=%.0f%%", cage_id, duty)
     return jsonify({"ok": ok, "msg": msg, "duty": duty})
 
 
@@ -56,9 +64,8 @@ def strip_toggle(cage_id: int):
     ok, msg = _sender(cage_id).send("STRIP_ON" if state else "STRIP_OFF")
     if ok:
         _valkey.set(f"cage:{cage_id}:strip", "1" if state else "0")
-        _log.info(f"Cage {cage_id}: strip {'ON' if state else 'OFF'}")
+        logger.info("Cage %d: strip %s", cage_id, "ON" if state else "OFF")
     return jsonify({"ok": ok, "msg": msg})
-
 
 
 @control_bp.post("/trial/graph")
@@ -111,15 +118,15 @@ def trial_graph():
             dot.node(sid, label, shape="rectangle", style="rounded")
 
         for t in state.get("transitions", []):
-            next_s = t.get("next_state", "")
+            next_s  = t.get("next_state", "")
             trigger = t.get("trigger", "")
 
             if trigger == "beam_break":
-                hold_ms = t.get("hold_ms")
+                hold_ms  = t.get("hold_ms")
                 hold_str = f" hold {hold_ms:.0f}ms" if hold_ms else ""
-                label = f"beam / {t.get('target', '')}{hold_str}"
+                label    = f"beam / {t.get('target', '')}{hold_str}"
             elif trigger == "timeout":
-                dur = state.get("duration")
+                dur   = state.get("duration")
                 label = f"timeout {dur}s" if dur is not None else "timeout"
             elif trigger == "clicks_done":
                 label = "clicks done"
@@ -127,9 +134,9 @@ def trial_graph():
                 label = trigger
 
             TERMINALS = {
-                "__end__":     ("black",     "black"),
-                "__correct__": ("#40ca72",   "#40ca72"),
-                "__wrong__":   ("#cd1414",   "#cd1414"),
+                "__end__":     ("black",   "black"),
+                "__correct__": ("#40ca72", "#40ca72"),
+                "__wrong__":   ("#cd1414", "#cd1414"),
             }
             if next_s in TERMINALS:
                 if next_s not in end_added:

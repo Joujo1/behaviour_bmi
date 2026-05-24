@@ -100,14 +100,14 @@ def main():
     gpio_handler.start_monitoring()
     logger.info("GPIO ready")
 
-    current_engine: Engine = None
-    frame_queue: queue.Queue = None
-    sender: UDPSender = None
-    camera: CameraStreamer = None
-    is_streaming: bool = False
-    pc_ip: str = None
+    current_engine = None
+    frame_queue    = None
+    sender         = None
+    camera         = None
+    is_streaming   = False
+    pc_ip          = None
 
-    receiver: TCPCommandReceiver = None
+    receiver     = None
     gpio_adapter = _GPIOAdapter()
 
     def on_trial_complete(trial_id: str, outcome: str, events: list) -> None:

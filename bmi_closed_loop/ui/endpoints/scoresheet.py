@@ -16,10 +16,10 @@ from flask import Blueprint, abort, jsonify, render_template, request
 import config
 
 scoresheet_bp = Blueprint("scoresheet", __name__)
-_log = logging.getLogger("scoresheet")
+logger = logging.getLogger(__name__)
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
@@ -234,7 +234,7 @@ def export_scoresheet(subject_id: int):
     out_path = os.path.join(out_dir, f"{subject['code']}.xlsx")
     wb.save(out_path)
 
-    _log.info("Scoresheet saved to %s", out_path)
+    logger.info("Scoresheet saved to %s", out_path)
     return jsonify({"ok": True, "path": out_path})
 
 
@@ -291,7 +291,7 @@ def _insert_scoresheet_entry(conn, subject_id: int, session_id=None,
                 (weight_g, subject_id),
             )
 
-        _log.info("Scoresheet entry %d created for subject %d (session %s)", entry_id, subject_id, session_id)
+        logger.info("Scoresheet entry %d created for subject %d (session %s)", entry_id, subject_id, session_id)
         return entry_id
 
 

@@ -1,3 +1,13 @@
+"""
+Trial definition builder endpoint.
+
+Provides a single endpoint to save the full trial definition (task_config JSON)
+for an existing substage.  The task_config is the JSON sent verbatim to the Pi
+and also used by the runner to expand click trains.
+"""
+
+import logging
+
 import psycopg2
 import psycopg2.extras
 from flask import Blueprint, abort, jsonify, request
@@ -5,9 +15,10 @@ from flask import Blueprint, abort, jsonify, request
 import config
 
 builder_bp = Blueprint("builder", __name__)
+logger = logging.getLogger(__name__)
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
@@ -32,4 +43,5 @@ def save_task_config(substage_id: int):
     finally:
         conn.close()
 
+    logger.info("task_config saved for substage %d", substage_id)
     return jsonify({"ok": True})

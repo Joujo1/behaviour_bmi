@@ -12,6 +12,7 @@ Click design (matches Brody-lab spec):
 import numpy as np
 
 from config import AUDIO_SRATE as SRATE, CLICK_WIDTH_S as WIDTH
+
 RAMP   = 0.002          # seconds — cosine² taper on each end
 TONES  = [2000, 4000, 8000, 16000]
 ATT_DB = 40

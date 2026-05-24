@@ -11,10 +11,10 @@ from flask import Blueprint, jsonify, render_template, request
 import config
 
 metrics_bp = Blueprint("metrics", __name__)
-_log = logging.getLogger("metrics")
+logger = logging.getLogger(__name__)
 
 
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 

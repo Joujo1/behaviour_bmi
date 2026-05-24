@@ -1,11 +1,19 @@
+"""
+PC-side acquisition entry point.
+
+Starts one UDPreceiver + FrameWriter pair per cage and a shared Watchdog.
+Runs until SIGINT or SIGTERM.
+"""
+
 import os
 import signal
 import sys
 import time
+from collections.abc import Callable
 
 import config
 from acquisition.frame_writer import FrameWriter
-from acquisition.packet_parser import parse_packet
+from acquisition.packet_parser import ParsedFrame, parse_packet
 from acquisition.udp_receiver import UDPreceiver
 from acquisition.watchdog import Watchdog
 from shared.logger import get_logger
@@ -20,10 +28,16 @@ def _make_stats() -> dict:
     }
 
 
-def _make_callback(writer: FrameWriter, cage_id: int, stats: dict):
+def _make_drop_callback(cage_id: int, stats: dict) -> Callable[[], None]:
+    def on_drop() -> None:
+        stats[cage_id]["drop_count"] += 1
+    return on_drop
+
+
+def _make_frame_callback(writer: FrameWriter, cage_id: int, stats: dict) -> Callable[[bytes, str, int, float], None]:
     last_frame_num = 0
 
-    def callback(data: bytes, ip: str, _port: int, arrival_time: float):
+    def callback(data: bytes, ip: str, _port: int, arrival_time: float) -> None:
         nonlocal last_frame_num
         frame = parse_packet(data, ip, arrival_time)
         if frame is None:
@@ -35,21 +49,21 @@ def _make_callback(writer: FrameWriter, cage_id: int, stats: dict):
             # Large gap likely means Pi restarted — don't count as drops
             if gap < 10000:
                 stats[cage_id]["network_drop_count"] += gap
-                log.warning(f"Cage {cage_id}: {gap} frame(s) missing "
-                            f"(expected {last_frame_num + 1}, got {frame.pi_seq})")
+                log.warning("Cage %d: %d frame(s) missing (expected %d, got %d)",
+                            cage_id, gap, last_frame_num + 1, frame.pi_seq)
         last_frame_num = frame.pi_seq
 
         stats[cage_id]["last_seen"] = time.time()
         writer.write_frame(frame)
+
     return callback
 
 
-def main():
+def main() -> None:
     session_dir = os.path.join(config.NAS_BASE_PATH, sys.argv[1])
 
     camera_stats = _make_stats()
-
-    writers = []
+    writers   = []
     listeners = []
 
     for cage_id in range(1, config.N_CAGES + 1):
@@ -58,26 +72,23 @@ def main():
         writers.append(writer)
 
         port = config.UDP_BASE_PORT + cage_id
-        listener = UDPreceiver(
-            port,
-            _make_callback(writer, cage_id, camera_stats),
-            on_drop=lambda cid=cage_id: camera_stats[cid].__setitem__("drop_count", camera_stats[cid]["drop_count"] + 1),
-        )
+        listener = UDPreceiver(port, _make_frame_callback(writer, cage_id, camera_stats),
+                               on_drop=_make_drop_callback(cage_id, camera_stats))
         listener.start()
         listeners.append(listener)
-        log.info(f"Cage {cage_id} listening on UDP port {port}")
+        log.info("Cage %d listening on UDP port %d", cage_id, port)
 
     watchdog = Watchdog(camera_stats)
     watchdog.start()
 
-    log.info(f"Acquisition running — {config.N_CAGES} cages, session: {session_dir}")
+    log.info("Acquisition running — %d cages, session: %s", config.N_CAGES, session_dir)
 
-    def shutdown(sig, frame):
+    def shutdown(sig: int, frame) -> None:
         log.info("Shutting down acquisition...")
-        for l in listeners:
-            l.stop()
-        for w in writers:
-            w.stop()
+        for listener in listeners:
+            listener.stop()
+        for writer in writers:
+            writer.stop()
         watchdog.stop()
         sys.exit(0)
 

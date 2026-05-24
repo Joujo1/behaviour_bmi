@@ -1,8 +1,12 @@
-# BCM numbering
+"""
+Hardware pin assignments and tunable constants for the Pi-side trial controller.
+
+All values use BCM (Broadcom) GPIO numbering.
+"""
 
 LED_PINS = {
-    "left": 13,   # physical 33
-    "center":   19,   # physical 35
+    "left":   13,   # physical 33
+    "center": 19,   # physical 35
     "right":  26,   # physical 37
 }
 
@@ -11,14 +15,12 @@ VALVE_PINS = {
     "right": 5,     # physical 29
 }
 
-
 BEAM_PINS = {
     "left":   2,    # physical 3
-    "center":  3,    # physical 5
-    "right": 4,    # physical 7
+    "center": 3,    # physical 5
+    "right":  4,    # physical 7
 }
 
-# CLICK_PULSE_US microseconds produces an audible click
 AUDIO_PINS = {
     "left":  10,    # physical 19
     "right": 9,     # physical 21
@@ -26,15 +28,14 @@ AUDIO_PINS = {
 
 BEAM_ACTIVE_LOW = {
     "left":   True,
-    "center":  True,
-    "right": True,
+    "center": True,
+    "right":  True,
 }
 
-
-FAN_PIN       = 8
-STRIP_PIN     = 25
-FAN_PWM_FREQ  = 200.0
-FAN_MIN_DUTY  = 30
+FAN_PIN      = 8
+STRIP_PIN    = 25
+FAN_PWM_FREQ = 200.0
+FAN_MIN_DUTY = 30
 
 CLICK_PULSE_US = 100
 
@@ -48,7 +49,7 @@ UDP_STREAM_PORT = 5002
 CAMERA_FPS          = 60
 CAMERA_WIDTH        = 1080
 CAMERA_HEIGHT       = 720
-CAMERA_BITRATE      = 2_000_000 
+CAMERA_BITRATE      = 2_000_000
 CAMERA_H264_IPERIOD = 60
 CAMERA_EXPOSURE_US  = 6000
 CAMERA_GAIN         = 4.0
@@ -58,4 +59,3 @@ FRAME_QUEUE_MAXSIZE = 30
 AUDIO_DEVICE  = 1
 AUDIO_SRATE   = 48_000
 CLICK_WIDTH_S = 0.003
-

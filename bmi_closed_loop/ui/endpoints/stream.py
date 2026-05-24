@@ -1,3 +1,11 @@
+"""
+Camera streaming and recording endpoints.
+
+Provides endpoints to start/stop H264 streaming, toggle frame recording,
+serve the latest JPEG snapshot, and stream H264 NAL units over a WebSocket.
+Camera liveness status and peripheral state (fan/strip) are read from Valkey.
+"""
+
 import logging
 
 import valkey as valkey_client
@@ -6,7 +14,7 @@ from flask import Blueprint, abort, current_app, jsonify, make_response, request
 import config
 
 stream_bp = Blueprint("stream", __name__)
-_log    = logging.getLogger("stream")
+logger = logging.getLogger(__name__)
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
 
 
@@ -25,7 +33,7 @@ def stream_start(cage_id: int):
     ok, msg = _sender(cage_id).send("START_STREAMING")
     if ok:
         _valkey.set(f"cage:{cage_id}:streaming", "1")
-        _log.info(f"Cage {cage_id}: stream STARTED")
+        logger.info("Cage %d: stream STARTED", cage_id)
     return jsonify({"ok": ok, "msg": msg})
 
 
@@ -37,7 +45,7 @@ def stream_stop(cage_id: int):
     if ok:
         _valkey.set(f"cage:{cage_id}:streaming", "0")
         _valkey.set(f"cage:{cage_id}:recording", "0")
-        _log.info(f"Cage {cage_id}: stream STOPPED")
+        logger.info("Cage %d: stream STOPPED", cage_id)
     return jsonify({"ok": ok, "msg": msg})
 
 
@@ -48,7 +56,7 @@ def recording_set(cage_id: int):
     body  = request.get_json(force=True) or {}
     state = bool(body.get("state", False))
     _valkey.set(f"cage:{cage_id}:recording", "1" if state else "0")
-    _log.info(f"Cage {cage_id}: recording {'STARTED' if state else 'STOPPED'}")
+    logger.info("Cage %d: recording %s", cage_id, "STARTED" if state else "STOPPED")
     return jsonify({"ok": True})
 
 
