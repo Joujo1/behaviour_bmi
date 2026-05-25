@@ -32,14 +32,31 @@ def _fire(target: str, active: bool) -> None:
         logger.debug("Emulator: _on_event_fn is None — trial may have ended already")
 
 
-def _beam_sequence(trial_data: dict, outcome: str) -> list[str]:
+def _state_wait_s(state: dict) -> float:
     """
-    Walk the trial FSM and return the ordered list of beam targets to break
-    in order to reach the desired outcome.
+    Return how long the emulator should wait before the next beam in this state.
 
-    Heuristic for "correct" vs "wrong" at a multi-beam state: whichever
-    beam_break transition leads to a state with a valve_open action (or
-    directly to __correct__) is the correct side.
+    - clicks_done transition: wait for the play_clicks duration
+    - timeout transition:     wait for the state duration
+    - otherwise:              0 (beam state — caller adds EMULATE_PRE_BEAM_DELAY_S)
+    """
+    triggers = {t.get("trigger") for t in state.get("transitions", [])}
+    if "clicks_done" in triggers:
+        for action in state.get("entry_actions", []):
+            if action.get("type") == "play_clicks":
+                return float(action.get("click_duration", 0))
+    if "timeout" in triggers:
+        return float(state.get("duration") or 0)
+    return 0.0
+
+
+def _beam_sequence(trial_data: dict, outcome: str) -> list[tuple[float, str]]:
+    """
+    Walk the trial FSM and return a list of (pre_wait_s, target) pairs.
+
+    pre_wait_s accounts for any clicks or timed states that precede the beam
+    break, so the emulator fires each beam only after the engine has actually
+    entered the state that expects it.
 
     Returns [] for "aborted" (no beams — trial times out via watchdog).
     """
@@ -49,7 +66,8 @@ def _beam_sequence(trial_data: dict, outcome: str) -> list[str]:
     states  = {s["id"]: s for s in trial_data.get("states", [])}
     current = trial_data.get("initial_state")
     visited: set[str] = set()
-    seq: list[str]    = []
+    seq: list[tuple[float, str]] = []
+    accumulated_wait = 0.0
 
     while current and current not in visited and not current.startswith("__"):
         visited.add(current)
@@ -61,7 +79,8 @@ def _beam_sequence(trial_data: dict, outcome: str) -> list[str]:
                     if t.get("trigger") == "beam_break"]
 
         if not beam_trs:
-            # No beam break here — follow timeout or clicks_done to next state
+            # No beam break — accumulate wait time and skip to next state
+            accumulated_wait += _state_wait_s(state)
             skip_tr = next(
                 (t for t in state.get("transitions", [])
                  if t.get("trigger") in ("timeout", "clicks_done")),
@@ -73,7 +92,6 @@ def _beam_sequence(trial_data: dict, outcome: str) -> list[str]:
         if len(beam_trs) == 1:
             chosen = beam_trs[0]
         else:
-            # Multiple beam options — determine which leads to reward
             def _leads_to_reward(tr: dict) -> bool:
                 ns = tr.get("next_state", "")
                 if ns == "__correct__":
@@ -94,7 +112,8 @@ def _beam_sequence(trial_data: dict, outcome: str) -> list[str]:
             else:
                 chosen = beam_trs[0]
 
-        seq.append(chosen["target"])
+        seq.append((accumulated_wait + EMULATE_PRE_BEAM_DELAY_S, chosen["target"]))
+        accumulated_wait = 0.0
         current = chosen.get("next_state")
 
     return seq
@@ -115,8 +134,8 @@ def run_trial(trial_data: dict, outcome: str) -> None:
         return
 
     def _play() -> None:
-        for beam in seq:
-            time.sleep(EMULATE_PRE_BEAM_DELAY_S)
+        for wait_s, beam in seq:
+            time.sleep(wait_s)
             _fire(beam, True)
             time.sleep(EMULATE_BEAM_HOLD_S)
             _fire(beam, False)
