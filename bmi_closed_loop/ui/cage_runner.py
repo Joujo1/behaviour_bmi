@@ -13,6 +13,7 @@ import json
 import logging
 import random
 import threading
+import uuid
 import time
 
 import psycopg2
@@ -187,6 +188,7 @@ class CageRunner:
                         self._cage_id, trial_count, correct_side)
             self._event.clear()
 
+            trial_to_send["trial_id"] = str(uuid.uuid4())
             ok, msg = sender.send(json.dumps(trial_to_send))
             if not ok:
                 logger.error("Cage %d: failed to send trial: %s", self._cage_id, msg)

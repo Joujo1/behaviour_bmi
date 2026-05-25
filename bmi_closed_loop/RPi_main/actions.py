@@ -82,24 +82,37 @@ def _fire_click_triggers(left_clicks: list, right_clicks: list,
 
         t0 = time.clock_gettime(time.CLOCK_MONOTONIC)
 
-        # Merge left and right into a single sorted sequence of (abs_time, channel)
-        events = ([(t0 + t, "left")  for t in (left_clicks  or [])] +
-                  [(t0 + t, "right") for t in (right_clicks or [])])
-        events.sort()
+        # Merge left and right into a single sorted sequence of (abs_time, channel, scheduled_offset)
+        sched = ([(t0 + t, "left",  t) for t in (left_clicks  or [])] +
+                 [(t0 + t, "right", t) for t in (right_clicks or [])])
+        sched.sort()
 
-        pulse_s = CLICK_PULSE_US * 1e-6
+        pulse_s   = CLICK_PULSE_US * 1e-6
+        fire_log  = []   # accumulated after each pulse; logged once at the end
 
-        for abs_t, ch in events:
+        for abs_t, ch, offset_s in sched:
             if stop.is_set():
                 break
             # Busy-wait until the scheduled click time
             while time.clock_gettime(time.CLOCK_MONOTONIC) < abs_t:
                 pass
+            t_fire = time.clock_gettime(time.CLOCK_MONOTONIC)   # capture before pin write
             gpio_handler.set_audio(ch, True)
             deadline = abs_t + pulse_s
             while time.clock_gettime(time.CLOCK_MONOTONIC) < deadline:
                 pass
             gpio_handler.set_audio(ch, False)
+            fire_log.append({
+                "channel":        ch,
+                "scheduled_s":    round(offset_s,   9),
+                "t0_mono":        round(t0,          6),
+                "fired_mono":     round(t_fire,      9),
+                "sched_error_us": round((t_fire - abs_t) * 1e6, 3),
+            })
+
+        # Log all per-click records after the loop — no contention during firing
+        if log_cb and fire_log:
+            log_cb("click_fire_log", fire_log)
 
         if not stop.is_set() and on_complete is not None:
             logger.info("Click triggers done — firing on_complete")
