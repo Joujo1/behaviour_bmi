@@ -8,7 +8,7 @@ from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-RUN_DURATION_S = 24 * 3600  # 4 hours
+RUN_DURATION_S = 24 * 3600  * 50
 
 
 def main():

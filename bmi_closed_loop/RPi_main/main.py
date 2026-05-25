@@ -37,14 +37,13 @@ from udp_sender_pi import UDPSender
 from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
 
 
-# ── Ablation-study env var overrides ─────────────────────────────────────────
-# Set any of these to "1" to disable that specific tuning for benchmarking.
-# Normal production runs leave all unset (all tunings active).
-_DISABLE_GIL      = os.environ.get("DISABLE_GIL",      "0") == "1"
-_DISABLE_THROTTLE = os.environ.get("DISABLE_THROTTLE",  "0") == "1"
-_DISABLE_MLOCK    = os.environ.get("DISABLE_MLOCK",     "0") == "1"
-_DISABLE_FIFO     = os.environ.get("DISABLE_FIFO",      "0") == "1"
-_DISABLE_AFFINITY = os.environ.get("DISABLE_AFFINITY",  "0") == "1"
+# ── Kernel tuning switches ────────────────────────────────────────────────────
+# Set to True to disable that tuning; False (default) = tuning active.
+_DISABLE_GIL      = False
+_DISABLE_THROTTLE = False
+_DISABLE_MLOCK    = False
+_DISABLE_FIFO     = False
+_DISABLE_AFFINITY = False
 
 if not _DISABLE_GIL:
     # Reduce GIL check interval from default 5ms → 100µs so the gpiod monitor

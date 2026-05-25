@@ -170,7 +170,7 @@ class Engine:
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
         actions.stop_clicks()
-        gpio_handler.update_callbacks(None, None)
+        gpio_handler.update_callbacks(None)
         if self._fsm_thread and self._fsm_thread.is_alive():
             self._fsm_thread.join(timeout=1.0)
         actions.safety_sweep()
@@ -437,7 +437,7 @@ class Engine:
         self._cancel_watchdog()
         self._cancel_all_hold_timers()
         actions.stop_clicks()
-        gpio_handler.update_callbacks(None, None)
+        gpio_handler.update_callbacks(None)
         actions.safety_sweep()
         logger.info("Trial '%s' finished — outcome: %s", self._trial_id, outcome)
         if self._on_complete:
