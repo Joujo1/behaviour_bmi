@@ -61,12 +61,13 @@ def _beam_sequence(trial_data: dict, outcome: str) -> list[str]:
                     if t.get("trigger") == "beam_break"]
 
         if not beam_trs:
-            # No beam break here — follow timeout to next state
-            timeout_tr = next(
-                (t for t in state.get("transitions", []) if t.get("trigger") == "timeout"),
+            # No beam break here — follow timeout or clicks_done to next state
+            skip_tr = next(
+                (t for t in state.get("transitions", [])
+                 if t.get("trigger") in ("timeout", "clicks_done")),
                 None,
             )
-            current = timeout_tr["next_state"] if timeout_tr else None
+            current = skip_tr["next_state"] if skip_tr else None
             continue
 
         if len(beam_trs) == 1:
