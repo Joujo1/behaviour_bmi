@@ -30,11 +30,12 @@ import sys
 
 import gpio_handler
 import actions as _actions
+import emulator as _emulator
 from engine import Engine
 from tcp_command_receiver import TCPCommandReceiver
 from streamer import CameraStreamer
 from udp_sender_pi import UDPSender
-from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE
+from config import TCP_PORT, UDP_STREAM_PORT, FRAME_QUEUE_MAXSIZE, EMULATE, EMULATE_OUTCOMES
 
 
 # ── Kernel tuning switches ────────────────────────────────────────────────────
@@ -111,10 +112,14 @@ class _GPIOAdapter:
 
 def main():
     gpio_handler.setup()
-    gpio_handler.start_monitoring()
+    if not EMULATE:
+        gpio_handler.start_monitoring()
+    else:
+        logger.info("EMULATE=True — beam monitoring disabled, synthetic events active")
     logger.info("GPIO ready")
 
-    current_engine = None
+    current_engine  = None
+    _outcome_iter   = iter(EMULATE_OUTCOMES) if EMULATE else iter([])
     frame_queue    = None
     sender         = None
     camera         = None
@@ -212,6 +217,11 @@ def main():
             return False, f"invalid trial definition: {e}"
 
         current_engine.start()
+
+        if EMULATE:
+            outcome = next(_outcome_iter, "correct")
+            _emulator.run_trial(trial_data, outcome)
+
         return True, "ok"
 
     def on_connect(ip: str) -> None:

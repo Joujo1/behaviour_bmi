@@ -8,6 +8,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 [[ $EUID -ne 0 ]] && { echo "Run as root: sudo bash $0"; exit 1; }
 
+# ── Pi number prompt ──────────────────────────────────────────────────────────
+while true; do
+    read -r -p "Which Pi number is this? (1, 2, 3, ...): " PI_NUM
+    [[ "$PI_NUM" =~ ^[1-9][0-9]*$ ]] && break
+    echo "  Enter a positive integer."
+done
+UDP_PORT=$((5000 + PI_NUM))
+CONFIG_FILE="$SCRIPT_DIR/config.py"
+if grep -q "^UDP_STREAM_PORT" "$CONFIG_FILE"; then
+    sed -i "s/^UDP_STREAM_PORT\s*=.*/UDP_STREAM_PORT = $UDP_PORT/" "$CONFIG_FILE"
+    echo "  UDP_STREAM_PORT set to $UDP_PORT in config.py (Pi #$PI_NUM)"
+else
+    echo "  WARNING: UDP_STREAM_PORT not found in config.py — set it manually to $UDP_PORT"
+fi
+
 echo "=== Step 1: cage_controller.service ==="
 cat > /etc/systemd/system/cage_controller.service << EOF
 [Unit]
