@@ -116,7 +116,7 @@ def _fire_click_triggers(left_clicks: list, right_clicks: list,
                 fire_log.append({
                     "channel":        ch,
                     "scheduled_s":    round(extra,            9),
-                    "t0_mono":        round(t0,               6),
+                    "t0_mono":        round(t0,               9),
                     "fired_mono":     round(t_fire,           9),
                     "sched_error_us": round((t_fire - t_target) * 1e6, 3),
                 })
