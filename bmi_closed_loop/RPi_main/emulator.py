@@ -97,10 +97,13 @@ def _beam_sequence(trial_data: dict, outcome: str) -> list[tuple[float, str]]:
                 if ns == "__correct__":
                     return True
                 ns_state = states.get(ns, {})
-                return any(
-                    a.get("type") == "valve_open"
-                    for a in ns_state.get("entry_actions", [])
-                )
+                if any(a.get("type") == "valve_open" for a in ns_state.get("entry_actions", [])):
+                    return True
+                # Follow one more level (e.g. intermediate "correct" state → __correct__)
+                for ntr in ns_state.get("transitions", []):
+                    if ntr.get("next_state") == "__correct__":
+                        return True
+                return False
 
             correct_trs = [t for t in beam_trs if _leads_to_reward(t)]
             wrong_trs   = [t for t in beam_trs if not _leads_to_reward(t)]
