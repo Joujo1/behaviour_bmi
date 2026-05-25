@@ -88,20 +88,38 @@ def _fire_click_triggers(left_clicks: list, right_clicks: list,
         sched.sort()
 
         pulse_s   = CLICK_PULSE_US * 1e-6
-        fire_log  = []   # accumulated after each pulse; logged once at the end
+        fire_log  = []   # accumulated; logged once after all clicks fire
+
+        # Per-channel "clear" time: earliest time the pin is LOW again.
+        # Enforces no HIGH-overlap on the same pin (same-channel min_ici >> pulse,
+        # so this guard normally never triggers).  Different channels never block
+        # each other — their pins are independent.
+        ch_clear: dict[str, float] = {}
+
+        def _reset_low(ch: str, deadline: float) -> None:
+            """Busy-wait then lower the pin — runs on a short-lived daemon thread."""
+            while time.clock_gettime(time.CLOCK_MONOTONIC) < deadline:
+                pass
+            gpio_handler.set_audio(ch, False)
 
         for abs_t, ch, offset_s in sched:
             if stop.is_set():
                 break
-            # Busy-wait until the scheduled click time
+            # Defer only if the same channel still has a pulse in flight.
+            clear_t = ch_clear.get(ch, 0.0)
+            if clear_t > abs_t:
+                abs_t = clear_t
+            # Busy-wait until the fire time — this loop is the precision point.
             while time.clock_gettime(time.CLOCK_MONOTONIC) < abs_t:
                 pass
-            t_fire = time.clock_gettime(time.CLOCK_MONOTONIC)   # capture before pin write
+            t_fire   = time.clock_gettime(time.CLOCK_MONOTONIC)   # before pin write
+            deadline = t_fire + pulse_s
+            ch_clear[ch] = deadline
             gpio_handler.set_audio(ch, True)
-            deadline = abs_t + pulse_s
-            while time.clock_gettime(time.CLOCK_MONOTONIC) < deadline:
-                pass
-            gpio_handler.set_audio(ch, False)
+            # Reset the pin on a background thread so this loop can immediately
+            # busy-wait for the next click without blocking cross-channel triggers.
+            threading.Thread(target=_reset_low, args=(ch, deadline),
+                             daemon=True, name=f"click-rst-{ch}").start()
             fire_log.append({
                 "channel":        ch,
                 "scheduled_s":    round(offset_s,   9),
