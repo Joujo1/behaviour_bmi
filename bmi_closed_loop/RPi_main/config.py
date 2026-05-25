@@ -98,8 +98,8 @@ EMULATE_OUTCOMES = _looping_outcomes(n_cycles=100)
 # Fixed delay before each beam break (seconds).  Keep these constant so every
 # trial takes a predictable, known duration — required for validating that
 # curriculum advancement triggers at exactly the expected trial boundaries.
-EMULATE_PRE_BEAM_DELAY_S  = 0.3   # wait before breaking each beam
-EMULATE_BEAM_HOLD_S       = 0.08  # how long the beam stays broken
+EMULATE_PRE_BEAM_DELAY_S  = 0.3    # wait before breaking each beam
+EMULATE_BEAM_HOLD_S       = 0.15   # must exceed any hold_ms in trial transitions (easy substage uses 5ms)
 
 TCP_PORT        = 6000
 UDP_STREAM_PORT = 5002
