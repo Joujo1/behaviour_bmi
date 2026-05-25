@@ -45,6 +45,13 @@ _DISABLE_MLOCK    = False
 _DISABLE_FIFO     = False
 _DISABLE_AFFINITY = False
 
+# Propagate FIFO/affinity flags to engine.py and gpio_handler.py, which read
+# these via os.environ inside their thread start-up routines.
+if _DISABLE_FIFO:
+    os.environ["DISABLE_FIFO"] = "1"
+if _DISABLE_AFFINITY:
+    os.environ["DISABLE_AFFINITY"] = "1"
+
 if not _DISABLE_GIL:
     # Reduce GIL check interval from default 5ms → 100µs so the gpiod monitor
     # thread acquires the GIL faster after a beam-break interrupt.
