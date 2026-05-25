@@ -6,6 +6,7 @@ All hardware interaction goes exclusively through gpio_handler.
 """
 
 import ctypes
+import heapq
 import logging
 import threading
 import time
@@ -87,46 +88,40 @@ def _fire_click_triggers(left_clicks: list, right_clicks: list,
                  [(t0 + t, "right", t) for t in (right_clicks or [])])
         sched.sort()
 
-        pulse_s   = CLICK_PULSE_US * 1e-6
-        fire_log  = []   # accumulated; logged once after all clicks fire
+        pulse_s  = CLICK_PULSE_US * 1e-6
+        fire_log = []   # accumulated; logged once after all clicks fire
 
-        # Per-channel "clear" time: earliest time the pin is LOW again.
-        # Enforces no HIGH-overlap on the same pin (same-channel min_ici >> pulse,
-        # so this guard normally never triggers).  Different channels never block
-        # each other — their pins are independent.
-        ch_clear: dict[str, float] = {}
-
-        def _reset_low(ch: str, deadline: float) -> None:
-            """Busy-wait then lower the pin — runs on a short-lived daemon thread."""
-            while time.clock_gettime(time.CLOCK_MONOTONIC) < deadline:
-                pass
-            gpio_handler.set_audio(ch, False)
-
+        # Build a min-heap of (time, priority, event_type, channel, original_sched_s).
+        # HIGH events (priority=0) carry the original scheduled offset so
+        # sched_error_us is always relative to the original scheduled time.
+        # LOW events (priority=1) carry None.
+        # Both channels share the same heap → LEFT and RIGHT never block each other.
+        # Within one channel min_ici (6 ms) >> pulse_s (3 ms), so same-channel
+        # HIGH/LOW events never interleave — no guard needed.
+        heap: list = []
         for abs_t, ch, offset_s in sched:
+            heapq.heappush(heap, (abs_t, 0, "high", ch, offset_s))
+
+        while heap:
             if stop.is_set():
                 break
-            # Defer only if the same channel still has a pulse in flight.
-            clear_t = ch_clear.get(ch, 0.0)
-            if clear_t > abs_t:
-                abs_t = clear_t
-            # Busy-wait until the fire time — this loop is the precision point.
-            while time.clock_gettime(time.CLOCK_MONOTONIC) < abs_t:
+            t_target, _pri, etype, ch, extra = heapq.heappop(heap)
+            # Single busy-wait — no syscalls between events.
+            while time.clock_gettime(time.CLOCK_MONOTONIC) < t_target:
                 pass
-            t_fire   = time.clock_gettime(time.CLOCK_MONOTONIC)   # before pin write
-            deadline = t_fire + pulse_s
-            ch_clear[ch] = deadline
-            gpio_handler.set_audio(ch, True)
-            # Reset the pin on a background thread so this loop can immediately
-            # busy-wait for the next click without blocking cross-channel triggers.
-            threading.Thread(target=_reset_low, args=(ch, deadline),
-                             daemon=True, name=f"click-rst-{ch}").start()
-            fire_log.append({
-                "channel":        ch,
-                "scheduled_s":    round(offset_s,   9),
-                "t0_mono":        round(t0,          6),
-                "fired_mono":     round(t_fire,      9),
-                "sched_error_us": round((t_fire - abs_t) * 1e6, 3),
-            })
+            if etype == "high":
+                t_fire   = time.clock_gettime(time.CLOCK_MONOTONIC)
+                gpio_handler.set_audio(ch, True)
+                heapq.heappush(heap, (t_fire + pulse_s, 1, "low", ch, None))
+                fire_log.append({
+                    "channel":        ch,
+                    "scheduled_s":    round(extra,            9),
+                    "t0_mono":        round(t0,               6),
+                    "fired_mono":     round(t_fire,           9),
+                    "sched_error_us": round((t_fire - t_target) * 1e6, 3),
+                })
+            else:
+                gpio_handler.set_audio(ch, False)
 
         # Log all per-click records after the loop — no contention during firing
         if log_cb and fire_log:
