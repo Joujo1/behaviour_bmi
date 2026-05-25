@@ -49,6 +49,15 @@ _DISABLE_AFFINITY = False
 # these via os.environ inside their thread start-up routines.
 if _DISABLE_FIFO:
     os.environ["DISABLE_FIFO"] = "1"
+    # Reset the process from SCHED_FIFO (applied by systemd CPUSchedulingPolicy=fifo)
+    # back to SCHED_OTHER so all spawned threads inherit normal scheduling.
+    try:
+        class _SchedParam(ctypes.Structure):
+            _fields_ = [("sched_priority", ctypes.c_int)]
+        ctypes.CDLL(ctypes.util.find_library('c')).sched_setscheduler(
+            0, 0, ctypes.byref(_SchedParam(0)))  # SCHED_OTHER=0
+    except Exception:
+        pass
 if _DISABLE_AFFINITY:
     os.environ["DISABLE_AFFINITY"] = "1"
 
@@ -57,14 +66,13 @@ if not _DISABLE_GIL:
     # thread acquires the GIL faster after a beam-break interrupt.
     sys.setswitchinterval(0.0001)
 
-if not _DISABLE_THROTTLE:
-    # Remove the kernel's RT throttle (default: RT tasks capped at 95% CPU time,
-    # causing a ~50ms stall every second). Writing -1 gives RT tasks unlimited CPU.
-    try:
-        with open('/proc/sys/kernel/sched_rt_runtime_us', 'w') as _f:
-            _f.write('-1\n')
-    except OSError:
-        pass  # non-fatal if not root; set permanently via sysctl.d instead
+# Must actively write 950000 when disabled — sysctl.d/99-rt.conf already set -1
+# at boot, so simply skipping the write would leave the throttle off regardless.
+try:
+    with open('/proc/sys/kernel/sched_rt_runtime_us', 'w') as _f:
+        _f.write('-1\n' if not _DISABLE_THROTTLE else '950000\n')
+except OSError:
+    pass
 
 if not _DISABLE_MLOCK:
     # Lock all current and future memory pages to prevent page-fault latency spikes
