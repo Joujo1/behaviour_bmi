@@ -6,7 +6,6 @@ All hardware interaction goes exclusively through gpio_handler.
 """
 
 import ctypes
-import heapq
 import logging
 import threading
 import time
@@ -83,47 +82,48 @@ def _fire_click_triggers(left_clicks: list, right_clicks: list,
 
         t0 = time.clock_gettime(time.CLOCK_MONOTONIC)
 
-        # Merge left and right into a single sorted sequence of (abs_time, channel, scheduled_offset)
-        sched = ([(t0 + t, "left",  t) for t in (left_clicks  or [])] +
-                 [(t0 + t, "right", t) for t in (right_clicks or [])])
-        sched.sort()
-
         pulse_s  = CLICK_PULSE_US * 1e-6
-        fire_log = []   # accumulated; logged once after all clicks fire
+        fire_log = []
 
-        # Build a min-heap of (time, priority, event_type, channel, original_sched_s).
-        # HIGH events (priority=0) carry the original scheduled offset so
-        # sched_error_us is always relative to the original scheduled time.
-        # LOW events (priority=1) carry None.
-        # Both channels share the same heap → LEFT and RIGHT never block each other.
-        # Within one channel min_ici (6 ms) >> pulse_s (3 ms), so same-channel
-        # HIGH/LOW events never interleave — no guard needed.
-        heap: list = []
-        for abs_t, ch, offset_s in sched:
-            heapq.heappush(heap, (abs_t, 0, "high", ch, offset_s))
+        # Merge left and right into a single time-sorted flat list.
+        # Each entry is (abs_high_time, abs_low_time, channel, scheduled_offset).
+        sched = sorted(
+            [(t0 + t, t0 + t + pulse_s, "left",  t) for t in (left_clicks  or [])] +
+            [(t0 + t, t0 + t + pulse_s, "right", t) for t in (right_clicks or [])]
+        )
 
-        while heap:
+        for abs_t, abs_low, ch, offset_s in sched:
+            # Busy-wait for HIGH time, bailing out if stop fires.
+            while time.clock_gettime(time.CLOCK_MONOTONIC) < abs_t:
+                if stop.is_set():
+                    break
             if stop.is_set():
                 break
-            t_target, _pri, etype, ch, extra = heapq.heappop(heap)
-            # Single busy-wait — no syscalls between events.
-            while time.clock_gettime(time.CLOCK_MONOTONIC) < t_target:
-                pass
-            if etype == "high":
-                t_fire   = time.clock_gettime(time.CLOCK_MONOTONIC)
-                gpio_handler.set_audio(ch, True)
-                heapq.heappush(heap, (t_fire + pulse_s, 1, "low", ch, None))
-                fire_log.append({
-                    "channel":        ch,
-                    "scheduled_s":    round(extra,            9),
-                    "t0_mono":        round(t0,               9),
-                    "fired_mono":     round(t_fire,           9),
-                    "sched_error_us": round((t_fire - t_target) * 1e6, 3),
-                })
-            else:
-                gpio_handler.set_audio(ch, False)
 
-        # Log all per-click records after the loop — no contention during firing
+            t_fire = time.clock_gettime(time.CLOCK_MONOTONIC)
+            gpio_handler.set_audio(ch, True)
+
+            # Busy-wait for LOW time, bailing out if stop fires.
+            while time.clock_gettime(time.CLOCK_MONOTONIC) < abs_low:
+                if stop.is_set():
+                    break
+            gpio_handler.set_audio(ch, False)
+
+            if stop.is_set():
+                break
+
+            fire_log.append({
+                "channel":        ch,
+                "scheduled_s":    round(offset_s, 9),
+                "t0_mono":        round(t0,        6),
+                "fired_mono":     round(t_fire,    9),
+                "sched_error_us": round((t_fire - abs_t) * 1e6, 3),
+            })
+
+        # Always drive all audio pins LOW on exit, regardless of how we got here.
+        for _ch in ("left", "right"):
+            gpio_handler.set_audio(_ch, False)
+
         if log_cb and fire_log:
             log_cb("click_fire_log", fire_log)
 
