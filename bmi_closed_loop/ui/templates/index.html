@@ -823,6 +823,8 @@ if (!state.sessionId) return;
         const txt  = document.getElementById(`sync-text-${i}`);
         if (!dot || !txt) continue;
         dot.className = 'sync-dot';
+        const offAbs = data.offset_us != null ? Math.abs(data.offset_us) : Infinity;
+        const locked = data.synced && offAbs < 1000;
         if (data.stale) {
           dot.classList.add('stale');
           txt.textContent = 'NTP stale';
@@ -830,7 +832,7 @@ if (!state.sessionId) return;
           dot.classList.add('unsynced');
           txt.textContent = 'NTP unsynced';
         } else {
-          dot.classList.add('synced');
+          dot.classList.add(locked ? 'synced' : 'stale');
           const off = data.offset_us != null
             ? `${data.offset_us > 0 ? '+' : ''}${data.offset_us}µs` : '—';
           const err = data.esterror_us != null ? ` ±${data.esterror_us}µs` : '';
