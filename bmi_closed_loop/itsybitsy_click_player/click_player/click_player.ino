@@ -9,8 +9,8 @@
 // channel each period.
 //
 // Pinout:
-//   D9  — left  trigger input  (Pi BCM10 / physical 19)
-//   D10 — right trigger input  (Pi BCM9  / physical 21)
+//   D9  — left  trigger input  (Pi BCM7 / physical 26)
+//   D10 — right trigger input  (Pi BCM1 / physical 28)
 //   A0  — left  DAC output  (through 10 µF DC-blocking cap to amplifier)
 //   A1  — right DAC output  (through 10 µF DC-blocking cap to amplifier)
 //
