@@ -97,21 +97,33 @@ else
 fi
 
 echo "=== Step 6: Audio GPIO (ItsyBitsy DAC on PCB pins 9/10) ==="
-CONFIG=/boot/firmware/config.txt
-GPIO_LINE="gpio=9,10=ip,pn"
-if grep -qF "$GPIO_LINE" "$CONFIG"; then
-    echo "  GPIO 9/10 already locked in $CONFIG — skipping"
+# gpio= in config.txt runs before device tree overlays and can be overridden by
+# them (e.g. the SPI overlay claims GPIO 9/10).  A systemd oneshot service that
+# runs at sysinit.target — after the device tree is fully loaded but before
+# cage_controller — is the reliable alternative.
+SERVICE_FILE=/etc/systemd/system/audio-gpio-lock.service
+if [[ -f "$SERVICE_FILE" ]]; then
+    echo "  audio-gpio-lock.service already installed — skipping"
 else
-    echo "  If the ItsyBitsy DAC is wired to Pi GPIO 9 and 10 (PCB audio path),"
-    echo "  those pins must be locked as pull-free inputs before the kernel starts"
-    echo "  to prevent boot transients from conflicting with the DAC output."
-    read -r -p "  Add '$GPIO_LINE' to $CONFIG? [y/N] " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
-        echo "$GPIO_LINE" >> "$CONFIG"
-        echo "  Written to $CONFIG — takes effect on next reboot."
-    else
-        echo "  Skipped. Add manually: echo '$GPIO_LINE' >> $CONFIG"
-    fi
+    cat > "$SERVICE_FILE" << 'EOF'
+[Unit]
+Description=Lock GPIO 9/10 as pull-free inputs for ItsyBitsy DAC audio path
+DefaultDependencies=no
+Before=cage_controller.service
+After=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/pinctrl set 9 ip
+ExecStart=/usr/bin/pinctrl set 10 ip
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now audio-gpio-lock.service
+    echo "  audio-gpio-lock.service installed and enabled."
 fi
 
 echo ""
