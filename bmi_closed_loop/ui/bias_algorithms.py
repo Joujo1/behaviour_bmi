@@ -65,7 +65,7 @@ def _brody(recent: list[dict], trial_def: dict,
     fc_r  = sum(right_hits) / len(right_hits)
     total = fc_l + fc_r
     left_prob = (fc_r / total) if total > 0 else 0.5
-    logger.info("Brody bias: fc_l=%.2f fc_r=%.2f → P(left)=%.2f", fc_l, fc_r, left_prob)
+    logger.debug("Brody bias: fc_l=%.2f fc_r=%.2f → P(left)=%.2f", fc_l, fc_r, left_prob)
     return left_prob
 
 
@@ -101,12 +101,34 @@ def _ibl(recent: list[dict], trial_def: dict,
 
     avg_right = sum(1 for s in responded if s == "right") / len(responded)
     left_prob = 1.0 - avg_right
-    logger.info("IBL debias triggered: ratio=%.2f avg_right=%.2f → P(left)=%.2f",
-                last_click_ratio or -1, avg_right, left_prob)
+    logger.debug("IBL debias triggered: ratio=%.2f avg_right=%.2f → P(left)=%.2f",
+                 last_click_ratio or -1, avg_right, left_prob)
+    return left_prob
+
+
+def _rebalance(recent: list[dict], trial_def: dict,
+               last_click_ratio: float | None) -> float | None:
+    """Presentation rebalance: push trials toward whichever side has been shown less often.
+
+    Counts left vs right presentations in the recent window and sets
+    P(left) = n_right / (n_left + n_right), so the under-presented side
+    is favoured on the next trial.
+
+    This is a minimal template — rewrite the body to implement your algorithm.
+    """
+    sided = [t for t in recent if t["correct_side"] in ("left", "right")]
+    if not sided:
+        return None
+    n_left  = sum(1 for t in sided if t["correct_side"] == "left")
+    n_right = len(sided) - n_left
+    total   = n_left + n_right
+    left_prob = n_right / total
+    logger.debug("Rebalance bias: n_left=%d n_right=%d → P(left)=%.2f", n_left, n_right, left_prob)
     return left_prob
 
 
 REGISTRY: dict[str, AlgorithmSpec] = {
-    "brody": AlgorithmSpec(label="Brody (performance eq.)", fn=_brody, window=20),
-    "ibl":   AlgorithmSpec(label="IBL (layup on preferred)", fn=_ibl,   window=10),
+    "brody":     AlgorithmSpec(label="Force-other-side (performance)", fn=_brody,     window=20),
+    "ibl":       AlgorithmSpec(label="Reward-for-engagement (layup)", fn=_ibl,       window=10),
+    "rebalance": AlgorithmSpec(label="Rebalance (present balanced sides)", fn=_rebalance, window=20),
 }

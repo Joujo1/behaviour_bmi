@@ -417,8 +417,6 @@ class Engine:
             self._log_output(f"led_{action.get('target', '?')}", False)
         elif atype == "valve_open":
             self._log_output(f"valve_{action.get('target', '?')}", True)
-        elif atype == "valve_close":
-            self._log_output(f"valve_{action.get('target', '?')}", False)
 
     def _log_output(self, name: str, active: bool) -> None:
         """Append a hardware output event to both the frame buffer and trial log."""

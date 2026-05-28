@@ -162,20 +162,24 @@
     width: 100%;
     height: 280px;
     flex-shrink: 0;
-    overflow: auto;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 14px 24px;
+    overflow: hidden;
+    position: relative;
+    cursor: grab;
   }
+  #curriculum-graph.dragging { cursor: grabbing; }
   #curriculum-graph svg {
-    height: 250px;
-    width: auto;
-    min-width: 100%;
     display: block;
+    user-select: none;
+    transform-origin: 0 0;
   }
   #curriculum-graph .no-graph-msg {
     font-size: 0.72rem; color: var(--fg-faint); letter-spacing: 0.05em;
+    padding: 14px 24px;
+  }
+  #graph-hint {
+    position: absolute; bottom: 6px; right: 10px;
+    font-size: 0.62rem; color: var(--fg-faint); letter-spacing: 0.04em;
+    pointer-events: none;
   }
 
   /* ── Graph — full width, fixed height ── */
@@ -185,19 +189,19 @@
     width: 100%;
     height: 260px;
     flex-shrink: 0;
-    overflow: auto;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 12px 20px;
+    overflow: hidden;
+    position: relative;
+    cursor: grab;
   }
+  #bldr-graph.dragging { cursor: grabbing; }
   #bldr-graph svg {
-    height: 230px;
-    width: auto;
     display: block;
+    user-select: none;
+    transform-origin: 0 0;
   }
   #bldr-graph .no-graph-msg {
     font-size: 0.72rem; color: var(--fg-faint); letter-spacing: 0.05em;
+    padding: 12px 20px;
   }
 
   /* ── Builder toolbar ── */
@@ -309,7 +313,10 @@
   <div id="editor">
 
     <!-- Curriculum overview graph — always visible -->
-    <div id="curriculum-graph"><span class="no-graph-msg">Loading…</span></div>
+    <div id="curriculum-graph">
+      <span class="no-graph-msg">Loading…</span>
+      <span id="graph-hint">scroll to zoom · drag to pan · dbl-click to reset</span>
+    </div>
 
     <div id="editor-empty">Select a substage to edit, or create one.</div>
 
@@ -407,7 +414,7 @@
   // To add a new action type: add its function to ACTIONS in RPi_main/actions.py,
   // then add the type string here so the curriculum builder can use it.
   // See RPi_main/actions.py module docstring for the full checklist.
-  const ACTION_TYPES    = ['led_on','led_off','valve_open','valve_close','play_clicks'];
+  const ACTION_TYPES    = ['led_on','led_off','valve_open','play_clicks'];
   const ALL_TARGETS     = ['left','right','center','high_click_side','low_click_side'];
   const TRIGGER_TYPES   = ['beam_break','timeout','clicks_done'];
 
@@ -444,18 +451,87 @@
     }
   }
 
-  // ── Curriculum overview graph ─────────────────────────────
+  // ── Graph zoom / pan (shared by both graph containers) ──────
+  // Each container gets its own state in _graphStates.
+  // window listeners are installed once; _activeDrag tracks which container
+  // is being dragged so both graphs are fully independent.
+  const _graphStates = new WeakMap();  // el → {scale, tx, ty, svg, initScale}
+  let _activeDrag = null;              // {state, lastX, lastY} while dragging
+
+  window.addEventListener('mousemove', e => {
+    if (!_activeDrag) return;
+    const s = _activeDrag.state;
+    s.tx += e.clientX - _activeDrag.lastX;
+    s.ty += e.clientY - _activeDrag.lastY;
+    _activeDrag.lastX = e.clientX;
+    _activeDrag.lastY = e.clientY;
+    _applyGraphTransform(s);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!_activeDrag) return;
+    _activeDrag.state.el.classList.remove('dragging');
+    _activeDrag = null;
+  });
+
   async function loadCurriculumGraph() {
     const el = document.getElementById('curriculum-graph');
     try {
       const res = await fetch('/curriculum/graph');
       if (!res.ok) throw new Error(await res.text());
+      const hint = el.querySelector('#graph-hint');
       el.innerHTML = await res.text();
+      if (hint) el.appendChild(hint);
       const svg = el.querySelector('svg');
-      if (svg) { svg.style.height = '250px'; svg.style.width = 'auto'; }
+      if (svg) _initGraphZoom(el, svg);
     } catch (e) {
       el.innerHTML = `<span class="no-graph-msg" style="color:var(--dead)">Graph error: ${e.message}</span>`;
     }
+  }
+
+  function _initGraphZoom(el, svg) {
+    // Abort any listeners from a previous call on this element (bldr-graph rebuilds often).
+    if (el._zoomAbort) el._zoomAbort.abort();
+    const ctrl = new AbortController();
+    el._zoomAbort = ctrl;
+    const sig = { signal: ctrl.signal };
+
+    const svgH      = parseFloat(svg.getAttribute('height')) || svg.getBoundingClientRect().height || 250;
+    const initScale = Math.min(1, (el.clientHeight - 16) / svgH);
+    const state     = { scale: initScale, tx: 12, ty: 8, svg, el, initScale };
+    _graphStates.set(el, state);
+    _applyGraphTransform(state);
+
+    // Wheel → zoom toward cursor
+    el.addEventListener('wheel', e => {
+      e.preventDefault();
+      const s = _graphStates.get(el);
+      const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const r = el.getBoundingClientRect();
+      const mx = e.clientX - r.left;
+      const my = e.clientY - r.top;
+      s.tx = mx - (mx - s.tx) * f;
+      s.ty = my - (my - s.ty) * f;
+      s.scale *= f;
+      _applyGraphTransform(s);
+    }, { passive: false, ...sig });
+
+    // Mousedown → start drag for this container
+    el.addEventListener('mousedown', e => {
+      _activeDrag = { state: _graphStates.get(el), lastX: e.clientX, lastY: e.clientY };
+      el.classList.add('dragging');
+      e.preventDefault();
+    }, sig);
+
+    // Double-click → reset to fit
+    el.addEventListener('dblclick', () => {
+      const s = _graphStates.get(el);
+      s.scale = s.initScale; s.tx = 12; s.ty = 8;
+      _applyGraphTransform(s);
+    }, sig);
+  }
+
+  function _applyGraphTransform(state) {
+    state.svg.style.transform = `translate(${state.tx}px,${state.ty}px) scale(${state.scale})`;
   }
 
   // ── Stage tree ────────────────────────────────────────────
@@ -773,6 +849,11 @@
            <input class="bldr-input" type="number" min="0" step="0.1" placeholder="dur (s)" title="Click train duration (s)"
                style="width:64px;" value="${a.click_duration??''}"
                onchange="updateAction(${idx},'${phase}',${ai},'click_duration',parseFloat(this.value)||1)" />`
+        : a.type === 'valve_open'
+        ? `<select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target??'center')}</select>
+           <input class="bldr-input" type="number" min="1" step="10" placeholder="dur (ms)" title="Valve open duration (ms)"
+               style="width:80px;" value="${a.duration_ms??''}"
+               onchange="updateAction(${idx},'${phase}',${ai},'duration_ms',parseInt(this.value)||50)" />`
         : `<select class="bldr-input" onchange="updateAction(${idx},'${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS,a.target??'center')}</select>`;
       return `<div class="bldr-action-row">${typeSelect}${extraFields}
         <button class="bldr-remove" onclick="removeAction(${idx},'${phase}',${ai})">✕</button></div>`;
@@ -863,6 +944,11 @@
                onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'right_rate',parseFloat(this.value)||0)" />
            <input class="bldr-input" type="number" min="0" step="0.1" placeholder="dur (s)" style="width:64px;" value="${a.click_duration??''}"
                onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'click_duration',parseFloat(this.value)||1)" />`
+        : a.type === 'valve_open'
+        ? `<select class="bldr-input" onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS, a.target??'center')}</select>
+           <input class="bldr-input" type="number" min="1" step="10" placeholder="dur (ms)" title="Valve open duration (ms)"
+               style="width:80px;" value="${a.duration_ms??''}"
+               onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'duration_ms',parseInt(this.value)||50)" />`
         : `<select class="bldr-input" onchange="updateTerminalAction('${stateKey}','${phase}',${ai},'target',this.value)">${opts(ALL_TARGETS, a.target??'center')}</select>`;
       return `<div class="bldr-action-row">${typeSelect}${extraFields}
         <button class="bldr-remove" onclick="removeTerminalAction('${stateKey}','${phase}',${ai})">✕</button></div>`;
@@ -1102,13 +1188,8 @@
         });
         if (!res.ok) throw new Error(await res.text());
         graphEl.innerHTML = await res.text();
-        // Make SVG fill the container width
         const svg = graphEl.querySelector('svg');
-        if (svg) {
-          svg.style.height = '230px';
-          svg.style.width  = 'auto';
-          svg.style.maxWidth = '100%';
-        }
+        if (svg) _initGraphZoom(graphEl, svg);
       } catch (e) {
         graphEl.innerHTML = `<span class="no-graph-msg" style="color:var(--dead)">Graph error: ${e.message}</span>`;
       }

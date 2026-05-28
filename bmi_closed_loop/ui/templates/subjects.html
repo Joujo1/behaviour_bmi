@@ -254,6 +254,7 @@
 <script>
   let allStages   = [];   // [{id, name, substages:[{id,label},...]}]
   let allSubjects = [];   // full subject list, kept for edit modal pre-fill
+  let biasLabels  = {};   // {key: label} — populated by loadBiasAlgorithms()
   let subjectIdForModal = null;
 
   // ── Init ──────────────────────────────────────────────────
@@ -270,6 +271,7 @@
       const algs = await res.json();
       const sel  = document.getElementById('edit-bias-alg');
       for (const alg of algs) {
+        biasLabels[alg.value] = alg.label;
         const opt = document.createElement('option');
         opt.value       = alg.value;
         opt.textContent = alg.label;
@@ -332,7 +334,7 @@
         <td>${s.substage_label || '—'}</td>
         <td style="display:flex;gap:4px;flex-wrap:wrap">
           ${s.water_restricted ? '<span class="badge water">Water restricted</span>' : ''}
-          ${s.side_bias_alg && s.side_bias_alg !== 'none' ? `<span class="badge bias">${s.side_bias_alg.toUpperCase()} bias</span>` : ''}
+          ${s.side_bias_alg && s.side_bias_alg !== 'none' ? `<span class="badge bias">${(biasLabels[s.side_bias_alg] || s.side_bias_alg)} bias</span>` : ''}
         </td>
         <td style="display:flex;gap:6px">
           <button class="btn small" onclick="openSubstageModal(${s.id}, '${s.code}')">Move substage</button>

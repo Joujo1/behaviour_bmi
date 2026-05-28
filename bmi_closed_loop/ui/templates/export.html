@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Export — BMI{% endblock %}
+
+{% block head_extra %}
+<style>
+  main { padding: 32px; max-width: 760px; }
+
+  .export-card {
+    border: 2px solid var(--fg);
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .section-label {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--fg-faint);
+    display: block; margin-bottom: 5px;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field input, .field select {
+    border: 1px solid var(--border); background: var(--bg-faint);
+    padding: 5px 8px; font-family: inherit; font-size: 0.82rem;
+    outline: none; color: var(--fg);
+  }
+  .field input:focus, .field select:focus { border-color: var(--fg); }
+
+  .filter-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+
+  #type-description {
+    font-size: 0.8rem; color: var(--fg-faint); line-height: 1.6; min-height: 2.5em;
+  }
+
+  #columns-preview {
+    font-size: 0.72rem; font-family: monospace;
+    color: var(--fg-faint); word-break: break-all; line-height: 1.7;
+  }
+
+  .hint { font-size: 0.65rem; color: var(--fg-faint); margin-top: 2px; }
+
+  .download-row {
+    display: flex; align-items: center; gap: 14px;
+    padding-top: 6px; border-top: 1px solid var(--border);
+  }
+  #status { font-size: 0.72rem; color: var(--fg-faint); }
+</style>
+{% endblock %}
+
+{% block header_title %}Export{% endblock %}
+
+{% block content %}
+<main>
+  <div class="export-card">
+
+    <div class="field">
+      <span class="section-label">Export type</span>
+      <select id="export-type" style="width:280px" onchange="onTypeChange()">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+
+    <div>
+      <span class="section-label">Description</span>
+      <div id="type-description">—</div>
+    </div>
+
+    <div>
+      <span class="section-label">Columns</span>
+      <div id="columns-preview">—</div>
+    </div>
+
+    <div>
+      <span class="section-label">Filters</span>
+      <div class="filter-row">
+
+        <div class="field">
+          <label class="hint" style="font-size:0.72rem;color:var(--fg-faint)">Subjects</label>
+          <select id="filter-subjects" multiple style="width:160px;height:80px"
+                  onchange="onSubjectOrDateChange()">
+          </select>
+          <span class="hint">Ctrl/⌘ for multiple · none = all</span>
+        </div>
+
+        <div class="field">
+          <label class="hint" style="font-size:0.72rem;color:var(--fg-faint)">Date from</label>
+          <input id="filter-date-from" type="text" placeholder="DDMMYYYY" maxlength="8"
+                 style="width:110px" oninput="onSubjectOrDateChange()" />
+        </div>
+
+        <div class="field">
+          <label class="hint" style="font-size:0.72rem;color:var(--fg-faint)">Date to</label>
+          <input id="filter-date-to" type="text" placeholder="DDMMYYYY" maxlength="8"
+                 style="width:110px" oninput="onSubjectOrDateChange()" />
+        </div>
+
+        <div id="substage-filter" class="field" style="display:none">
+          <label class="hint" style="font-size:0.72rem;color:var(--fg-faint)">Substage</label>
+          <select id="filter-substage" style="width:210px">
+            <option value="">— all —</option>
+          </select>
+        </div>
+
+        <div id="session-filter" class="field" style="display:none">
+          <label class="hint" style="font-size:0.72rem;color:var(--fg-faint)">Session</label>
+          <select id="filter-session" style="width:220px">
+            <option value="">— all —</option>
+          </select>
+          <span class="hint">Narrow by subject/date first</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="download-row">
+      <button class="btn accent" onclick="download()">↓ Download CSV</button>
+      <span id="status"></span>
+    </div>
+
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let exportTypes = [];
+
+  function parseDate(val) {
+    // Accepts DDMMYYYY → returns YYYY-MM-DD for the backend, or '' if invalid.
+    const s = (val || '').replace(/\D/g, '');
+    if (s.length !== 8) return '';
+    return `${s.slice(4,8)}-${s.slice(2,4)}-${s.slice(0,2)}`;
+  }
+
+  async function init() {
+    await Promise.all([loadExportTypes(), loadSubjects(), loadStages()]);
+  }
+
+  async function loadExportTypes() {
+    const res   = await fetch('/export/types');
+    exportTypes = await res.json();
+    const sel   = document.getElementById('export-type');
+    sel.innerHTML = exportTypes.map(t =>
+      `<option value="${t.value}">${t.label}</option>`
+    ).join('');
+    onTypeChange();
+  }
+
+  async function loadSubjects() {
+    const res  = await fetch('/export/subjects');
+    const list = await res.json();
+    const sel  = document.getElementById('filter-subjects');
+    sel.innerHTML = list.map(s =>
+      `<option value="${s.id}">${s.code}</option>`
+    ).join('');
+  }
+
+  async function loadStages() {
+    const res    = await fetch('/training-stages');
+    const stages = await res.json();
+    const sel    = document.getElementById('filter-substage');
+    sel.innerHTML = '<option value="">— all —</option>';
+    for (const stage of stages) {
+      for (const sub of stage.substages) {
+        sel.innerHTML += `<option value="${sub.id}">${stage.name} › ${sub.label}</option>`;
+      }
+    }
+  }
+
+  async function loadSessions() {
+    const params = new URLSearchParams();
+    const subjects = [...document.getElementById('filter-subjects').selectedOptions]
+      .map(o => o.value).filter(Boolean);
+    subjects.forEach(id => params.append('subject_ids', id));
+    const df = parseDate(document.getElementById('filter-date-from').value);
+    const dt = parseDate(document.getElementById('filter-date-to').value);
+    if (df) params.set('date_from', df);
+    if (dt) params.set('date_to',   dt);
+
+    const res  = await fetch(`/export/sessions-list?${params}`);
+    const list = await res.json();
+    const sel  = document.getElementById('filter-session');
+    const cur  = sel.value;
+    sel.innerHTML = '<option value="">— all —</option>' +
+      list.map(s => `<option value="${s.id}">${s.label}</option>`).join('');
+    if (list.find(s => String(s.id) === cur)) sel.value = cur;
+  }
+
+  function onTypeChange() {
+    const val  = document.getElementById('export-type').value;
+    const spec = exportTypes.find(t => t.value === val);
+    if (!spec) return;
+    document.getElementById('type-description').textContent = spec.description;
+    document.getElementById('columns-preview').textContent  = spec.columns.join(', ');
+    document.getElementById('substage-filter').style.display =
+      spec.has_substage_filter ? 'flex' : 'none';
+    document.getElementById('session-filter').style.display =
+      spec.has_session_filter ? 'flex' : 'none';
+    document.getElementById('status').textContent = '';
+  }
+
+  function onSubjectOrDateChange() {
+    const spec = exportTypes.find(t => t.value === document.getElementById('export-type').value);
+    if (spec && spec.has_session_filter) loadSessions();
+  }
+
+  function download() {
+    const type = document.getElementById('export-type').value;
+    if (!type) return;
+
+    const params = new URLSearchParams({ type });
+
+    [...document.getElementById('filter-subjects').selectedOptions]
+      .map(o => o.value).filter(Boolean)
+      .forEach(id => params.append('subject_ids', id));
+
+    const df = parseDate(document.getElementById('filter-date-from').value);
+    const dt = parseDate(document.getElementById('filter-date-to').value);
+    if (df) params.set('date_from', df);
+    if (dt) params.set('date_to',   dt);
+
+    const substage = document.getElementById('filter-substage').value;
+    if (substage) params.set('substage_id', substage);
+
+    const session = document.getElementById('filter-session').value;
+    if (session) params.set('session_id', session);
+
+    document.getElementById('status').textContent = 'Generating…';
+    const a = document.createElement('a');
+    a.href = `/export/download?${params}`;
+    a.download = `${type}.csv`;
+    a.click();
+    setTimeout(() => document.getElementById('status').textContent = '', 2000);
+  }
+
+  init();
+</script>
+{% endblock %}

@@ -185,8 +185,8 @@ class CageRunner:
             # available as bias input during the next ITI pre-computation.
             with self._lock:
                 self._last_click_ratio = _get_click_ratio(trial_to_send)
-            logger.info("Cage %d: trial %d — sending (correct_side=%s)",
-                        self._cage_id, trial_count, correct_side)
+            logger.debug("Cage %d: trial %d — sending (correct_side=%s)",
+                         self._cage_id, trial_count, correct_side)
             self._event.clear()
 
             trial_to_send["trial_id"] = str(uuid.uuid4())
@@ -212,8 +212,8 @@ class CageRunner:
             outcome = result.get("outcome", "correct")
             failed  = outcome != "correct"
             iti     = fail_iti_s if failed else base_iti_s
-            logger.info("Cage %d: trial %d done (outcome=%s) — ITI %.1fs",
-                        self._cage_id, trial_count, outcome, iti)
+            logger.debug("Cage %d: trial %d done (outcome=%s) — ITI %.1fs",
+                         self._cage_id, trial_count, outcome, iti)
 
             # Pre-compute the next trial during the ITI with bias applied.
             # self._last_click_ratio holds the ratio of the trial just completed —

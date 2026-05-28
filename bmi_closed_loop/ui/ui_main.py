@@ -19,6 +19,7 @@ import config
 from command.tcp_command_sender import TCPCommandSender
 from ui.cage_runner import CageRunner, runners
 from ui.endpoints.builder import builder_bp
+from ui.endpoints.export import export_bp
 from ui.endpoints.control import control_bp
 from ui.endpoints.curriculum import curriculum_bp
 from ui.endpoints.dev import dev_bp
@@ -32,8 +33,9 @@ from ui.event_handler import handle_trial_event
 
 app = Flask(__name__)
 sock = Sock(app)
-logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+logging.getLogger("graphviz").setLevel(logging.WARNING)
 
 # Clear stale streaming/recording/peripheral state from previous server run.
 _valkey = valkey_client.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)
@@ -59,6 +61,7 @@ for _cage_id in range(1, config.N_CAGES + 1):
     runners[_cage_id] = CageRunner(_cage_id)
 
 app.register_blueprint(metrics_bp)
+app.register_blueprint(export_bp)
 app.register_blueprint(scoresheet_bp)
 app.register_blueprint(builder_bp)
 app.register_blueprint(dev_bp)

@@ -163,7 +163,7 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int,
 
     correct = sum(1 for r in rows if r[0] == "correct")
     pct = correct / len(rows)
-    logger.info(
+    logger.debug(
         "Subject %d substage %d: %.0f%% correct over last %d trials "
         "(threshold %.0f%%, checking %s)",
         subject_id, substage_id, pct * 100, len(rows), threshold * 100,
@@ -172,6 +172,37 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int,
     return pct < threshold if is_fallback else pct >= threshold
 
 
+def _min_trials(criteria: dict, subject_id: int, substage_id: int,
+                conn: psycopg2.extensions.connection, is_fallback: bool = False) -> bool:
+    """Advance after completing N trials regardless of performance.
+
+    This is a minimal template — rewrite the body to implement your criterion.
+    """
+    window = int(criteria.get("window", 10))
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM trial_results
+            WHERE substage_id = %s
+              AND session_id IN (SELECT id FROM sessions WHERE subject_id = %s)
+              AND outcome IN ('correct', 'wrong')
+              AND completed_at > COALESCE(
+                  (SELECT substage_entered_at FROM subjects WHERE id = %s),
+                  '-infinity'::timestamptz
+              )
+        """, (substage_id, subject_id, subject_id))
+        n = cur.fetchone()[0]
+
+    logger.debug("Subject %d substage %d: %d/%d trials completed (min_trials, is_fallback=%s)",
+                 subject_id, substage_id, n, window, is_fallback)
+    # min_trials doesn't make sense as a fallback criterion, so always return False then.
+    if is_fallback:
+        return False
+    return n >= window
+
+
 CRITERIA_HANDLERS = {
     "pct_correct": _pct_correct,
+    "min_trials":  _min_trials,
 }

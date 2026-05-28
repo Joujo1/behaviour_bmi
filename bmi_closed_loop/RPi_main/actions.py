@@ -36,9 +36,9 @@ Adding a new action type
 
        const ACTION_TYPES = ['led_on', ..., 'puff_on'];   // ← add here
 
-   Note: the curriculum builder renders a ``target`` dropdown for any action
-   type that is not ``play_clicks``.  If your new action needs a different
-   parameter layout, also update ``renderStateCard()`` /
+   Note: the curriculum builder renders a ``target`` dropdown by default.
+   ``play_clicks`` and ``valve_open`` have custom parameter layouts.  If your
+   new action needs different parameters, also update ``renderStateCard()`` /
    ``renderTerminalActions()`` in ``curriculum.html``.
 
 Steps 2–4 are optional depending on the action; step 1 is always required.
@@ -73,12 +73,9 @@ def _led_off(target: str) -> None:
     gpio_handler.set_led(target, False)
 
 
-def _valve_open(target: str) -> None:
+def _valve_open(target: str, duration_ms: int = 50) -> None:
     gpio_handler.set_valve(target, True)
-
-
-def _valve_close(target: str) -> None:
-    gpio_handler.set_valve(target, False)
+    threading.Timer(duration_ms / 1000.0, gpio_handler.set_valve, args=(target, False)).start()
 
 
 # Click trigger output — ItsyBitsy M4 TTL path
@@ -185,7 +182,6 @@ ACTIONS: dict = {
     "led_on":      _led_on,
     "led_off":     _led_off,
     "valve_open":  _valve_open,
-    "valve_close": _valve_close,
     "play_clicks": _fire_click_triggers,
 }
 
