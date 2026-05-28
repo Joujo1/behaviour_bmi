@@ -108,13 +108,11 @@ EXPORT_TYPES: dict[str, dict] = {
 }
 
 
-# ── DB helpers ────────────────────────────────────────────
-
-def _get_db():
+def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
 
 
-def _trial_filters(args, tr="tr"):
+def _trial_filters(args, tr: str = "tr") -> tuple[str, list]:
     """WHERE conditions + params for trial_results-based queries."""
     conds, params = [], []
     subject_ids = [int(x) for x in args.getlist("subject_ids") if x]
@@ -136,7 +134,7 @@ def _trial_filters(args, tr="tr"):
     return where, params
 
 
-def _session_filters(args):
+def _session_filters(args) -> tuple[str, list]:
     """WHERE conditions + params for session-based queries."""
     conds, params = [], []
     subject_ids = [int(x) for x in args.getlist("subject_ids") if x]
@@ -152,9 +150,12 @@ def _session_filters(args):
     return where, params
 
 
-# ── Query builder ─────────────────────────────────────────
+def _run_query(export_type: str, args) -> tuple:
+    """Execute the export query and return (cursor, connection) for streaming.
 
-def _run_query(export_type: str, args):
+    Returns (None, None) if export_type is not recognised. The caller is
+    responsible for closing both cursor and connection.
+    """
     conn = _get_db()
     try:
         cur = conn.cursor()
@@ -185,8 +186,8 @@ def _run_query(export_type: str, args):
 
         elif export_type == "events":
             where, params = _trial_filters(args)
-            # Excludes click_fire_log rows (active is an array, not a bool).
-            # Handles three distinct event shapes via CASE on key presence.
+            # Excludes click_fire_log rows — active is an array there, not a bool,
+            # so casting it would fail. Click detail lives in the click_timing export.
             cur.execute(f"""
                 SELECT
                     s.code                AS subject,
@@ -348,8 +349,6 @@ def _run_query(export_type: str, args):
         raise
 
 
-# ── Endpoints ─────────────────────────────────────────────
-
 @export_bp.get("/export-page")
 def export_page():
     return render_template("export.html")
@@ -357,11 +356,13 @@ def export_page():
 
 @export_bp.get("/export/types")
 def list_export_types():
+    """Return the EXPORT_TYPES registry for the UI dropdown."""
     return jsonify([{"value": k, **v} for k, v in EXPORT_TYPES.items()])
 
 
 @export_bp.get("/export/subjects")
 def list_subjects():
+    """Return all subjects as id + code for the filter dropdown."""
     conn = _get_db()
     try:
         with conn.cursor() as cur:
@@ -406,6 +407,7 @@ def list_sessions():
 
 @export_bp.get("/export/download")
 def download():
+    """Stream the requested export as a CSV file attachment."""
     export_type = request.args.get("type", "")
     if export_type not in EXPORT_TYPES:
         return "Unknown export type", 400
@@ -414,9 +416,9 @@ def download():
 
     try:
         cur, conn = _run_query(export_type, request.args)
-    except Exception as e:
+    except Exception as exc:
         logger.exception("Export query failed for type '%s'", export_type)
-        return f"Query error: {e}", 500
+        return f"Query error: {exc}", 500
 
     if cur is None:
         return "Unknown export type", 400
