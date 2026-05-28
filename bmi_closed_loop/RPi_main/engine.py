@@ -374,9 +374,7 @@ class Engine:
             self._dispatch_action(action)
 
         if duration is not None:
-            self._timeout_timer = threading.Timer(duration, self._on_timeout)
-            self._timeout_timer.daemon = True
-            self._timeout_timer.start()
+            self._start_timeout_timer(duration)
 
     def transition_to(self, next_state_id: str) -> None:
         """Cancel the running timer, run exit_actions, log the transition, enter next state."""
@@ -452,9 +450,32 @@ class Engine:
 
     # -- Timer helpers --
 
+    def _start_timeout_timer(self, duration: float) -> None:
+        """RT-accurate state timeout — mirrors _start_hold_timer."""
+        self._cancel_timeout()
+        stop_ev  = threading.Event()
+        deadline = time.clock_gettime(time.CLOCK_MONOTONIC) + duration
+
+        def _run():
+            _set_rt_priority(72)   # same level as hold timer, preempts FSM (70)
+            sleep_for = deadline - time.clock_gettime(time.CLOCK_MONOTONIC) - _HOLD_BUSY_TAIL_S
+            if sleep_for > 0:
+                if stop_ev.wait(sleep_for):
+                    return
+            while not stop_ev.is_set():
+                if time.clock_gettime(time.CLOCK_MONOTONIC) >= deadline:
+                    break
+            if not stop_ev.is_set():
+                self._on_timeout()
+
+        t = threading.Thread(target=_run, daemon=True, name="timeout")
+        self._timeout_timer = (t, stop_ev)
+        t.start()
+
     def _cancel_timeout(self) -> None:
         if self._timeout_timer is not None:
-            self._timeout_timer.cancel()
+            _, stop_ev = self._timeout_timer
+            stop_ev.set()
             self._timeout_timer = None
 
     def _cancel_watchdog(self) -> None:
