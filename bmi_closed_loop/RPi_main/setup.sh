@@ -96,37 +96,7 @@ else
     fi
 fi
 
-echo "=== Step 6: Audio GPIO (ItsyBitsy DAC on PCB pins 9/10) ==="
-# gpio= in config.txt runs before device tree overlays and can be overridden by
-# them (e.g. the SPI overlay claims GPIO 9/10).  A systemd oneshot service that
-# runs at sysinit.target — after the device tree is fully loaded but before
-# cage_controller — is the reliable alternative.
-SERVICE_FILE=/etc/systemd/system/audio-gpio-lock.service
-if [[ -f "$SERVICE_FILE" ]]; then
-    echo "  audio-gpio-lock.service already installed — skipping"
-else
-    cat > "$SERVICE_FILE" << 'EOF'
-[Unit]
-Description=Lock GPIO 9/10 as pull-free inputs for ItsyBitsy DAC audio path
-DefaultDependencies=no
-Before=cage_controller.service
-After=sysinit.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/bin/pinctrl set 9 ip
-ExecStart=/usr/bin/pinctrl set 10 ip
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl daemon-reload
-    systemctl enable --now audio-gpio-lock.service
-    echo "  audio-gpio-lock.service installed and enabled."
-fi
-
-echo "=== Step 7: Chrony NTP (ETH Zurich time servers) ==="
+echo "=== Step 6: Chrony NTP (ETH Zurich time servers) ==="
 apt-get install -y chrony
 cat > /etc/chrony/chrony.conf << 'EOF'
 # ETH Zurich internal NTP servers (GPS-disciplined stratum 1/2, campus LAN)
@@ -150,5 +120,4 @@ echo "Verify with:"
 echo "  cat /proc/sys/kernel/sched_rt_runtime_us          # should be -1"
 echo "  cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor  # should be performance"
 echo "  sudo systemctl status cage_controller.service"
-echo "  pinctrl get 9 10                                   # should show ip -- (input, no pull)"
 echo "  chronyc sources -v                                 # ETH servers should show * (synced)"
