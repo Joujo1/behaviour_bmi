@@ -96,9 +96,28 @@ else
     fi
 fi
 
+echo "=== Step 6: Audio GPIO (ItsyBitsy DAC on PCB pins 9/10) ==="
+CONFIG=/boot/firmware/config.txt
+GPIO_LINE="gpio=9,10=ip,pn"
+if grep -qF "$GPIO_LINE" "$CONFIG"; then
+    echo "  GPIO 9/10 already locked in $CONFIG — skipping"
+else
+    echo "  If the ItsyBitsy DAC is wired to Pi GPIO 9 and 10 (PCB audio path),"
+    echo "  those pins must be locked as pull-free inputs before the kernel starts"
+    echo "  to prevent boot transients from conflicting with the DAC output."
+    read -r -p "  Add '$GPIO_LINE' to $CONFIG? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        echo "$GPIO_LINE" >> "$CONFIG"
+        echo "  Written to $CONFIG — takes effect on next reboot."
+    else
+        echo "  Skipped. Add manually: echo '$GPIO_LINE' >> $CONFIG"
+    fi
+fi
+
 echo ""
 echo "=== Setup complete ==="
 echo "Verify with:"
 echo "  cat /proc/sys/kernel/sched_rt_runtime_us          # should be -1"
 echo "  cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor  # should be performance"
 echo "  sudo systemctl status cage_controller.service"
+echo "  raspi-gpio get 9 10                                # should show INPUT, PULL NONE"
