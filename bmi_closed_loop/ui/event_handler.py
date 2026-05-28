@@ -34,13 +34,23 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
     trial_aborted event. Writes the result to Postgres and unblocks the runner.
     """
     event_type = event.get("event")
+
+    if event_type == "sync_status":
+        _valkey.set(
+            f"cage:{cage_id}:sync_status",
+            json.dumps({**event, "received_at": time.time()}),
+            ex=15,
+        )
+        return
+
     if event_type not in ("trial_complete", "trial_aborted"):
         return
 
-    trial_id       = event.get("trial_id", "unknown")
-    outcome        = event.get("outcome", "aborted" if event_type == "trial_aborted" else "correct")
-    events         = event.get("events", [])
-    trial_start_us = event.get("trial_start_us")
+    trial_id         = event.get("trial_id", "unknown")
+    outcome          = event.get("outcome", "aborted" if event_type == "trial_aborted" else "correct")
+    events           = event.get("events", [])
+    trial_start_us   = event.get("trial_start_us")
+    trial_start_real = event.get("trial_start_real")
 
     logger.info("Cage %d: %s  outcome=%s  trial_id=%s  n_events=%d",
                 cage_id, event_type, outcome, trial_id, len(events))
@@ -63,11 +73,12 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                     """
                     INSERT INTO trial_results
                         (cage_id, trial_id, outcome, events, session_id, substage_id,
-                         correct_side, trial_start_us, click_seed, completed_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                         correct_side, trial_start_us, trial_start_real, click_seed, completed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     """,
                     (cage_id, trial_id, outcome, psycopg2.extras.Json(events),
-                     session_id, substage_id, correct_side, trial_start_us, click_seed),
+                     session_id, substage_id, correct_side, trial_start_us,
+                     trial_start_real, click_seed),
                 )
 
         if session_id is not None and substage_id is not None:

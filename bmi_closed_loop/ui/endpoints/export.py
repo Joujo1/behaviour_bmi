@@ -44,7 +44,7 @@ EXPORT_TYPES: dict[str, dict] = {
         "description": "One row per trial. Outcome, side, timing, substage — the starting point for most analyses.",
         "columns":     ["subject", "session_date", "session_nr", "stage", "substage",
                         "outcome", "correct_side", "completed_at",
-                        "trial_start_us", "click_seed", "trial_id"],
+                        "trial_start_us", "trial_start_real", "click_seed", "trial_id"],
         "has_substage_filter": True,
         "has_session_filter":  True,
     },
@@ -59,6 +59,7 @@ EXPORT_TYPES: dict[str, dict] = {
         ),
         "columns":     ["subject", "session_date", "session_nr", "trial_id",
                         "stage", "substage", "trial_outcome", "correct_side",
+                        "trial_start_real",
                         "event_type", "event_category", "event_name",
                         "active", "t_from_trial_start_s"],
         "has_substage_filter": True,
@@ -73,7 +74,8 @@ EXPORT_TYPES: dict[str, dict] = {
         ),
         "columns":     ["subject", "session_date", "session_nr", "trial_id",
                         "substage", "trial_outcome", "correct_side",
-                        "channel", "scheduled_s", "sched_error_us"],
+                        "trial_start_real",
+                        "channel", "scheduled_s", "t_from_trial_start_s", "sched_error_us"],
         "has_substage_filter": True,
         "has_session_filter":  True,
     },
@@ -173,6 +175,7 @@ def _run_query(export_type: str, args) -> tuple:
                     tr.correct_side,
                     tr.completed_at,
                     tr.trial_start_us,
+                    tr.trial_start_real,
                     tr.click_seed,
                     tr.trial_id
                 FROM trial_results tr
@@ -198,6 +201,7 @@ def _run_query(export_type: str, args) -> tuple:
                     ts.label              AS substage,
                     tr.outcome            AS trial_outcome,
                     tr.correct_side,
+                    tr.trial_start_real,
                     CASE
                         WHEN e ? 'sensor' THEN 'beam'
                         WHEN e ? 'from'   THEN 'transition'
@@ -240,8 +244,11 @@ def _run_query(export_type: str, args) -> tuple:
                     ts.label              AS substage,
                     tr.outcome            AS trial_outcome,
                     tr.correct_side,
+                    tr.trial_start_real,
                     c->>'channel'         AS channel,
-                    round((c->>'scheduled_s')::numeric,  9) AS scheduled_s,
+                    round((c->>'scheduled_s')::numeric,   9) AS scheduled_s,
+                    round(((c->>'fired_mono')::float - tr.trial_start_us / 1e6)::numeric, 6)
+                                          AS t_from_trial_start_s,
                     round((c->>'sched_error_us')::numeric, 3) AS sched_error_us
                 FROM trial_results tr
                 JOIN sessions sess ON sess.id = tr.session_id

@@ -157,9 +157,10 @@ CREATE TABLE IF NOT EXISTS trial_results (
     correct_side TEXT        CHECK (correct_side IN ('left', 'right')),
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS correct_side   TEXT   CHECK (correct_side IN ('left', 'right'));
-ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS trial_start_us BIGINT;
-ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS click_seed     BIGINT;
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS correct_side      TEXT   CHECK (correct_side IN ('left', 'right'));
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS trial_start_us   BIGINT;
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS trial_start_real DOUBLE PRECISION;
+ALTER TABLE trial_results ADD COLUMN IF NOT EXISTS click_seed       BIGINT;
 
 
 -- Recordings

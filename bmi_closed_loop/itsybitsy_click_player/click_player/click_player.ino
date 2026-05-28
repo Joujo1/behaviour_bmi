@@ -80,10 +80,18 @@ volatile uint16_t pos_left  = CLICK_LEN;
 volatile uint16_t pos_right = CLICK_LEN;
 
 // ---------------------------------------------------------------------------
-// Trigger ISRs — reset playback position on RISING edge
+// Trigger ISRs — reset playback position and restart TC3 on RISING edge.
+// TC3 is stopped when both channels go idle to eliminate continuous DAC
+// switching noise during silence.
 // ---------------------------------------------------------------------------
-void onLeftTrigger()  { pos_left  = 0; }
-void onRightTrigger() { pos_right = 0; }
+void onLeftTrigger() {
+    pos_left = 0;
+    TC3->COUNT16.CTRLA.bit.ENABLE = 1;  // restart timer if it was stopped
+}
+void onRightTrigger() {
+    pos_right = 0;
+    TC3->COUNT16.CTRLA.bit.ENABLE = 1;
+}
 
 // ---------------------------------------------------------------------------
 // TC3 timer ISR — fires at 192 kHz (120 MHz / 625)
@@ -112,6 +120,14 @@ void TC3_Handler() {
 
     if (pl < CLICK_LEN) pos_left  = pl + 1;
     if (pr < CLICK_LEN) pos_right = pr + 1;
+
+    // Both channels now idle — stop the timer to silence DAC switching noise.
+    // The trigger ISRs restart it on the next click.
+    if (pos_left >= CLICK_LEN && pos_right >= CLICK_LEN) {
+        TC3->COUNT16.CTRLA.bit.ENABLE = 0;
+        // No sync wait here — inside the ISR, the disable takes effect after
+        // this handler returns and the hardware drains its pipeline.
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -157,15 +173,24 @@ void setup() {
     analogWrite(A0, 2048);
     analogWrite(A1, 2048);
 
-    // Force VDDANA (3.3 V) as DAC reference — analogWrite() may leave it on
-    // the internal bandgap (~1.2 V), which would cap peak output at ~1.2 V.
-    while (DAC->SYNCBUSY.bit.SWRST || DAC->SYNCBUSY.bit.ENABLE);
+    // Switch reference to VDDANA (3.3 V). analogWrite() leaves it on the
+    // internal bandgap (~1.2 V). CTRLB must only be written while the DAC is
+    // disabled — writing it live causes a voltage excursion on the output.
+    DAC->CTRLA.bit.ENABLE = 0;
+    while (DAC->SYNCBUSY.bit.ENABLE);
     DAC->CTRLB.bit.REFSEL = 0x02;  // VDDANA on SAMD51
+    DAC->CTRLA.bit.ENABLE = 1;
+    while (DAC->SYNCBUSY.bit.ENABLE);
+    // Restore mid-rail after re-enable; output is undefined until written.
+    while (DAC->SYNCBUSY.bit.DATA0); DAC->DATA[0].reg = 2048;
+    while (DAC->SYNCBUSY.bit.DATA1); DAC->DATA[1].reg = 2048;
 
     setup_tc3_192kHz();
 
-    pinMode(TRIGGER_LEFT,  INPUT);
-    pinMode(TRIGGER_RIGHT, INPUT);
+    // Pull-downs keep triggers LOW when Pi pins are floating (e.g. during boot
+    // before cage_controller configures them as outputs), preventing spurious clicks.
+    pinMode(TRIGGER_LEFT,  INPUT_PULLDOWN);
+    pinMode(TRIGGER_RIGHT, INPUT_PULLDOWN);
     attachInterrupt(digitalPinToInterrupt(TRIGGER_LEFT),  onLeftTrigger,  RISING);
     attachInterrupt(digitalPinToInterrupt(TRIGGER_RIGHT), onRightTrigger, RISING);
 }

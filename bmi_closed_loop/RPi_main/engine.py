@@ -120,7 +120,8 @@ class Engine:
         self._fsm_thread     = None
         self._running        = False
 
-        self._trial_start    = None
+        self._trial_start      = None
+        self._trial_start_real = None
         self._event_buffer   = []   # drained each frame by pop_frame_events()
         self._trial_events   = []   # full log, sent at trial completion
         self._event_lock     = threading.Lock()
@@ -132,6 +133,10 @@ class Engine:
     @property
     def trial_start_us(self) -> int | None:
         return int(self._trial_start * 1_000_000) if self._trial_start is not None else None
+
+    @property
+    def trial_start_real(self) -> float | None:
+        return self._trial_start_real
 
     def load(self, trial_json) -> None:
         """Parse a JSON trial definition and index all states by their id field."""
@@ -202,7 +207,8 @@ class Engine:
         _set_rt_priority(70)
         # Capture _trial_start here — after the thread has reached RT priority —
         # so the first state's timeout deadline is measured from the same epoch.
-        self._trial_start = time.clock_gettime(time.CLOCK_MONOTONIC)
+        self._trial_start      = time.clock_gettime(time.CLOCK_MONOTONIC)
+        self._trial_start_real = time.clock_gettime(time.CLOCK_REALTIME)
         gpio_handler.update_callbacks(self._on_beam_event)
         self._event_queue.put(('enter', self._initial_state))
         _last_temp_log = time.monotonic()

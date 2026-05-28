@@ -126,6 +126,24 @@ EOF
     echo "  audio-gpio-lock.service installed and enabled."
 fi
 
+echo "=== Step 7: Chrony NTP (ETH Zurich time servers) ==="
+apt-get install -y chrony
+cat > /etc/chrony/chrony.conf << 'EOF'
+# ETH Zurich internal NTP servers (GPS-disciplined stratum 1/2, campus LAN)
+server time.ethz.ch  iburst
+server time6.ethz.ch iburst
+
+# Step the clock only during the first 3 updates at boot, then slew-only.
+# Prevents mid-experiment clock jumps once converged.
+makestep 1 3
+
+# Sync the hardware RTC periodically.
+rtcsync
+EOF
+systemctl enable --now chrony
+systemctl restart chrony
+echo "  Chrony installed and configured — verify with: chronyc sources -v"
+
 echo ""
 echo "=== Setup complete ==="
 echo "Verify with:"
@@ -133,3 +151,4 @@ echo "  cat /proc/sys/kernel/sched_rt_runtime_us          # should be -1"
 echo "  cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor  # should be performance"
 echo "  sudo systemctl status cage_controller.service"
 echo "  pinctrl get 9 10                                   # should show ip -- (input, no pull)"
+echo "  chronyc sources -v                                 # ETH servers should show * (synced)"

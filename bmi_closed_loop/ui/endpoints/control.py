@@ -8,6 +8,7 @@ querying the Pi each time.
 
 import json
 import logging
+import time
 
 import graphviz
 import valkey as valkey_client
@@ -150,3 +151,16 @@ def trial_graph():
 
     svg = dot.pipe(format="svg").decode("utf-8")
     return Response(svg, mimetype="image/svg+xml")
+
+
+@control_bp.get("/cage/<int:cage_id>/sync")
+def cage_sync_status(cage_id: int):
+    if not (1 <= cage_id <= config.N_CAGES):
+        abort(404)
+    raw = _valkey.get(f"cage:{cage_id}:sync_status")
+    if not raw:
+        return jsonify({"synced": False, "stale": True,
+                        "offset_us": None, "esterror_us": None, "freq_ppm": None})
+    data = json.loads(raw)
+    stale = time.time() - data.get("received_at", 0) > 10
+    return jsonify({**data, "stale": stale})

@@ -25,6 +25,9 @@ import json
 import logging
 import os
 import queue
+import re
+import subprocess
+import threading
 import time
 import sys
 
@@ -93,6 +96,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _get_ntp_status() -> dict:
+    """Query chronyc tracking and return a sync_status event dict."""
+    base = {"event": "sync_status", "synced": False,
+            "offset_us": None, "esterror_us": None, "freq_ppm": None}
+    try:
+        out = subprocess.run(
+            ["chronyc", "-n", "tracking"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout
+        m_sys  = re.search(r"System time\s*:\s*([\d.e+-]+)\s+seconds\s+(slow|fast)", out)
+        m_rms  = re.search(r"RMS offset\s*:\s*([\d.e+-]+)\s+seconds", out)
+        m_freq = re.search(r"Frequency\s*:\s*([\d.]+)\s+ppm\s+(slow|fast)", out)
+        m_leap = re.search(r"Leap status\s*:\s*(.+)", out)
+
+        synced = m_leap is not None and m_leap.group(1).strip() == "Normal"
+        if m_sys:
+            sign = 1 if m_sys.group(2) == "slow" else -1
+            base["offset_us"] = round(sign * float(m_sys.group(1)) * 1e6, 1)
+        if m_rms:
+            base["esterror_us"] = round(float(m_rms.group(1)) * 1e6, 1)
+        if m_freq:
+            sign = 1 if m_freq.group(2) == "slow" else -1
+            base["freq_ppm"] = round(sign * float(m_freq.group(1)), 3)
+        base["synced"] = synced
+    except Exception:
+        pass
+    return base
+
+
 class _GPIOAdapter:
     """Translates gpio_handler.get_snapshot() into the flat dict CameraStreamer expects."""
 
@@ -132,11 +164,13 @@ def main():
     def on_trial_complete(trial_id: str, outcome: str, events: list) -> None:
         """Push a trial_complete or trial_aborted event back to the PC over TCP."""
         nonlocal current_engine
-        trial_start_us = current_engine.trial_start_us if current_engine else None
+        trial_start_us   = current_engine.trial_start_us   if current_engine else None
+        trial_start_real = current_engine.trial_start_real if current_engine else None
         current_engine = None
         event = "trial_aborted" if outcome == "aborted" else "trial_complete"
         payload = json.dumps({"event": event, "trial_id": trial_id, "outcome": outcome,
-                              "events": events, "trial_start_us": trial_start_us})
+                              "events": events, "trial_start_us": trial_start_us,
+                              "trial_start_real": trial_start_real})
         logger.info("Trial finished: event=%s  outcome=%s  trial_id=%s  n_events=%d",
                     event, outcome, trial_id, len(events))
         receiver.push(payload)
@@ -239,6 +273,17 @@ def main():
     try:
         receiver.start()
         logger.info("Ready — TCP port %d  UDP stream port %d", TCP_PORT, UDP_STREAM_PORT)
+
+        def _ntp_reporter():
+            while True:
+                time.sleep(5)
+                try:
+                    receiver.push(json.dumps(_get_ntp_status()))
+                except Exception:
+                    pass
+
+        threading.Thread(target=_ntp_reporter, daemon=True, name="ntp-reporter").start()
+
         while True:
             time.sleep(1)
     except KeyboardInterrupt:

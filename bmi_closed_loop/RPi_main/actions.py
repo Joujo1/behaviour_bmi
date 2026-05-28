@@ -81,9 +81,9 @@ def _valve_open(target: str, duration_ms: int = 50) -> None:
 # Click trigger output — ItsyBitsy M4 TTL path
 #
 # The Pi busy-waits to each scheduled click time and fires a short TTL pulse
-# on AUDIO_PINS["left"] (BCM10) or AUDIO_PINS["right"] (BCM9). The
-# ItsyBitsy M4 detects the RISING edge and immediately starts playing its
-# pre-baked 192 kHz waveform from its onboard DAC.
+# on AUDIO_PINS["left"] or AUDIO_PINS["right"] (see config.py for BCM pin
+# assignments). The ItsyBitsy M4 detects the RISING edge and immediately
+# starts playing its pre-baked 192 kHz waveform from its onboard DAC.
 
 # Module-level stop event; replaced atomically on each _fire_click_triggers() call.
 _click_stop: threading.Event = threading.Event()

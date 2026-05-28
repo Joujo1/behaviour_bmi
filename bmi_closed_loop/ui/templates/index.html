@@ -237,6 +237,22 @@
     min-height: 1em;
   }
 
+  .sync-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.62rem;
+    color: var(--fg-faint);
+    min-height: 1em;
+  }
+  .sync-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--fg-faint); flex-shrink: 0;
+  }
+  .sync-dot.synced   { background: var(--alive); }
+  .sync-dot.stale    { background: #c8a000; }
+  .sync-dot.unsynced { background: var(--dead); }
+
   /* ── Global bottom bar ── */
   #global-bar {
     display: flex;
@@ -362,6 +378,10 @@
         </div>
         <div id="session-status-${i}" class="session-status"></div>
         <div id="bias-alg-${i}" class="bias-alg"></div>
+        <div class="sync-row">
+          <span class="sync-dot" id="sync-dot-${i}"></span>
+          <span id="sync-text-${i}">NTP —</span>
+        </div>
         <div id="run-status-${i}" class="run-status"></div>
         <div class="cage-actions">
           <button class="btn small" id="btn-stream-${i}" onclick="toggleStream(${i})">Stream ▶</button>
@@ -793,6 +813,33 @@ if (!state.sessionId) return;
     }
   }
 
+  // ── NTP sync status ──────────────────────────────────────
+  async function pollSync() {
+    for (let i = 1; i <= N_CAGES; i++) {
+      try {
+        const res  = await fetch(`/cage/${i}/sync`);
+        const data = await res.json();
+        const dot  = document.getElementById(`sync-dot-${i}`);
+        const txt  = document.getElementById(`sync-text-${i}`);
+        if (!dot || !txt) continue;
+        dot.className = 'sync-dot';
+        if (data.stale) {
+          dot.classList.add('stale');
+          txt.textContent = 'NTP stale';
+        } else if (!data.synced) {
+          dot.classList.add('unsynced');
+          txt.textContent = 'NTP unsynced';
+        } else {
+          dot.classList.add('synced');
+          const off = data.offset_us != null
+            ? `${data.offset_us > 0 ? '+' : ''}${data.offset_us}µs` : '—';
+          const err = data.esterror_us != null ? ` ±${data.esterror_us}µs` : '';
+          txt.textContent = `NTP ${off}${err}`;
+        }
+      } catch (_) {}
+    }
+  }
+
   // ── Global bar actions ───────────────────────────────────
   async function openAllSessions() {
     const researcher = document.getElementById('inp-researcher').value.trim();
@@ -978,10 +1025,12 @@ if (!state.sessionId) return;
   setInterval(pollAdvancement, 1000);
   setInterval(pollPeripherals, 1000);
   setInterval(pollRunStatus, 1000);
+  setInterval(pollSync, 5000);
   pollStatus();
   pollAdvancement();
   pollPeripherals();
   pollRunStatus();
+  pollSync();
 
   // Refresh subject list every 10s to pick up advancement changes
   setInterval(loadSubjects, 10000);
