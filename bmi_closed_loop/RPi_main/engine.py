@@ -150,18 +150,14 @@ class Engine:
         if not self._states:
             raise RuntimeError("call load() before start()")
 
-        self._trial_start = time.clock_gettime(time.CLOCK_MONOTONIC)
-        self._running     = True
-
-        self._fsm_thread = threading.Thread(target=self._run, daemon=True, name="fsm")
-        self._fsm_thread.start()
+        self._running = True
 
         self._watchdog_timer = threading.Timer(TRIAL_WATCHDOG_S, self._on_watchdog)
         self._watchdog_timer.daemon = True
         self._watchdog_timer.start()
 
-        gpio_handler.update_callbacks(self._on_beam_event)
-        self._event_queue.put(('enter', self._initial_state))
+        self._fsm_thread = threading.Thread(target=self._run, daemon=True, name="fsm")
+        self._fsm_thread.start()
 
     def stop(self) -> None:
         """Abort the trial from an external thread (e.g. the TCP command thread).
@@ -204,6 +200,11 @@ class Engine:
     def _run(self) -> None:
         """FSM thread main loop. Sole consumer of _event_queue."""
         _set_rt_priority(70)
+        # Capture _trial_start here — after the thread has reached RT priority —
+        # so the first state's timeout deadline is measured from the same epoch.
+        self._trial_start = time.clock_gettime(time.CLOCK_MONOTONIC)
+        gpio_handler.update_callbacks(self._on_beam_event)
+        self._event_queue.put(('enter', self._initial_state))
         _last_temp_log = time.monotonic()
         while self._running:
             try:
