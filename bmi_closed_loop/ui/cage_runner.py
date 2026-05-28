@@ -19,6 +19,7 @@ import time
 import psycopg2
 
 import config
+from ui.bias_algorithms import REGISTRY as _BIAS_REGISTRY
 from ui.click_generator import generate_clicks
 
 logger = logging.getLogger(__name__)
@@ -436,62 +437,25 @@ def _query_recent_trials(subject_id: int, window: int = 20) -> list[dict]:
 
 def _apply_bias(trial_definition: dict, subject_id: int,
                 last_click_ratio: float | None = None) -> dict:
-    """
-    Return a (possibly modified) trial dict with side_mode='weighted' and
-    left_probability adjusted by the subject's bias algorithm.
-    Returns the original dict unchanged when bias does not apply.
+    """Return a (possibly modified) trial dict with left_probability set by the bias algorithm.
 
-    last_click_ratio: high_clicks / low_clicks ratio of the most recently completed trial.
-        Used by the IBL algorithm to gate on easy trials only.  Pass None (default) to
-        skip the difficulty check (original behaviour).
+    Returns the original dict unchanged when bias does not apply.
+    Add new algorithms in ui/bias_algorithms.py.
+
+    last_click_ratio: high_clicks / low_clicks of the most recently completed trial.
+        Passed through to the algorithm; used by IBL to gate on easy trials only.
     """
     if trial_definition.get("side_mode") not in ("random", "weighted"):
-        return trial_definition  # fixed mode: no intervention
+        return trial_definition  # fixed side: no intervention
 
     alg = _get_subject_bias_alg(subject_id)
-    if alg == "none":
+    if alg == "none" or alg not in _BIAS_REGISTRY:
         return trial_definition
 
-    recent = _query_recent_trials(subject_id, window=20)
-    left_prob = None
-
-    if alg == "brody":
-        left_hits  = [t["outcome"] == "correct" for t in recent if t["correct_side"] == "left"]
-        right_hits = [t["outcome"] == "correct" for t in recent if t["correct_side"] == "right"]
-        if left_hits and right_hits:
-            fc_l  = sum(left_hits) / len(left_hits)
-            fc_r  = sum(right_hits) / len(right_hits)
-            total = fc_l + fc_r
-            left_prob = (fc_r / total) if total > 0 else 0.5
-            logger.info("Brody bias: fc_l=%.2f fc_r=%.2f → P(left)=%.2f", fc_l, fc_r, left_prob)
-
-    elif alg == "ibl":
-        if recent and recent[0]["outcome"] == "wrong":
-            # Easy-trial gate: only act when the last trial had a clear click majority.
-            # Threshold is read from the trial definition so it can be set per substage
-            # (add "ibl_easy_min_ratio": 2.0 to the substage task_config).
-            # Falls back to None (gate disabled) when the key is absent.
-            easy_min_ratio = trial_definition.get("ibl_easy_min_ratio", 2.5)
-            if (easy_min_ratio is not None
-                    and last_click_ratio is not None
-                    and last_click_ratio < easy_min_ratio):
-                logger.debug("IBL debias skipped: last trial ratio %.2f < threshold %.2f",
-                             last_click_ratio, easy_min_ratio)
-            else:
-                responded = []
-                for t in recent[:10]:
-                    cs = t["correct_side"]
-                    if cs is None:
-                        continue
-                    resp = cs if t["outcome"] == "correct" else ("right" if cs == "left" else "left")
-                    responded.append(resp)
-                if responded:
-                    avg_right = sum(1 for s in responded if s == "right") / len(responded)
-                    left_prob = 1.0 - avg_right
-                    logger.info("IBL debias triggered: ratio=%.2f avg_right=%.2f → P(left)=%.2f",
-                                last_click_ratio or -1, avg_right, left_prob)
+    spec = _BIAS_REGISTRY[alg]
+    recent = _query_recent_trials(subject_id, window=spec.window)
+    left_prob = spec.fn(recent, trial_definition, last_click_ratio)
 
     if left_prob is None:
         return trial_definition
-
     return {**trial_definition, "side_mode": "weighted", "left_probability": left_prob}

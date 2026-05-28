@@ -14,6 +14,7 @@ import psycopg2.extras
 from flask import Blueprint, Response, abort, jsonify, render_template, request
 
 import config
+from ui.advancement import CRITERIA_HANDLERS
 
 curriculum_bp = Blueprint("curriculum", __name__)
 logger = logging.getLogger(__name__)
@@ -21,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 def _get_db() -> psycopg2.extensions.connection:
     return psycopg2.connect(config.POSTGRES_DSN)
+
+
+@curriculum_bp.get("/criteria-types")
+def list_criteria_types():
+    """Return available advancement criteria types for the UI selector."""
+    return jsonify([{"value": k, "label": k} for k in CRITERIA_HANDLERS])
 
 
 @curriculum_bp.get("/training-stages")

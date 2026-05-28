@@ -3,6 +3,47 @@ Substage advancement evaluator.
 
 After each trial completes call evaluate(subject_id, substage_id, conn).
 Returns "advance", "fallback", or "stay".
+
+Adding a new criteria type
+--------------------------
+1. Write a handler function with this signature::
+
+       def _my_criterion(
+           criteria: dict,
+           subject_id: int,
+           substage_id: int,
+           conn: psycopg2.extensions.connection,
+           is_fallback: bool,
+       ) -> bool:
+
+   ``criteria`` is the parsed JSONB value of ``advance_criteria`` or
+   ``fallback_criteria`` from ``training_substages``.  The ``"type"`` key is
+   already consumed by the dispatcher; any remaining keys are yours to define
+   (e.g. ``"window"``, ``"threshold"``).
+
+   ``is_fallback`` is True when evaluating fallback criteria.  Most handlers
+   invert their comparison: return ``pct >= threshold`` for advance,
+   ``pct < threshold`` for fallback.
+
+2. Add one entry to ``CRITERIA_HANDLERS`` at the bottom of this file::
+
+       CRITERIA_HANDLERS = {
+           "pct_correct":  _pct_correct,
+           "my_criterion": _my_criterion,   # ← add this
+       }
+
+   That is all for the backend.
+
+3. The curriculum builder UI (``ui/templates/curriculum.html``) reads the
+   registered types via ``GET /criteria-types`` and populates the type
+   selector automatically, so the new type is immediately available in the
+   editor.
+
+   The criteria bar currently shows two fields: ``window`` (trial count) and
+   ``threshold`` (a percentage).  If your new criterion uses the same two
+   parameters, no UI changes are needed.  If it needs a different parameter
+   structure, update the criteria bar HTML and ``saveCriteria()`` in
+   ``curriculum.html`` alongside this file.
 """
 
 import logging
@@ -84,7 +125,7 @@ def apply(subject_id: int, substage_id: int, decision: str,
 def _meets(criteria: dict, subject_id: int, substage_id: int,
            conn: psycopg2.extensions.connection, is_fallback: bool = False) -> bool:
     ctype = criteria.get("type")
-    handler = _CRITERIA_HANDLERS.get(ctype)
+    handler = CRITERIA_HANDLERS.get(ctype)
     if handler is None:
         logger.warning("Unknown criteria type '%s' — treating as not met", ctype)
         return False
@@ -131,6 +172,6 @@ def _pct_correct(criteria: dict, subject_id: int, substage_id: int,
     return pct < threshold if is_fallback else pct >= threshold
 
 
-_CRITERIA_HANDLERS = {
+CRITERIA_HANDLERS = {
     "pct_correct": _pct_correct,
 }

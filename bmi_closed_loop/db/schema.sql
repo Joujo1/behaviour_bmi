@@ -70,8 +70,11 @@ ALTER TABLE subjects ADD COLUMN IF NOT EXISTS species             TEXT;
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS strain              TEXT;
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS experiment_nr       TEXT;
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS reference_weight_g  NUMERIC;
-ALTER TABLE subjects ADD COLUMN IF NOT EXISTS side_bias_alg       TEXT DEFAULT 'none'
-    CHECK (side_bias_alg IN ('none', 'brody', 'ibl'));
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS side_bias_alg       TEXT DEFAULT 'none';
+-- Drop the hardcoded CHECK constraint so new algorithms registered in
+-- ui/bias_algorithms.py are accepted without a schema change.
+-- Algorithm validity is now enforced in subjects.py (update_subject).
+ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_side_bias_alg_check;
 
 
 -- Sessions

@@ -15,6 +15,7 @@ import psycopg2.extras
 from flask import Blueprint, abort, jsonify, render_template, request
 
 import config
+from ui.bias_algorithms import REGISTRY as _BIAS_REGISTRY
 from ui.cage_runner import runners
 
 subjects_bp = Blueprint("subjects", __name__)
@@ -30,6 +31,12 @@ def _serialize(d: dict) -> dict:
         if isinstance(v, (datetime.date, datetime.datetime)):
             d[k] = v.isoformat()
     return d
+
+
+@subjects_bp.get("/bias-algorithms")
+def list_bias_algorithms():
+    """Return available bias correction algorithms for the UI dropdown."""
+    return jsonify([{"value": k, "label": v.label} for k, v in _BIAS_REGISTRY.items()])
 
 
 @subjects_bp.get("/subjects-page")
@@ -173,6 +180,11 @@ def update_subject(subject_id: int):
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         return jsonify({"ok": False, "msg": "no updatable fields provided"}), 400
+
+    if "side_bias_alg" in updates:
+        valid_algs = {"none"} | set(_BIAS_REGISTRY.keys())
+        if updates["side_bias_alg"] not in valid_algs:
+            return jsonify({"ok": False, "msg": f"unknown bias algorithm '{updates['side_bias_alg']}'"}), 400
 
     conn = _get_db()
     try:

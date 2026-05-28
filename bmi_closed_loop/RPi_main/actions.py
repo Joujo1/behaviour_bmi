@@ -3,6 +3,45 @@ Action registry for the trial state machine engine.
 
 Each entry in ACTIONS maps a JSON action "type" string to a Python function.
 All hardware interaction goes exclusively through gpio_handler.
+
+Adding a new action type
+------------------------
+1. Write a function (synchronous, returns None) and add it to ``ACTIONS``::
+
+       def _puff_on(target: str) -> None:
+           gpio_handler.set_puff(target, True)
+
+       ACTIONS = {
+           ...
+           "puff_on": _puff_on,   # ← add this
+       }
+
+   The function receives all keys from the action dict except ``"type"`` as
+   keyword arguments, so keep parameter names consistent with the JSON schema
+   you define for trial definitions.
+
+2. If the hardware can be left active (valve, LED, solenoid…), add cleanup
+   to ``safety_sweep()`` in this file so it is swept off on trial abort or
+   shutdown.
+
+3. If you want the hardware state change recorded in the per-trial event
+   stream sent to the PC, add an ``elif`` branch to ``_dispatch_action()``
+   in ``engine.py``::
+
+       elif atype == "puff_on":
+           self._log_output(f"puff_{action.get('target', '?')}", True)
+
+4. Update ``ACTION_TYPES`` in ``ui/templates/curriculum.html`` (PC side) so
+   the curriculum builder can add the new action to trial definitions::
+
+       const ACTION_TYPES = ['led_on', ..., 'puff_on'];   // ← add here
+
+   Note: the curriculum builder renders a ``target`` dropdown for any action
+   type that is not ``play_clicks``.  If your new action needs a different
+   parameter layout, also update ``renderStateCard()`` /
+   ``renderTerminalActions()`` in ``curriculum.html``.
+
+Steps 2–4 are optional depending on the action; step 1 is always required.
 """
 
 import ctypes

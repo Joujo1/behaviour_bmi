@@ -336,21 +336,23 @@
       <!-- Advancement criteria -->
       <div id="criteria-bar">
         <div class="criteria-group">
-          <label>Advance: last</label>
+          <select id="adv-criteria-type" class="bldr-input" style="width:110px"></select>
+          <label>last</label>
           <input id="adv-window" class="bldr-input" type="number" min="1" style="width:55px" placeholder="20" />
           <label>trials ≥</label>
           <input id="adv-threshold" class="bldr-input" type="number" min="0" max="100" style="width:55px" placeholder="80" />
-          <label>% correct → </label>
+          <label>% → </label>
           <select id="adv-target" class="bldr-input" style="width:160px">
             <option value="">— none —</option>
           </select>
         </div>
         <div class="criteria-group" style="margin-left:16px">
-          <label>Fallback: last</label>
+          <select id="fall-criteria-type" class="bldr-input" style="width:110px"></select>
+          <label>last</label>
           <input id="fall-window" class="bldr-input" type="number" min="1" style="width:55px" placeholder="10" />
           <label>trials ≤</label>
           <input id="fall-threshold" class="bldr-input" type="number" min="0" max="100" style="width:55px" placeholder="40" />
-          <label>% correct → </label>
+          <label>% → </label>
           <select id="fall-target" class="bldr-input" style="width:160px">
             <option value="">— none —</option>
           </select>
@@ -402,6 +404,9 @@
 
 {% block scripts %}
 <script>
+  // To add a new action type: add its function to ACTIONS in RPi_main/actions.py,
+  // then add the type string here so the curriculum builder can use it.
+  // See RPi_main/actions.py module docstring for the full checklist.
   const ACTION_TYPES    = ['led_on','led_off','valve_open','valve_close','play_clicks'];
   const ALL_TARGETS     = ['left','right','center','high_click_side','low_click_side'];
   const TRIGGER_TYPES   = ['beam_break','timeout','clicks_done'];
@@ -415,7 +420,28 @@
 
   // ── Init ──────────────────────────────────────────────────
   async function init() {
+    await loadCriteriaTypes();
     await loadTree();
+  }
+
+  // ── Load criteria types (for advance/fallback selectors) ──
+  async function loadCriteriaTypes() {
+    try {
+      const res   = await fetch('/criteria-types');
+      const types = await res.json();
+      for (const selId of ['adv-criteria-type', 'fall-criteria-type']) {
+        const sel = document.getElementById(selId);
+        sel.innerHTML = '';
+        for (const t of types) {
+          const opt = document.createElement('option');
+          opt.value       = t.value;
+          opt.textContent = t.label;
+          sel.appendChild(opt);
+        }
+      }
+    } catch (e) {
+      toast(`Failed to load criteria types: ${e.message}`);
+    }
   }
 
   // ── Curriculum overview graph ─────────────────────────────
@@ -588,12 +614,14 @@
     // Criteria
     const ac = sub.advance_criteria  || {};
     const fc = sub.fallback_criteria || {};
-    document.getElementById('adv-window').value     = ac.window    ?? '';
-    document.getElementById('adv-threshold').value  = ac.threshold != null ? Math.round(ac.threshold * 100) : '';
-    document.getElementById('adv-target').value     = sub.advance_to_substage_id  ?? '';
-    document.getElementById('fall-window').value    = fc.window    ?? '';
-    document.getElementById('fall-threshold').value = fc.threshold != null ? Math.round(fc.threshold * 100) : '';
-    document.getElementById('fall-target').value    = sub.fallback_to_substage_id ?? '';
+    document.getElementById('adv-criteria-type').value  = ac.type      || 'pct_correct';
+    document.getElementById('adv-window').value         = ac.window    ?? '';
+    document.getElementById('adv-threshold').value      = ac.threshold != null ? Math.round(ac.threshold * 100) : '';
+    document.getElementById('adv-target').value         = sub.advance_to_substage_id  ?? '';
+    document.getElementById('fall-criteria-type').value = fc.type      || 'pct_correct';
+    document.getElementById('fall-window').value        = fc.window    ?? '';
+    document.getElementById('fall-threshold').value     = fc.threshold != null ? Math.round(fc.threshold * 100) : '';
+    document.getElementById('fall-target').value        = sub.fallback_to_substage_id ?? '';
 
     // Trial definition
     const def = sub.task_config || {};
@@ -628,12 +656,14 @@
     const fallThreshold = parseFloat(document.getElementById('fall-threshold').value);
     const fallTarget   = parseInt(document.getElementById('fall-target').value) || null;
 
+    const advType  = document.getElementById('adv-criteria-type').value  || 'pct_correct';
+    const fallType = document.getElementById('fall-criteria-type').value || 'pct_correct';
     const body = {
       advance_criteria:       (advWindow && !isNaN(advThreshold))
-        ? { type: 'pct_correct', window: advWindow, threshold: advThreshold / 100 }
+        ? { type: advType,  window: advWindow,  threshold: advThreshold  / 100 }
         : null,
       fallback_criteria:      (fallWindow && !isNaN(fallThreshold))
-        ? { type: 'pct_correct', window: fallWindow, threshold: fallThreshold / 100 }
+        ? { type: fallType, window: fallWindow, threshold: fallThreshold / 100 }
         : null,
       advance_to_substage_id:  advTarget,
       fallback_to_substage_id: fallTarget,

@@ -205,8 +205,6 @@
         <label>Side bias alg</label>
         <select id="edit-bias-alg" style="width:180px">
           <option value="none">None</option>
-          <option value="brody">Brody (performance eq.)</option>
-          <option value="ibl">IBL (layup on preferred)</option>
         </select>
       </div>
     </div>
@@ -261,7 +259,25 @@
   // ── Init ──────────────────────────────────────────────────
   async function init() {
     await loadStages();
+    await loadBiasAlgorithms();
     await loadSubjects();
+  }
+
+  // ── Load bias algorithms (for edit dropdown) ──────────────
+  async function loadBiasAlgorithms() {
+    try {
+      const res  = await fetch('/bias-algorithms');
+      const algs = await res.json();
+      const sel  = document.getElementById('edit-bias-alg');
+      for (const alg of algs) {
+        const opt = document.createElement('option');
+        opt.value       = alg.value;
+        opt.textContent = alg.label;
+        sel.appendChild(opt);
+      }
+    } catch (e) {
+      toast(`Failed to load bias algorithms: ${e.message}`);
+    }
   }
 
   // ── Load stages (for dropdowns) ───────────────────────────
