@@ -4,7 +4,11 @@ Side assignment balance validator.
 Tests all three side_modes from cage_runner._resolve_sides():
   random   — should produce 50/50 left/right regardless of trial definition
   weighted — left fraction should match left_probability within chi-squared tolerance
-  fixed    — correct_side should always equal the high-rate side; returns None for correct_side
+  fixed    — high_rate_side should always equal the high-rate side
+
+Note: _resolve_sides no longer resolves high_click_side / low_click_side aliases;
+that is done by _resolve_aliases after click expansion. This validator only tests
+the rate-assignment / coin-flip behaviour, which is unchanged.
 
 Runs anywhere (no hardware needed). Inlines _resolve_sides to avoid import path issues;
 keep in sync with cage_runner.py if the function changes.
@@ -30,34 +34,23 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
 # ── Inlined from cage_runner._resolve_sides ─────────────────────────────────
 # Keep in sync with bmi_closed_loop/ui/cage_runner.py
+# Note: alias resolution is NOT part of _resolve_sides anymore; it lives in
+# _resolve_aliases (post-expansion). This copy only tests rate assignment.
 
 def _resolve_sides(trial_definition: dict) -> tuple:
     side_mode = trial_definition.get("side_mode", "random")
     trial = copy.deepcopy(trial_definition)
 
     if side_mode == "fixed":
-        high_side = low_side = None
+        high_rate_side = None
         for state in trial.get("states", []):
             for phase in ("entry_actions", "exit_actions"):
                 for action in state.get(phase, []):
                     if action.get("type") == "play_clicks":
                         lr = action.get("left_rate",  0) or 0
                         rr = action.get("right_rate", 0) or 0
-                        high_side = "left" if lr >= rr else "right"
-                        low_side  = "right" if high_side == "left" else "left"
-        for state in trial.get("states", []):
-            for phase in ("entry_actions", "exit_actions"):
-                for action in state.get(phase, []):
-                    if action.get("type") != "play_clicks":
-                        tgt = action.get("target")
-                        if tgt == "high_click_side": action["target"] = high_side
-                        elif tgt == "low_click_side": action["target"] = low_side
-            for transition in state.get("transitions", []):
-                if transition.get("trigger") == "beam_break":
-                    tgt = transition.get("target")
-                    if tgt == "high_click_side": transition["target"] = high_side
-                    elif tgt == "low_click_side": transition["target"] = low_side
-        return trial, high_side
+                        high_rate_side = "left" if lr >= rr else "right"
+        return trial, high_rate_side
 
     SIDE_ALIASES = {"high_click_side", "low_click_side"}
     def _uses_sides(t):
@@ -74,11 +67,11 @@ def _resolve_sides(trial_definition: dict) -> tuple:
         return trial, None
 
     if side_mode == "weighted":
-        left_prob = max(0.0, min(1.0, float(trial_definition.get("left_probability", 0.5))))
-        correct_side = "left" if random.random() < left_prob else "right"
+        left_prob      = max(0.0, min(1.0, float(trial_definition.get("left_probability", 0.5))))
+        high_rate_side = "left" if random.random() < left_prob else "right"
     else:
-        correct_side = random.choice(["left", "right"])
-    wrong_side = "right" if correct_side == "left" else "left"
+        high_rate_side = random.choice(["left", "right"])
+    low_rate_side = "right" if high_rate_side == "left" else "left"
 
     for state in trial.get("states", []):
         for phase in ("entry_actions", "exit_actions"):
@@ -87,19 +80,10 @@ def _resolve_sides(trial_definition: dict) -> tuple:
                     lr = action.get("left_rate", 0) or 0
                     rr = action.get("right_rate", 0) or 0
                     high_rate, low_rate = max(lr, rr), min(lr, rr)
-                    action["left_rate"]  = high_rate if correct_side == "left" else low_rate
-                    action["right_rate"] = low_rate  if correct_side == "left" else high_rate
-                else:
-                    tgt = action.get("target")
-                    if tgt == "high_click_side": action["target"] = correct_side
-                    elif tgt == "low_click_side": action["target"] = wrong_side
-        for transition in state.get("transitions", []):
-            if transition.get("trigger") == "beam_break":
-                tgt = transition.get("target")
-                if tgt == "high_click_side": transition["target"] = correct_side
-                elif tgt == "low_click_side": transition["target"] = wrong_side
+                    action["left_rate"]  = high_rate if high_rate_side == "left" else low_rate
+                    action["right_rate"] = low_rate  if high_rate_side == "left" else high_rate
 
-    return trial, correct_side
+    return trial, high_rate_side
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -153,7 +137,7 @@ def run_weighted(n: int, probs: list) -> list:
 
 
 def run_fixed(n: int) -> dict:
-    """Fixed mode: correct_side should always be the high-rate side (left here)."""
+    """Fixed mode: high_rate_side should always be the high-rate side (left here)."""
     trial = _make_trial("fixed", left_rate=40.0, right_rate=10.0)
     sides = [_resolve_sides(trial)[1] for _ in range(n)]
     always_left = all(s == "left" for s in sides)

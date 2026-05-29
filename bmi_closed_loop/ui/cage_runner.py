@@ -139,9 +139,10 @@ class CageRunner:
             _apply_bias(trial_definition, self._subject_id, last_click_ratio=None)
             if self._subject_id is not None else trial_definition
         )
-        resolved, correct_side = _resolve_sides(trial_for_resolve)
+        rate_resolved, high_rate_side = _resolve_sides(trial_for_resolve)
         click_seed = random.randrange(2**32)
-        trial_to_send = _expand_clicks(resolved, seed=click_seed)
+        expanded = _expand_clicks(rate_resolved, seed=click_seed)
+        trial_to_send, correct_side = _resolve_aliases(expanded, high_rate_side)
         with self._lock:
             self._correct_side     = correct_side
             self._click_seed       = click_seed
@@ -173,9 +174,10 @@ class CageRunner:
                                 last_click_ratio=last_click_ratio)
                     if self._subject_id is not None else trial_definition
                 )
-                resolved, correct_side = _resolve_sides(trial_for_resolve)
+                rate_resolved, high_rate_side = _resolve_sides(trial_for_resolve)
                 click_seed = random.randrange(2**32)
-                trial_to_send = _expand_clicks(resolved, seed=click_seed)
+                expanded = _expand_clicks(rate_resolved, seed=click_seed)
+                trial_to_send, correct_side = _resolve_aliases(expanded, high_rate_side)
                 with self._lock:
                     self._correct_side = correct_side
                     self._click_seed   = click_seed
@@ -227,9 +229,10 @@ class CageRunner:
                             last_click_ratio=last_click_ratio)
                 if self._subject_id is not None else trial_definition
             )
-            resolved, correct_side = _resolve_sides(trial_for_resolve)
+            rate_resolved, high_rate_side = _resolve_sides(trial_for_resolve)
             click_seed = random.randrange(2**32)
-            trial_to_send = _expand_clicks(resolved, seed=click_seed)
+            expanded = _expand_clicks(rate_resolved, seed=click_seed)
+            trial_to_send, correct_side = _resolve_aliases(expanded, high_rate_side)
             with self._lock:
                 self._correct_side = correct_side
                 self._click_seed   = click_seed
@@ -253,60 +256,43 @@ runners: dict[int, CageRunner] = {}
 
 def _resolve_sides(trial_definition: dict) -> tuple:
     """
-    Resolve click-side assignment for one trial.
+    Assign click rates to sides for one trial.
 
     side_mode = "random" (default):
         Fair coin-flip each trial. high_rate goes to the winning side,
-        low_rate to the other. high_click_side / low_click_side aliases
-        are replaced with the concrete side string.
+        low_rate to the other.
 
     side_mode = "fixed":
-        Rates stay exactly as written (left_rate → left speaker, right_rate →
-        right speaker). Aliases are resolved by checking which side has the
-        higher rate. correct_side is None.
+        Rates stay exactly as written (left_rate → left speaker,
+        right_rate → right speaker).
 
     side_mode = "weighted":
-        Biased coin-flip using left_probability (0–1) from the trial definition.
-        Useful for correcting side bias: set left_probability > 0.5 to push
-        more trials to the left side. Alias resolution identical to "random".
+        Biased coin-flip using left_probability (0–1) from the trial
+        definition. Rate assignment identical to "random".
 
-    Returns (resolved_trial_dict, correct_side_str).
-    correct_side is None when side_mode is "fixed".
+    Alias resolution (high_click_side / low_click_side → concrete side
+    strings) is deliberately deferred to _resolve_aliases, which runs
+    after _expand_clicks so that correct_side reflects actual generated
+    click counts rather than the rate assignment. This matches the
+    Brunton et al. task definition, where the correct side is the side
+    that produced more clicks, not necessarily the higher-rate side.
+
+    Returns (rate_assigned_trial_dict, high_rate_side).
+    high_rate_side is None when no play_clicks action is present.
     """
     side_mode = trial_definition.get("side_mode", "random")
     trial = copy.deepcopy(trial_definition)
 
     if side_mode == "fixed":
-        # Pass 1 — determine high/low side from the play_clicks action.
-        high_side = None
-        low_side  = None
+        high_rate_side = None
         for state in trial.get("states", []):
             for phase in ("entry_actions", "exit_actions"):
                 for action in state.get(phase, []):
                     if action.get("type") == "play_clicks":
                         lr = action.get("left_rate",  0) or 0
                         rr = action.get("right_rate", 0) or 0
-                        high_side = "left" if lr >= rr else "right"
-                        low_side  = "right" if high_side == "left" else "left"
-
-        # Pass 2 — resolve aliases everywhere.
-        for state in trial.get("states", []):
-            for phase in ("entry_actions", "exit_actions"):
-                for action in state.get(phase, []):
-                    if action.get("type") != "play_clicks":
-                        tgt = action.get("target")
-                        if tgt == "high_click_side":
-                            action["target"] = high_side
-                        elif tgt == "low_click_side":
-                            action["target"] = low_side
-            for transition in state.get("transitions", []):
-                if transition.get("trigger") == "beam_break":
-                    tgt = transition.get("target")
-                    if tgt == "high_click_side":
-                        transition["target"] = high_side
-                    elif tgt == "low_click_side":
-                        transition["target"] = low_side
-        return trial, high_side
+                        high_rate_side = "left" if lr >= rr else "right"
+        return trial, high_rate_side
 
     # Random and weighted modes — coin flip only if the trial uses
     # side-dependent logic (play_clicks present, or aliases used).
@@ -328,12 +314,10 @@ def _resolve_sides(trial_definition: dict) -> tuple:
         return trial, None
 
     if side_mode == "weighted":
-        left_prob    = max(0.0, min(1.0, float(trial_definition.get("left_probability", 0.5))))
-        correct_side = "left" if random.random() < left_prob else "right"
+        left_prob      = max(0.0, min(1.0, float(trial_definition.get("left_probability", 0.5))))
+        high_rate_side = "left" if random.random() < left_prob else "right"
     else:
-        correct_side = random.choice(["left", "right"])
-    wrong_side = "right" if correct_side == "left" else "left"
-
+        high_rate_side = random.choice(["left", "right"])
     for state in trial.get("states", []):
         for phase in ("entry_actions", "exit_actions"):
             for action in state.get(phase, []):
@@ -342,15 +326,54 @@ def _resolve_sides(trial_definition: dict) -> tuple:
                     rr        = action.get("right_rate", 0) or 0
                     high_rate = max(lr, rr)
                     low_rate  = min(lr, rr)
-                    action["left_rate"]  = high_rate if correct_side == "left" else low_rate
-                    action["right_rate"] = low_rate  if correct_side == "left" else high_rate
-                else:
+                    action["left_rate"]  = high_rate if high_rate_side == "left" else low_rate
+                    action["right_rate"] = low_rate  if high_rate_side == "left" else high_rate
+
+    return trial, high_rate_side
+
+
+def _resolve_aliases(expanded_trial: dict, high_rate_side: str | None) -> tuple:
+    """
+    Resolve high_click_side / low_click_side aliases and derive correct_side
+    from the actual generated click counts.
+
+    correct_side is the side with more clicks in the expanded trial. On a
+    count tie (rare but possible), high_rate_side is used as a tiebreak so
+    the intended discrimination difficulty is preserved.
+
+    Returns (resolved_trial_dict, correct_side).
+    correct_side is None when high_rate_side is None (no play_clicks action).
+    """
+    if high_rate_side is None:
+        return expanded_trial, None
+
+    trial = copy.deepcopy(expanded_trial)
+
+    n_left = n_right = 0
+    for state in trial.get("states", []):
+        for phase in ("entry_actions", "exit_actions"):
+            for action in state.get(phase, []):
+                if action.get("type") == "play_clicks":
+                    n_left  = len(action.get("left_clicks",  []))
+                    n_right = len(action.get("right_clicks", []))
+
+    if n_left > n_right:
+        correct_side = "left"
+    elif n_right > n_left:
+        correct_side = "right"
+    else:
+        correct_side = high_rate_side
+    wrong_side = "right" if correct_side == "left" else "left"
+
+    for state in trial.get("states", []):
+        for phase in ("entry_actions", "exit_actions"):
+            for action in state.get(phase, []):
+                if action.get("type") != "play_clicks":
                     tgt = action.get("target")
                     if tgt == "high_click_side":
                         action["target"] = correct_side
                     elif tgt == "low_click_side":
                         action["target"] = wrong_side
-
         for transition in state.get("transitions", []):
             if transition.get("trigger") == "beam_break":
                 tgt = transition.get("target")

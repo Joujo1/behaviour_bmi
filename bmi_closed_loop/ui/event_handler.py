@@ -56,10 +56,11 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
                  cage_id, event_type, outcome, trial_id, len(events))
 
     runner = runners.get(cage_id)
+    # Read context before signalling completion — on_trial_complete wakes the
+    # runner thread, which overwrites _correct_side during ITI pre-computation.
+    ctx = runner.get_context() if runner else {}
     if runner:
         runner.on_trial_complete(event)
-
-    ctx = runner.get_context() if runner else {}
     session_id   = ctx.get("session_id")
     substage_id  = ctx.get("substage_id")
     correct_side = ctx.get("correct_side")

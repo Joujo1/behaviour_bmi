@@ -38,6 +38,13 @@ def main():
     p.add_argument("--out",    default=None, help="Save PNG to this path")
     args = p.parse_args()
 
+    plt.rcParams.update({
+        "font.size":       11,
+        "axes.titlesize":  11,
+        "axes.labelsize":  11,
+        "legend.fontsize": 10,
+    })
+
     from audio import build_click
     click = build_click(srate=args.srate, width=args.width,
                         ramp=args.ramp, tones=args.tones, att_db=args.att)
@@ -50,21 +57,11 @@ def main():
     spec_db  = 10 * np.log10(spectrum / spectrum.max() + 1e-12)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4.5))
-    fig.suptitle(
-        f"Click waveform  "
-        f"(tones={[int(f) for f in args.tones]} Hz, "
-        f"width={args.width*1000:.1f} ms, "
-        f"ramp={args.ramp*1000:.1f} ms, "
-        f"att={args.att:.0f} dB)",
-        fontsize=11,
-    )
+
+
 
     ax1.plot(t_ms, click, color="#1f77b4", linewidth=1)
     ax1.axhline(0, color="k", linewidth=0.5, alpha=0.3)
-    ax1.axvline(args.ramp * 1000, color="grey", linewidth=0.7, linestyle=":",
-                label=f"ramp end ({args.ramp*1000:.1f} ms)")
-    ax1.axvline((args.width - args.ramp) * 1000, color="grey", linewidth=0.7,
-                linestyle=":")
     ax1.set_xlabel("Time (ms)")
     ax1.set_ylabel("Amplitude (peak-normalised)")
     ax1.set_title("Waveform")
