@@ -173,12 +173,20 @@ void setup() {
     analogWrite(A0, 2048);
     analogWrite(A1, 2048);
 
-    // Switch reference to VDDANA (3.3 V). analogWrite() leaves it on the
-    // internal bandgap (~1.2 V). CTRLB must only be written while the DAC is
-    // disabled — writing it live causes a voltage excursion on the output.
+    // Reconfigure DAC while disabled — CTRLB and DACCTRL.CCTRL are enable-protected.
     DAC->CTRLA.bit.ENABLE = 0;
     while (DAC->SYNCBUSY.bit.ENABLE);
-    DAC->CTRLB.bit.REFSEL = 0x02;  // VDDANA on SAMD51
+
+    // INTREF (0x03) = internal bandgap (~1 V).  VDDANA (0x01) is non-functional
+    // on SAMD51 due to silicon errata; VREFPB (0x02) requires an external voltage
+    // on the AREF pin, which is unconnected on the ItsyBitsy M4.
+    DAC->CTRLB.bit.REFSEL = 0x03;
+
+    // CC12M — required current band for GCLK_DAC up to 12 MHz.
+    // Reset default CC100K is only rated to ~100 kSPS and under-settles at 192 kHz.
+    DAC->DACCTRL[0].bit.CCTRL = 0x2;  // CC12M
+    DAC->DACCTRL[1].bit.CCTRL = 0x2;
+
     DAC->CTRLA.bit.ENABLE = 1;
     while (DAC->SYNCBUSY.bit.ENABLE);
     // Restore mid-rail after re-enable; output is undefined until written.
