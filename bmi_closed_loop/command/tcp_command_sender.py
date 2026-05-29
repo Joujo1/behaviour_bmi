@@ -44,7 +44,7 @@ class TCPCommandSender:
                 self._socket.sendall((command + "\n").encode("utf-8"))
                 response = self._response_queue.get(timeout=5.0)
                 if response.startswith("ACK:"):
-                    logger.info("Cage %d: ACK [%s]", self._cage_id, command[:40])
+                    logger.debug("Cage %d: ACK [%s]", self._cage_id, command[:40])
                     return True, response[4:]
                 if response.startswith("ERROR:"):
                     logger.warning("Cage %d: ERROR [%s] → %s", self._cage_id, command[:40], response[6:])

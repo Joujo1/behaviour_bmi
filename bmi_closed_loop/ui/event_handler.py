@@ -52,8 +52,8 @@ def handle_trial_event(cage_id: int, event: dict) -> None:
     trial_start_us   = event.get("trial_start_us")
     trial_start_real = event.get("trial_start_real")
 
-    logger.info("Cage %d: %s  outcome=%s  trial_id=%s  n_events=%d",
-                cage_id, event_type, outcome, trial_id, len(events))
+    logger.debug("Cage %d: %s  outcome=%s  trial_id=%s  n_events=%d",
+                 cage_id, event_type, outcome, trial_id, len(events))
 
     runner = runners.get(cage_id)
     if runner:

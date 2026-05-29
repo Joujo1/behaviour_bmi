@@ -22,8 +22,8 @@ BEAM_PINS = {
 }
 
 AUDIO_PINS = {
-    "left":  7,     # physical 26  (TTL trigger → ItsyBitsy D9)
-    "right": 1,     # physical 28  (TTL trigger → ItsyBitsy D10)
+    "left":  9,     # physical 26  (TTL trigger → ItsyBitsy D9)
+    "right": 10,     # physical 28  (TTL trigger → ItsyBitsy D10)
 }
 
 BEAM_ACTIVE_LOW = {
