@@ -1,114 +1,120 @@
-﻿# System Overview
+# System Overview
 
-<!-- TODO: add full cross-layer diagram once both layer diagrams are finalised -->
-
-## Raspberry Pi Layer
-
-Every cage runs one Python process (`main.py`). The diagram below shows all source files in `RPi_main/`, their roles, and how data flows between them. Excludes `debug/` and `audio.py` (offline waveform builder, not used at runtime).
-
-Yellow boxes are Python modules. The pink box (`cage_controller.service`) is the systemd unit that starts `main.py` at boot. Solid arrows show runtime data flow; dotted arrows show config imports from `config.py`; the dashed arrow from the service to `main.py` indicates systemd process execution.
-
-![Pi-side architecture](img/Doc%20-%20pi_architecture_doc.svg)
-
-### Thread priorities
-
-Four timing-critical threads run on isolated core 3 under `SCHED_FIFO`, with priorities encoding their latency budget. All remaining threads run on cores 0–2 at default priority.
-
-| Thread | Priority | File | Role |
-|---|---|---|---|
-| Click trigger | SCHED_FIFO 85 | `actions.py` | Busy-wait click TTL timing — highest priority because click timestamps are the experimentally meaningful variable |
-| GPIO monitor | SCHED_FIFO 75 | `gpio_handler.py` | Drains kernel beam-break events from gpiod; kernel timestamps the interrupt before this thread runs |
-| Hold timers | SCHED_FIFO 72 | `engine.py` | One per beam, busy-wait for the required hold duration; must preempt the FSM but yield to the GPIO monitor |
-| FSM | SCHED_FIFO 70 | `engine.py` | Single consumer of the event queue; drives all state transitions, action dispatch, and trial-outcome decisions |
-| TCP command receiver | default | `tcp_command_receiver.py` | Reads trial JSON and control commands from the PC; pushes trial-complete / trial-aborted events back |
-| UDP frame sender | default | `udp_sender_pi.py` | Dequeues assembled per-frame bundles and emits them as UDP packets to the PC |
-| Camera / picamera2 | default | `streamer.py` | H.264 capture and encoding via picamera2; assembles per-frame bundles (GPIO snapshot + FSM events) |
-| NTP reporter | default | `main.py` | Queries chrony every 5 s and pushes a `sync_status` event to the PC over TCP |
+The system has two physical parts: the **Raspberry Pis** (one per cage) and the **Linux PC** (one for everything else). This page explains what runs where and what each file does.
 
 ---
 
-## Linux PC Layer
+## The Raspberry Pi side
 
-The PC runs two Python processes launched by `main.py`. The UI process serves the web interface and drives all trial logic; the Acquisition process receives and stores the camera stream. They share state only through Valkey and Postgres — no direct IPC.
+Each cage has its own Pi. The Pi runs a single Python program: `RPi_main/main.py`.
+
+That one program starts several threads that all run at the same time:
+
+| Thread | File | What it does |
+|---|---|---|
+| FSM | `engine.py` | Runs the trial state machine — the brain of the trial. Reads events from a queue and decides what happens next. |
+| GPIO monitor | `gpio_handler.py` | Watches for beam breaks. When a beam is broken, it puts an event into the FSM's queue. |
+| Hold timers | `engine.py` | When a beam-break transition requires the beam to stay broken for X ms, these timers enforce that wait. |
+| Click trigger | `actions.py` | Fires click sounds at precise times. Has the highest priority because click timing is experimentally critical. |
+| Camera / encoder | `streamer.py` | Captures H.264 video via picamera2. Once per frame, it also grabs the current GPIO state and any FSM events, and bundles everything together. |
+| UDP sender | `udp_sender_pi.py` | Takes the bundles from the camera thread and sends them to the PC as UDP packets. |
+| TCP receiver | `tcp_command_receiver.py` | Listens for commands from the PC (e.g. "run this trial"). Sends back trial results when a trial finishes. |
+| NTP reporter | `main.py` | Every 5 seconds, asks the Pi's clock daemon how well-synced the clock is, and reports that to the PC over TCP. |
+
+The four timing-critical threads (FSM, GPIO, hold timers, click trigger) all run on a dedicated CPU core (core 3) with real-time scheduling (`SCHED_FIFO`). The priority numbers decide who can interrupt whom:
+
+| Thread | Priority | Why this priority |
+|---|---|---|
+| Click trigger | 85 | Highest — click timing is the key experimental variable |
+| GPIO monitor | 75 | Needs to react to beam breaks fast |
+| Hold timers | 72 | Must be able to interrupt the FSM when a hold expires |
+| FSM | 70 | Lowest of the RT group — processes events, but others can preempt it |
+
+The Pi architecture diagram is here:
+
+![Pi-side architecture](img/Doc%20-%20pi_architecture_doc.svg)
+
+---
+
+## The Linux PC side
+
+The PC runs **two separate Python processes**, both started by `main.py` at the project root.
+
+- **UI process** (`ui/ui_main.py`) — serves the web interface, drives the trial loop, writes to the database.
+- **Acquisition process** (`acquisition/acquisition_main.py`) — receives video from all Pis over UDP, saves it to the NAS, indexes it in the database.
+
+These two processes don't talk directly to each other. They share state through **Valkey** (for live flags and video streaming) and **PostgreSQL** (for permanent storage).
+
+The PC architecture diagram is here:
 
 ![Linux-layer architecture](img/Doc%20-%20Linux%20Layer.svg)
 
-### Top level
+---
 
-**`main.py`**
-Top-level entry point. Spawns two subprocesses: the UI process (`ui.ui_main`) and the Acquisition process (`acquisition.acquisition_main`).
+## Key files on the PC
 
-**`config.py`**
-Single source of truth for all PC-side constants: `N_CAGES = 12`, `UDP_BASE_PORT`, `TCP_COMMAND_PORT = 6000`, `FLASK_PORT = 5000`, `POSTGRES_DSN`, `VALKEY_HOST/PORT`, `NAS_BASE_PATH`, `DB_CHUNK_SIZE = 1000`, `WATCHDOG_DEAD_THRESHOLD_SECONDS = 10`, `CLICK_WIDTH_S`.
+### Root level
 
-### `shared/`
+**`main.py`** — the entry point. Starts the UI process and the Acquisition process as subprocesses.
 
-**`shared/logger.py`**
-Utility function `get_logger(name, log_dir, level)`. Returns a configured `logging.Logger` that writes to stdout and optionally to a log file.
+**`config.py`** — all PC-side settings in one place: number of cages, ports, database connection string, NAS path, Valkey address, and timing constants. If you need to change a setting, this is almost always where to look.
+
+---
+
+### `acquisition/` — the video pipeline
+
+**`acquisition_main.py`** — entry point for the Acquisition process. Creates one UDP listener and one frame writer per cage, and starts the watchdog.
+
+**`udp_receiver.py`** — listens on a UDP port for incoming frames from a Pi. Uses two threads: one to receive packets as fast as possible, one to process them. This way a slow frame doesn't block incoming packets.
+
+**`packet_parser.py`** — takes the raw bytes from a UDP packet and turns them into a usable Python object (`ParsedFrame`). Reads the 29-byte header, decodes the JSON events, and hands everything off.
+
+**`frame_writer.py`** — decides what to do with each received frame. Always sends it to Valkey (for live streaming or snapshot). When recording is on, also writes it to a `.bin` file on the NAS and updates the chunk index in the database every 1000 frames.
+
+**`watchdog.py`** — runs once per second, checks whether each cage is still sending frames. Writes a status string to Valkey for the UI to read. If a cage hasn't sent a frame in 10 seconds, it marks it as dead.
+
+---
 
 ### `command/`
 
-**`command/tcp_command_sender.py`**
-`TCPCommandSender` — one instance per cage, created at UI startup. Manages the persistent TCP connection to the Pi. Connectd on the first `send()` call. `send()` writes a JSON command and blocks waiting for an ACK. A background `_read_loop` thread continuously reads incoming messages: ACK/ERROR responses go to an internal `_response_queue` to unblock `send()`, and everything else (trial events, sync status) is passed to the `on_event` callback, which is wired to `event_handler.handle_trial_event`.
+**`tcp_command_sender.py`** — manages the TCP connection to one Pi. `send()` sends a command and waits for an ACK. A background thread reads anything the Pi sends back and routes it: ACKs go to unblock `send()`, trial results and sync events go to `event_handler`.
 
-### `acquisition/`
+---
 
-**`acquisition/acquisition_main.py`**
-Acquisition process entry point. Creates one `UDPreceiver` and one `FrameWriter` per cage, starts the `Watchdog`, and starts a stats logger thread that appends per-cage FPS and drop counts to `frame_stats.csv` on the NAS every 5 seconds.
+### `shared/`
 
-**`acquisition/udp_receiver.py`**
-`UDPreceiver` — dual-threaded. A listener thread calls `recvfrom` in a tight loop and pushes raw datagrams into a `queue.Queue(maxsize=60)`. A worker thread drains the queue and calls `packet_parser.parse_packet()`, then forwards the result to the frame callback.
+**`shared/logger.py`** — a helper to set up a logger that writes to stdout and optionally a log file. Used by all modules.
 
-**`acquisition/packet_parser.py`**
-Stateless parser for the binary UDP wire format. `parse_packet()` unpacks the fixed-size header (format `<IQIIBBBBBBBBB`), decodes the JSON events blob, and returns a `ParsedFrame` dataclass containing all GPIO signal states, the Pi sequence number, a microsecond timestamp (`CLOCK_MONOTONIC` from the Pi), the raw packet bytes, and network arrival time. Returns `None` on malformed input.
+---
 
-**`acquisition/frame_writer.py`**
-`FrameWriter` — one per cage. `write_frame()` always publishes to Valkey: either `PUBLISH cage:{id}:h264_stream` (if streaming is on) or `SET cage:{id}:latest_frame`. When `cage:{id}:recording == "1"`, it additionally appends the raw packet to a `.bin` file on the NAS and writes a chunk index entry to Postgres. Postgres writes are batched in memory and flushed every `DB_CHUNK_SIZE = 1000` frames to avoid per-frame round-trips.
+### `ui/` — the trial logic and web interface
 
-**`acquisition/watchdog.py`**
-`Watchdog` — single thread, monitors all cages. Every second, reads per-cage stats (fps, drop counts, streaming/recording flags) and writes them to the Valkey hash key `camera_status` via `HSET cage_{id} "alive|fps=N|drops=N|..."`. If a cage has not received a frame within `WATCHDOG_DEAD_THRESHOLD_SECONDS = 10`, it marks that cage as dead. This key is polled by the `/cameras/status` REST endpoint.
+**`ui_main.py`** — the Flask app. Registers all API endpoints, creates one `TCPCommandSender` and one `CageRunner` per cage at startup, and clears any leftover Valkey flags from a previous run.
 
-### `ui/`
+**`cage_runner.py`** — the trial loop for one cage. During the gap between trials (ITI), it pre-computes the next trial (bias correction, side assignment, click generation). Then it sends the trial to the Pi and waits for the result. One instance per cage, runs permanently; the worker thread starts and stops per session. See [Cage Runner Flowchart](06_cage_runner_flowchart.md) for the full loop.
 
-**`ui/ui_main.py`**
-Flask application factory and startup code. Registers all 11 blueprints. Creates one `TCPCommandSender` and one `CageRunner` per cage. On startup, clears stale Valkey keys from any previous run (`streaming`, `recording`, `fan`, `strip`, `active_session`). Exposes the WebSocket route `/cage/<id>/ws/video` and the root dashboard route `/`.
+**`event_handler.py`** — called by the TCP reader thread when a trial result arrives from the Pi. Saves the result to the database, checks whether the animal should advance or fall back in the curriculum, and notifies the runner.
 
-**`ui/cage_runner.py`**
-`CageRunner` — one per cage, permanent object. The trial loop runs inside a thread that starts and stops per session. Each iteration: during the ITI, pre-computes the next trial by calling `_apply_bias()` → `_resolve_sides()` → `_expand_clicks()` → `_resolve_aliases()`, then sends the trial JSON to the Pi via `TCPCommandSender.send()`, then blocks on `threading.Event.wait()` until `on_trial_complete()` is called from the event handler thread. Supports `switch_substage()` for mid-session curriculum advancement without stopping the runner. Also holds the current `context` dict (`session_id`, `substage_id`, `correct_side`, `click_seed`) which `event_handler` reads before signalling completion.
+**`advancement.py`** — looks at recent trial results and decides whether the animal should advance to the next substage, fall back, or stay. `evaluate()` returns the decision; `apply()` writes it to the database.
 
-**`ui/event_handler.py`**
-`handle_trial_event()` — the `on_event` callback wired into every `TCPCommandSender`, called on the TCP reader thread. Routes `sync_status` events to a Valkey key with a 15-second TTL. For `trial_complete` and `trial_aborted`: reads the runner context, calls `runner.on_trial_complete()` to unblock the trial loop, inserts the result into `trial_results` in Postgres, then calls `advancement.evaluate()`. If the advancement decision is not "stay", calls `advancement.apply()`, swaps the runner's substage via `runner.switch_substage()`, and writes an `advancement` notification to Valkey with a 20-second TTL.
+**`bias_algorithms.py`** — three side-bias correction algorithms (`brody`, `ibl`, `rebalance`) plus a `none` option. Each takes recent trial history and returns a probability for the left side. See [Bias Algorithms](../reference/04_bias_algorithms.md).
 
-**`ui/advancement.py`**
-`evaluate(subject_id, substage_id, conn)` — queries `trial_results` filtered by `substage_entered_at`, computes `pct_correct` over a rolling window, and returns `"advance"`, `"fall_back"`, or `"stay"`. `apply(subject_id, substage_id, decision, conn)` — updates the subject's current substage in Postgres and returns the new substage ID. Criterion handlers: `pct_correct`, `min_trials`.
+**`click_generator.py`** — generates left and right click trains as lists of timestamps using a Poisson process. Uses a fixed random seed so any trial can be regenerated identically later.
 
-**`ui/bias_algorithms.py`**
-Registry of side-bias correction algorithms. Each algorithm is a function that takes recent trial history and returns a `left_probability` in [0, 1], or `None` to leave the trial unchanged. Three algorithms registered: `brody` (performance equalisation — push trials to the harder side, window 20), `ibl` (layup after wrong trial — push to preferred side, window 10), `rebalance` (presentation rebalance — push toward under-presented side, window 20). The `REGISTRY` dict maps algorithm name to an `AlgorithmSpec` dataclass containing the function and window size.
+---
 
-**`ui/click_generator.py`**
-`generate_clicks(left_rate, right_rate, duration, seed, min_ici)` — generates independent left and right Poisson click trains. Inter-click intervals are exponentially distributed. A minimum ICI of `2 × CLICK_WIDTH_S = 6 ms` (start-to-start) prevents waveform addition artifacts in the audio buffer on the Pi; clicks drawn too close are shifted forward rather than dropped. Returns a dict with `left_clicks` and `right_clicks` as sorted lists of timestamps in seconds.
+### `ui/endpoints/` — all REST API routes
 
-### `ui/endpoints/`
-
-**`session.py`** — `POST /session/open` creates a new session row in Postgres and auto-starts streaming, recording, and the CageRunner. `POST /session/{id}/close` stops the runner and recording. `GET /sessions/active`, `GET /sessions`.
-
-**`trial.py`** — `POST /cage/{id}/trial/run` starts the CageRunner manually. `POST /cage/{id}/trial/run/stop` stops it. `GET /cage/{id}/run/status`. `GET /cage/{id}/advancement` reads the current advancement notification from Valkey.
-
-**`stream.py`** — `POST /cage/{id}/stream/start|stop` and `POST /cage/{id}/recording` set Valkey flags. `GET /cage/{id}/frame` returns the latest JPEG snapshot. `WS /cage/{id}/ws/video` subscribes to the `cage:{id}:h264_stream` Valkey pub/sub channel and forwards H.264 NAL units to the browser in real time. `GET /cameras/status` reads the Watchdog's `camera_status` hash. `GET /cameras/peripherals` returns fan/strip state.
-
-**`control.py`** — `POST /cage/{id}/fan`, `POST /cage/{id}/strip` send peripheral commands to the Pi. `POST /trial/graph` renders a trial FSM as a Graphviz SVG. `GET /cage/{id}/sync` returns the latest NTP sync status from Valkey.
-
-**`curriculum.py`** — CRUD endpoints for the training curriculum: stages, substages, and criteria. All backed by Postgres.
-
-**`subjects.py`** — Subject create, list, and update endpoints.
-
-**`metrics.py`** — Aggregate performance metric queries against `trial_results`. Used by the dashboard charts.
-
-**`export.py`** — Queries `trial_results` and related tables and returns CSV or JSON for download.
-
-**`scoresheet.py`** — Per-session trial outcome scoresheet view.
-
-**`builder.py`** — Trial definition builder: validates and previews trial JSON structures before saving to a substage.
-
-**`dev.py`** — Development and debug endpoints, not used in production sessions.
-
+| File | What it handles |
+|---|---|
+| `session.py` | Opening and closing sessions, listing active sessions |
+| `trial.py` | Starting/stopping the trial runner, reading advancement status |
+| `stream.py` | Streaming on/off, recording on/off, live video WebSocket, camera status |
+| `control.py` | Fan, LED strip, trial graph preview, NTP sync status |
+| `curriculum.py` | Creating and editing training stages and substages |
+| `subjects.py` | Creating and editing animal records |
+| `metrics.py` | Performance charts on the dashboard |
+| `export.py` | CSV download of trial data |
+| `scoresheet.py` | Daily welfare scoresheet |
+| `builder.py` | Trial JSON validator and preview |
+| `dev.py` | Debug endpoints, not used in normal sessions |

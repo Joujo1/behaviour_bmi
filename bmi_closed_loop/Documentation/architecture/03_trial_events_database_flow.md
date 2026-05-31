@@ -1,14 +1,36 @@
 # Trial Events & Database Flow
 
-<!-- TODO: data flow diagram trial events → PostgreSQL -->
+When a trial finishes on the Pi, the result needs to make its way to the PC, get saved to the database, and potentially trigger a curriculum advancement. This page explains exactly how that happens, step by step.
 
-This document covers how a completed trial result travels from the Pi to Postgres, and how that triggers automatic curriculum advancement.
+```mermaid
+flowchart TD
+    fsm["engine.py\nFSM reaches terminal state"]
+    tcp_pi["tcp_command_receiver.py\nsend trial_complete JSON over TCP"]
+    eh["event_handler.py\nhandle_trial_event()"]
+    ctx["cage_runner.py\nget_context()\n{session_id, substage_id, correct_side, click_seed}"]
+    wake["cage_runner.py\non_trial_complete()\nunblock runner thread"]
+    tr[("Postgres\nINSERT trial_results")]
+    adv_e["advancement.py\nevaluate()\nquery trial_results window"]
+    adv_a["advancement.py\napply()"]
+    subj[("Postgres\nUPDATE subjects\ncurrent_substage_id")]
+    vk[("Valkey\ncage:N:advancement\nTTL 20 s — UI banner")]
+    sw["cage_runner.py\nswitch_substage()\nhot-swap task config"]
+
+    fsm --> tcp_pi
+    tcp_pi -->|TCP socket| eh
+    eh -->|"1 · read before wake"| ctx
+    eh -->|"2 · unblock"| wake
+    eh -->|"3 · persist"| tr
+    tr --> adv_e
+    adv_e -->|"advance / fall_back"| adv_a
+    adv_a --> subj & vk & sw
+```
 
 ---
 
-## 1. Trial completion on the Pi (`tcp_command_receiver.py`)
+## Step 1 — Trial ends on the Pi (`engine.py` + `tcp_command_receiver.py`)
 
-When the FSM reaches a terminal state (`__correct__`, `__wrong__`, or is aborted), `Engine._finish_trial_from_fsm()` calls the `on_complete` callback. This sends a `trial_complete` or `trial_aborted` JSON event to the PC over the existing TCP connection:
+When the FSM in `engine.py` reaches one of the terminal states (`__correct__`, `__wrong__`, or is stopped externally), it calls the `on_complete` callback. This leads to `tcp_command_receiver.py` sending a JSON message to the PC over the existing TCP connection:
 
 ```json
 {
@@ -18,83 +40,72 @@ When the FSM reaches a terminal state (`__correct__`, `__wrong__`, or is aborted
   "trial_start_us": 1234567890,
   "trial_start_real": 1717000000.123,
   "events": [
-    { "t": 0.0,   "from": null,         "to": "cue_center" },
-    { "t": 0.312, "output": "led_left",  "active": true },
-    { "t": 0.841, "sensor": "left",      "active": true },
-    { "t": 0.841, "from": "cue_center",  "to": "__correct__" }
+    { "t": 0.0,   "from": null,        "to": "cue_center" },
+    { "t": 0.312, "output": "led_left", "active": true },
+    { "t": 0.841, "sensor": "left",     "active": true },
+    { "t": 0.841, "from": "cue_center", "to": "__correct__" }
   ]
 }
 ```
 
-`events` is the full `_trial_events` list from the engine — every state transition, hardware output change, and beam-break event that occurred during the trial, each with a trial-relative timestamp `t` in seconds.
+`events` is the full list of everything that happened during the trial — every state transition, every GPIO change, every beam break — each with a time offset `t` in seconds from the start of the trial.
 
 ---
 
-## 2. Routing on the PC (`tcp_command_sender.py` → `event_handler.py`)
+## Step 2 — PC receives the result (`tcp_command_sender.py` → `event_handler.py`)
 
-The `TCPCommandSender._read_loop` thread on the PC continuously reads from the TCP socket. Messages that are not ACK/ERROR are passed to the `on_event` callback, which is `event_handler.handle_trial_event`.
+The PC has a background thread in `tcp_command_sender.py` that continuously reads from the TCP socket. When it sees a trial event (anything that isn't an ACK), it calls `event_handler.handle_trial_event()`.
 
-`handle_trial_event` also handles `sync_status` events (NTP reports from the Pi — written to Valkey with a 15-second TTL and not persisted to Postgres).
+`event_handler.py` is where all the real work happens on the PC side.
 
 ---
 
-## 3. Reading runner context (`cage_runner.py`)
+## Step 3 — Read the runner context, then wake the runner
 
-Before signalling the runner that the trial is done, `handle_trial_event` reads the runner's current `context` dict:
+Before doing anything else, `event_handler` reads the runner's `context` dict from `cage_runner.py`:
 
 ```python
-ctx = runner.get_context()   # {session_id, substage_id, correct_side, click_seed}
-runner.on_trial_complete(event)   # unblocks the trial-loop thread
+ctx = runner.get_context()  # {session_id, substage_id, correct_side, click_seed}
 ```
 
-The order matters: `on_trial_complete` wakes the runner thread, which immediately begins pre-computing the next trial and overwrites `correct_side`. Reading context first captures the values that belong to the trial that just finished.
+It reads this **first**, before calling `runner.on_trial_complete()`. The reason: `on_trial_complete()` wakes the runner thread, which immediately starts pre-computing the next trial and overwrites `correct_side`. If you read context after waking the runner, you might get the values for the *next* trial instead of the one that just finished.
+
+After reading context, `runner.on_trial_complete()` is called to unblock the trial loop so it can start the ITI for the next trial.
 
 ---
 
-## 4. Writing to Postgres (`trial_results`)
+## Step 4 — Save to the database (`trial_results`)
 
-One row is inserted per trial:
+One row is inserted into the `trial_results` table in Postgres:
 
-| Column | Source |
+| Column | Where it comes from |
 |---|---|
-| `cage_id` | TCP connection identity |
-| `trial_id` | from the Pi's event payload |
-| `outcome` | `correct` / `wrong` / `aborted` |
-| `events` | full FSM event list (JSONB) |
-| `session_id` | from runner context |
-| `substage_id` | from runner context |
-| `correct_side` | from runner context (`left` / `right` / NULL) |
-| `trial_start_us` | CLOCK_MONOTONIC µs from Pi (FSM thread start time) |
-| `trial_start_real` | CLOCK_REALTIME seconds from Pi (wall time anchor) |
-| `click_seed` | RNG seed used to generate this trial's click train |
+| `cage_id` | Which TCP connection the event arrived on |
+| `trial_id` | From the Pi's JSON payload |
+| `outcome` | `correct`, `wrong`, or `aborted` |
+| `events` | The full events list as JSONB |
+| `session_id` | From the runner context |
+| `substage_id` | From the runner context |
+| `correct_side` | From the runner context |
+| `trial_start_us` | From the Pi's JSON — `CLOCK_MONOTONIC` in µs |
+| `trial_start_real` | From the Pi's JSON — wall-clock anchor in seconds |
+| `click_seed` | From the runner context — the RNG seed used for this trial's clicks |
 | `completed_at` | `NOW()` on the PC — approximate wall time of receipt |
 
-`session_id` and `substage_id` are NULL for one-shot runs outside a session (e.g. dev/test runs via `POST /cage/{id}/trial/run`).
+If there's no active session (e.g. a test run started manually from the UI), `session_id` and `substage_id` are NULL.
 
 ---
 
-## 5. Advancement evaluation (`advancement.py`)
+## Step 5 — Check for curriculum advancement (`advancement.py`)
 
-After the INSERT, if `session_id` and `substage_id` are set, `advancement.evaluate(subject_id, substage_id, conn)` runs:
+After the INSERT, if `session_id` and `substage_id` are set, `advancement.evaluate()` runs. It:
 
-1. Queries `trial_results` filtered to the current substage window (rows where the session's `substage_entered_at` is set).
-2. Computes `pct_correct` over a rolling window defined in `advance_criteria` / `fallback_criteria` on the `training_substages` row.
+1. Queries `trial_results` filtered to the current substage window — only trials since `substage_entered_at`.
+2. Computes percent correct over a rolling window defined in the substage's `advance_criteria` or `fallback_criteria`.
 3. Returns `"advance"`, `"fall_back"`, or `"stay"`.
 
-If not `"stay"`, `advancement.apply()` updates `subjects.current_substage_id` and `subjects.substage_entered_at` in Postgres, then calls `runner.switch_substage()` to hot-swap the task config mid-session without stopping the runner. A notification is written to Valkey key `cage:{id}:advancement` (TTL 20 s) so the UI can display a banner.
+If the decision is not `"stay"`, `advancement.apply()` runs:
 
----
-
-## 6. Database schema summary
-
-```
-training_stages      — top-level curriculum groupings
-training_substages   — one level per row; carries task_config JSONB + advancement rules
-subjects             — animals; current_substage_id + substage_entered_at track progress
-sessions             — one per sitting; links subject ↔ cage ↔ substage_id snapshot
-trial_results        — one per trial; outcome, events JSONB, timing fields
-recordings           — chunk index for .bin video files (written by frame_writer.py)
-scoresheet_entries   — daily welfare checks; auto-created on session open
-```
-
-`task_config` in `training_substages` is the full trial JSON sent to the Pi — states, transitions, click rates, ITI parameters, etc. It is the single source of truth for what the Pi executes.
+- Updates `subjects.current_substage_id` and `subjects.substage_entered_at` in Postgres.
+- Calls `runner.switch_substage()` to swap the task config in the live runner without stopping the session.
+- Writes an advancement notification to Valkey key `cage:{id}:advancement` (TTL 20 seconds). The UI picks this up and shows a banner.

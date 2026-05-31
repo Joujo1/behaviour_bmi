@@ -1,64 +1,76 @@
 # Valkey Architecture
 
-Valkey is used as a RAM-speed shared state bus between the UI process and the Acquisition process, and as the pub/sub backbone for the live H.264 video stream. There is no direct IPC between the two processes — all cross-process communication goes through Valkey.
+Valkey is a Redis-compatible in-memory store. Think of it as a shared whiteboard that both processes on the PC — the UI process and the Acquisition process — can read and write.
+
+The two processes can't share Python variables directly because they're separate OS processes. Valkey is how they talk to each other without direct IPC.
+
+The config for Valkey is in `bmi_closed_loop/config.py` (`VALKEY_HOST`, `VALKEY_PORT`).
 
 ---
 
-## Key inventory
+## Flags set by the UI, read by Acquisition
 
-### Per-cage flags (set by UI, read by Acquisition)
+These keys control what the Acquisition process does with incoming frames.
 
-| Key | Type | Values | Set by | Read by |
-|---|---|---|---|---|
-| `cage:{id}:streaming` | string | `"0"` / `"1"` | `stream.py` endpoints | `frame_writer.py` (PUBLISH vs SET path) |
-| `cage:{id}:recording` | string | `"0"` / `"1"` | `stream.py` endpoints | `frame_writer.py` (NAS + Postgres write gate) |
-| `cage:{id}:fan` | string | `"0"` / `"1"` | `control.py` | `cameras/peripherals` endpoint |
-| `cage:{id}:strip` | string | `"0"` / `"1"` | `control.py` | `cameras/peripherals` endpoint |
-| `cage:{id}:active_session` | string (JSON) | session object or absent | `session.py` on open/close | dashboard, session endpoints |
-
-All five are cleared to `"0"` (or deleted) by `ui_main.py` at startup to discard stale state from a previous server run.
-
-### Per-cage live data (set by Acquisition or event_handler, read by UI)
-
-| Key | Type | TTL | Written by | Read by |
-|---|---|---|---|---|
-| `cage:{id}:latest_frame` | bytes (JPEG) | 5 s | `frame_writer._write_valkey` | `GET /cage/{id}/frame` |
-| `cage:{id}:sync_status` | string (JSON) | 15 s | `event_handler` | `GET /cage/{id}/sync` |
-| `cage:{id}:advancement` | string (JSON) | 20 s | `event_handler` | `GET /cage/{id}/advancement` |
-
-`latest_frame` is only written when the frame is MJPEG (magic bytes `0xFF 0xD8`). When streaming is active and frames are H.264, `latest_frame` is not updated — the live path uses the pub/sub channel instead.
-
-`sync_status` carries the NTP offset reported by chrony on the Pi every 5 s. The 15-second TTL means the key expires if the Pi stops reporting (e.g. disconnected), so the UI can distinguish "in sync" from "no data".
-
-`advancement` carries the most recent automatic curriculum change: `{decision, new_id, new_label, ts}`. The 20-second TTL is long enough for the browser to pick it up on the next poll cycle.
-
-### Camera status (set by Acquisition Watchdog, read by UI)
-
-| Key | Type | Written by | Read by |
+| Key | Values | Set by | Read by |
 |---|---|---|---|
-| `camera_status` | hash | `watchdog.py` every 1 s | `GET /cameras/status` |
+| `cage:{id}:streaming` | `"0"` / `"1"` | `ui/endpoints/stream.py` | `acquisition/frame_writer.py` |
+| `cage:{id}:recording` | `"0"` / `"1"` | `ui/endpoints/stream.py` | `acquisition/frame_writer.py` |
+| `cage:{id}:fan` | `"0"` / `"1"` | `ui/endpoints/control.py` | `ui/endpoints/stream.py` (peripherals endpoint) |
+| `cage:{id}:strip` | `"0"` / `"1"` | `ui/endpoints/control.py` | `ui/endpoints/stream.py` (peripherals endpoint) |
+| `cage:{id}:active_session` | JSON string or absent | `ui/endpoints/session.py` | Dashboard, session endpoints |
 
-Each field in the hash is `cage_{id}` → `"alive|fps=N|drops=N|net_drops=N|streaming=N|recording=N"`. A cage is considered dead if its `last_seen` timestamp in the Watchdog's internal stats is older than `WATCHDOG_DEAD_THRESHOLD_SECONDS = 10`.
+When `streaming = "1"`, `frame_writer.py` publishes each H.264 frame to the live stream channel instead of writing it to the snapshot key. When `recording = "1"`, it also writes to the NAS and database.
+
+All five keys are reset to `"0"` (or deleted) every time `ui_main.py` starts up. This clears any stale state left over from a crash or previous run.
 
 ---
 
-## Pub/sub channel
+## Live data written by Acquisition or the event handler, read by the UI
+
+These keys carry real-time information flowing from the Acquisition side back to the UI.
+
+| Key | TTL | Written by | Read by | What it contains |
+|---|---|---|---|---|
+| `cage:{id}:latest_frame` | 5 s | `acquisition/frame_writer.py` | `GET /cage/{id}/frame` | The most recent JPEG frame — used for dashboard snapshots when not streaming live |
+| `cage:{id}:sync_status` | 15 s | `ui/event_handler.py` | `GET /cage/{id}/sync` | NTP sync quality reported by the Pi — offset and RMS offset in ms |
+| `cage:{id}:advancement` | 20 s | `ui/event_handler.py` | `GET /cage/{id}/advancement` | Most recent curriculum advancement — decision, new substage ID and label |
+
+The TTL (time-to-live) on these keys means they automatically disappear if nobody writes them for a while. For example, if the Pi disconnects, `sync_status` will expire after 15 seconds and the UI will show "no sync data" instead of showing stale information.
+
+`latest_frame` is only written when the frame is MJPEG. When H.264 streaming is active, frames go through the pub/sub channel below instead.
+
+---
+
+## Camera status — written by the Watchdog
+
+| Key | Written by | Read by |
+|---|---|---|
+| `camera_status` | `acquisition/watchdog.py` every 1 second | `GET /cameras/status` |
+
+This is a Valkey hash. Each field is `cage_{id}` and the value is a status string like `"alive|fps=60|drops=0|net_drops=0|streaming=1|recording=0"`.
+
+The watchdog marks a cage as dead if it hasn't received a frame in 10 seconds (`WATCHDOG_DEAD_THRESHOLD_SECONDS` in `config.py`). The UI reads this to show the coloured status dots on the dashboard.
+
+---
+
+## The live video pub/sub channel
 
 | Channel | Published by | Subscribed by |
 |---|---|---|
-| `cage:{id}:h264_stream` | `frame_writer._write_valkey` | WebSocket handler (`stream.py`) |
+| `cage:{id}:h264_stream` | `acquisition/frame_writer.py` | `ui/endpoints/stream.py` WebSocket handler |
 
-This is the real-time cross-process data path. The Acquisition process publishes one message per H.264 frame; the UI process's WebSocket handler subscribes and forwards each message to the browser.
+This is how live video gets from the Acquisition process to the browser. The Acquisition process publishes one message per H.264 frame. The UI process's WebSocket handler is subscribed and forwards each message to the browser immediately.
 
-Message format: `[1 byte keyframe flag][8 bytes LE timestamp µs][H.264 Annex-B NAL bytes]`. The 9-byte prefix is stripped by the WebSocket handler before sending to the browser.
+Each message is: `[1 byte keyframe flag][8 bytes timestamp in µs][H.264 frame bytes]`. The WebSocket handler strips the 9-byte prefix before sending to the browser. The keyframe flag tells the browser's decoder when a new video segment starts.
 
-The channel is only active when `cage:{id}:streaming == "1"`. When streaming is off, `frame_writer` writes to `latest_frame` instead.
+This channel is only active when `cage:{id}:streaming == "1"`. When streaming is off, frames go to `latest_frame` instead.
 
 ---
 
-## Lifetime and startup behaviour
+## Startup cleanup
 
-On `ui_main.py` startup, the following keys are reset for every cage:
+When `ui_main.py` starts, it runs this for every cage:
 
 ```python
 valkey.set(f"cage:{cage_id}:streaming", "0")
@@ -68,6 +80,4 @@ valkey.set(f"cage:{cage_id}:strip",     "0")
 valkey.delete(f"cage:{cage_id}:active_session")
 ```
 
-This prevents stale flags from a crashed or stopped UI process from leaving Acquisition in a recording state indefinitely.
-
-TTL-bearing keys (`latest_frame`, `sync_status`, `advancement`) self-expire without any explicit cleanup.
+Without this, if the UI process crashed while recording was on, the Acquisition process would keep writing to the NAS forever after restart because it still sees `recording = "1"`.
