@@ -1,0 +1,96 @@
+# Cage Runner Flowchart
+
+`CageRunner` (`ui/cage_runner.py`) is the PC-side trial loop. One instance exists per cage permanently; a worker thread starts and stops inside it per session. Each iteration of the loop prepares a trial during the ITI, dispatches it to the Pi, and waits for the result.
+
+---
+
+## Trial loop (`_run_loop`)
+
+```mermaid
+flowchart TD
+    start(["Session start\ncage_runner.py"])
+
+    iti["Wait ITI\nbase_iti ± jitter\nfrom task_config"]
+
+    bias["_apply_bias()\nbias_algorithms.py\n← SELECT from Postgres trial_results"]
+
+    sides["_resolve_sides()\ncage_runner.py\ncoin-flip correct side\n→ left_rate / right_rate"]
+
+    clicks["_expand_clicks()\nclick_generator.py\nPoisson trains · fix RNG seed\n→ click_seed stored in context"]
+
+    aliases["_resolve_aliases()\ncage_runner.py\nexpand shorthand fields in trial JSON"]
+
+    send["tcp_command_sender.py\nsender.send(trial_json)\n→ Pi executes trial"]
+
+    wait["event.wait()\nblock until trial complete"]
+
+    eh["event_handler.py\nhandle_trial_event()\n1 · read context\n2 · wake runner\n3 · INSERT Postgres trial_results"]
+
+    adv["advancement.py\nevaluate() + apply()\n→ UPDATE Postgres subjects\n→ Valkey cage:N:advancement"]
+
+    loop{{"loop"}}
+
+    start --> iti
+    iti --> bias
+    bias -->|left_probability| sides
+    sides -->|left_rate · right_rate| clicks
+    clicks -->|click arrays| aliases
+    aliases --> send
+    send -->|trial running on Pi| wait
+    wait -->|trial_complete TCP event| eh
+    eh --> adv
+    adv --> loop
+    loop --> iti
+```
+
+The entire trial preparation (`_apply_bias` → `sender.send`) runs during the ITI of the *previous* trial, so `sender.send()` never adds latency at the start of a trial.
+
+`event.wait()` blocks until `on_trial_complete(event)` is called from the TCP reader thread (in `event_handler`). The runner does not poll; it wakes exactly once per trial result.
+
+---
+
+## Context dict
+
+At any point the runner holds a `context` dict that `event_handler` reads before signalling completion:
+
+```python
+{
+  "session_id":   int | None,
+  "substage_id":  int | None,
+  "correct_side": "left" | "right" | None,
+  "click_seed":   int | None,
+}
+```
+
+`event_handler` reads this *before* calling `on_trial_complete()` because `on_trial_complete` wakes the runner thread, which immediately overwrites `correct_side` during the next ITI pre-computation.
+
+---
+
+## Side resolution (`_apply_bias` → `_resolve_sides`)
+
+`_apply_bias()` queries recent `trial_results` from Postgres and calls the registered bias algorithm (from `bias_algorithms.REGISTRY`) to produce a `left_probability` in [0, 1]. The algorithm can return `None` to leave the trial unchanged.
+
+`_resolve_sides()` uses `left_probability` (or 0.5 if no bias) to coin-flip the correct side, then assigns `left_rate` and `right_rate` from the substage's `task_config` to the correct and incorrect sides respectively.
+
+Three algorithms are available:
+
+| Name | Logic | Window |
+|---|---|---|
+| `brody` | Pushes trials toward the side the animal finds harder: `P(left) = fc_right / (fc_left + fc_right)` | 20 |
+| `ibl` | After a wrong trial, repeats on the side the animal tends to respond to (layup) | 10 |
+| `rebalance` | Pushes toward the under-presented side: `P(left) = n_right / (n_left + n_right)` | 20 |
+| `none` | No correction — pure 50/50 | — |
+
+---
+
+## Click generation (`_expand_clicks`)
+
+`click_generator.generate_clicks(left_rate, right_rate, duration, seed)` generates two independent Poisson click trains. A fixed RNG seed (stored as `click_seed` in the context and persisted to `trial_results`) makes any trial exactly reproducible for offline analysis or stimulus regeneration.
+
+A minimum inter-click interval of `2 × CLICK_WIDTH_S = 6 ms` (start-to-start) is enforced to prevent waveform addition artifacts in the Pi's audio buffer. Clicks drawn closer than this are shifted forward; none are dropped.
+
+---
+
+## Mid-session substage switch (`switch_substage`)
+
+`switch_substage(new_task_config, new_substage_id)` can be called from `event_handler` at any point between trials (while the runner is in `event.wait()`). It replaces the task config and substage ID for the next iteration without stopping the runner thread. If called while the runner is actively sending a trial, it returns `False` and `event_handler` falls back to stopping the runner.
