@@ -68,11 +68,7 @@ class UDPFrameOutput(Output):
             self._mono_at_start_us = mono_now_us - (timestamp if timestamp is not None else 0)
 
         abs_ts = (self._mono_at_start_us + timestamp) if timestamp is not None else mono_now_us
-        # picamera2 delivers the H264 callback one frame late: the PTS it provides
-        # is the capture time of the *next* frame. Subtract one frame period to get
-        # the true capture time of this frame, used both as the stored timestamp and
-        # as the event-drain cutoff so they stay in sync.
-        current_timestamp = abs_ts - (1_000_000 // CAMERA_FPS)
+        current_timestamp = abs_ts
 
         recent_events = []
         if self._fsm_data_cb is not None:
