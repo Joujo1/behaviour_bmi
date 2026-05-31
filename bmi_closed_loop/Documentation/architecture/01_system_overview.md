@@ -36,13 +36,10 @@ The PC runs two Python processes launched by `main.py`. The UI process serves th
 ### Top level
 
 **`main.py`**
-Top-level entry point. Spawns two subprocesses: the UI process (`ui.ui_main`) and the Acquisition process (`acquisition.acquisition_main`). Accepts a session name and optional duration as arguments.
+Top-level entry point. Spawns two subprocesses: the UI process (`ui.ui_main`) and the Acquisition process (`acquisition.acquisition_main`).
 
 **`config.py`**
 Single source of truth for all PC-side constants: `N_CAGES = 12`, `UDP_BASE_PORT`, `TCP_COMMAND_PORT = 6000`, `FLASK_PORT = 5000`, `POSTGRES_DSN`, `VALKEY_HOST/PORT`, `NAS_BASE_PATH`, `DB_CHUNK_SIZE = 1000`, `WATCHDOG_DEAD_THRESHOLD_SECONDS = 10`, `CLICK_WIDTH_S`.
-
-**`bin_viewer.py`**
-Standalone offline analysis tool, not used at runtime. Launches its own Flask app on port 7000. Reads `.bin` recording files from the NAS, parses the binary packet format (same header as `packet_parser.py`), and serves a browser UI with a Plotly GPIO waveform viewer, trial timeline, frame-by-frame JPEG/H.264 preview (via WebCodecs), and trial outcome stats. Run with `python bin_viewer.py`.
 
 ### `shared/`
 
@@ -52,7 +49,7 @@ Utility function `get_logger(name, log_dir, level)`. Returns a configured `loggi
 ### `command/`
 
 **`command/tcp_command_sender.py`**
-`TCPCommandSender` — one instance per cage, created at UI startup. Manages the persistent TCP connection to the Pi. Lazy-connects on the first `send()` call. `send()` writes a JSON command and blocks waiting for an ACK. A background `_read_loop` thread continuously reads incoming messages: ACK/ERROR responses go to an internal `_response_queue` to unblock `send()`, and everything else (trial events, sync status) is passed to the `on_event` callback, which is wired to `event_handler.handle_trial_event`.
+`TCPCommandSender` — one instance per cage, created at UI startup. Manages the persistent TCP connection to the Pi. Connectd on the first `send()` call. `send()` writes a JSON command and blocks waiting for an ACK. A background `_read_loop` thread continuously reads incoming messages: ACK/ERROR responses go to an internal `_response_queue` to unblock `send()`, and everything else (trial events, sync status) is passed to the `on_event` callback, which is wired to `event_handler.handle_trial_event`.
 
 ### `acquisition/`
 
@@ -60,7 +57,7 @@ Utility function `get_logger(name, log_dir, level)`. Returns a configured `loggi
 Acquisition process entry point. Creates one `UDPreceiver` and one `FrameWriter` per cage, starts the `Watchdog`, and starts a stats logger thread that appends per-cage FPS and drop counts to `frame_stats.csv` on the NAS every 5 seconds.
 
 **`acquisition/udp_receiver.py`**
-`UDPreceiver` — dual-threaded. A listener thread calls `recvfrom` in a tight loop and pushes raw datagrams into a `queue.Queue(maxsize=60)` with an 8 MB kernel socket buffer. A worker thread drains the queue and calls `packet_parser.parse_packet()`, then forwards the result to the frame callback. The split prevents slow callback processing from dropping kernel-buffered packets.
+`UDPreceiver` — dual-threaded. A listener thread calls `recvfrom` in a tight loop and pushes raw datagrams into a `queue.Queue(maxsize=60)`. A worker thread drains the queue and calls `packet_parser.parse_packet()`, then forwards the result to the frame callback.
 
 **`acquisition/packet_parser.py`**
 Stateless parser for the binary UDP wire format. `parse_packet()` unpacks the fixed-size header (format `<IQIIBBBBBBBBB`), decodes the JSON events blob, and returns a `ParsedFrame` dataclass containing all GPIO signal states, the Pi sequence number, a microsecond timestamp (`CLOCK_MONOTONIC` from the Pi), the raw packet bytes, and network arrival time. Returns `None` on malformed input.
