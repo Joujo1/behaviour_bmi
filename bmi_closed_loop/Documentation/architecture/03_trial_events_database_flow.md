@@ -1,30 +1,8 @@
 # Trial Events & Database Flow
 
+<!-- TODO: data flow diagram trial events → PostgreSQL -->
+
 This document covers how a completed trial result travels from the Pi to Postgres, and how that triggers automatic curriculum advancement.
-
-```mermaid
-flowchart TD
-    fsm["engine.py\nFSM reaches terminal state"]
-    tcp_pi["tcp_command_receiver.py\nsend trial_complete JSON over TCP"]
-    eh["event_handler.py\nhandle_trial_event()"]
-    ctx["cage_runner.py\nget_context()\n{session_id, substage_id, correct_side, click_seed}"]
-    wake["cage_runner.py\non_trial_complete()\nunblock runner thread"]
-    tr[("Postgres\nINSERT trial_results")]
-    adv_e["advancement.py\nevaluate()\nquery trial_results window"]
-    adv_a["advancement.py\napply()"]
-    subj[("Postgres\nUPDATE subjects\ncurrent_substage_id")]
-    vk[("Valkey\ncage:N:advancement\nTTL 20 s — UI banner")]
-    sw["cage_runner.py\nswitch_substage()\nhot-swap task config"]
-
-    fsm --> tcp_pi
-    tcp_pi -->|TCP socket| eh
-    eh -->|"1 · read before wake"| ctx
-    eh -->|"2 · unblock"| wake
-    eh -->|"3 · persist"| tr
-    tr --> adv_e
-    adv_e -->|"advance / fall_back"| adv_a
-    adv_a --> subj & vk & sw
-```
 
 ---
 

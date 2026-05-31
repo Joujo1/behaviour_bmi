@@ -8,6 +8,7 @@
 - [Trial State Machine (Pi)](architecture/05_trial_state_machine.md)
 - [Cage Runner Flowchart](architecture/06_cage_runner_flowchart.md)
 - [Clocks & Timestamping Policy](architecture/07_clocks_and_timestamping.md)
+- [Database Schema](architecture/08_database_schema.md)
 
 ## Reference
 - [Trial JSON Document](reference/01_trial_json.md)

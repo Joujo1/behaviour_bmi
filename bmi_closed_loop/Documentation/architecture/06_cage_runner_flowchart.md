@@ -1,49 +1,29 @@
 # Cage Runner Flowchart
 
+<!-- TODO: side resolution and bias algorithm flowchart -->
+
 `CageRunner` (`ui/cage_runner.py`) is the PC-side trial loop. One instance exists per cage permanently; a worker thread starts and stops inside it per session. Each iteration of the loop prepares a trial during the ITI, dispatches it to the Pi, and waits for the result.
 
 ---
 
 ## Trial loop (`_run_loop`)
 
-```mermaid
-flowchart TD
-    start(["Session start\ncage_runner.py"])
-
-    iti["Wait ITI\nbase_iti ± jitter\nfrom task_config"]
-
-    bias["_apply_bias()\nbias_algorithms.py\n← SELECT from Postgres trial_results"]
-
-    sides["_resolve_sides()\ncage_runner.py\ncoin-flip correct side\n→ left_rate / right_rate"]
-
-    clicks["_expand_clicks()\nclick_generator.py\nPoisson trains · fix RNG seed\n→ click_seed stored in context"]
-
-    aliases["_resolve_aliases()\ncage_runner.py\nexpand shorthand fields in trial JSON"]
-
-    send["tcp_command_sender.py\nsender.send(trial_json)\n→ Pi executes trial"]
-
-    wait["event.wait()\nblock until trial complete"]
-
-    eh["event_handler.py\nhandle_trial_event()\n1 · read context\n2 · wake runner\n3 · INSERT Postgres trial_results"]
-
-    adv["advancement.py\nevaluate() + apply()\n→ UPDATE Postgres subjects\n→ Valkey cage:N:advancement"]
-
-    loop{{"loop"}}
-
-    start --> iti
-    iti --> bias
-    bias -->|left_probability| sides
-    sides -->|left_rate · right_rate| clicks
-    clicks -->|click arrays| aliases
-    aliases --> send
-    send -->|trial running on Pi| wait
-    wait -->|trial_complete TCP event| eh
-    eh --> adv
-    adv --> loop
-    loop --> iti
+```
+┌─────────────────────────────────────────────────┐
+│  Wait for ITI duration (base_iti ± jitter)       │
+│                                                   │
+│  _apply_bias()        ← query recent trial_results│
+│  _resolve_sides()     ← assign left_rate/right_rate│
+│  _expand_clicks()     ← generate Poisson trains   │
+│  _resolve_aliases()   ← expand shorthand fields   │
+│                                                   │
+│  sender.send(trial_json)  ──────────────────────► Pi │
+│                                                   │
+│  event.wait()   ◄──────── on_trial_complete()     │
+└─────────────────────────────────────────────────┘
 ```
 
-The entire trial preparation (`_apply_bias` → `sender.send`) runs during the ITI of the *previous* trial, so `sender.send()` never adds latency at the start of a trial.
+The entire trial preparation runs during the inter-trial interval of the *previous* trial, so `sender.send()` never blocks the ITI — by the time the ITI ends the trial is ready to transmit immediately.
 
 `event.wait()` blocks until `on_trial_complete(event)` is called from the TCP reader thread (in `event_handler`). The runner does not poll; it wakes exactly once per trial result.
 

@@ -1,5 +1,7 @@
 # Trial State Machine on the Pi
 
+<!-- TODO: event queue flowchart -->
+
 The `Engine` class in `engine.py` interprets a JSON trial definition and executes it on a dedicated FSM thread. All hardware control, state transitions, and event logging happen exclusively in that thread.
 
 ---
@@ -55,35 +57,6 @@ Every external source posts a tuple to `_event_queue` and returns immediately. T
 | Click-player thread (audio done) | `('clicks_done',)` |
 | Watchdog `threading.Timer` | `('watchdog',)` |
 | `stop()` / `abort()` | `('stop',)` |
-
-```mermaid
-flowchart TD
-    subgraph producers["Event producers  (post and return immediately)"]
-        direction LR
-        gpio["GPIO monitor thread\ngpiod interrupt\nSCHED_FIFO 75\n('beam', target, active, t)"]
-        tmt["State timeout\nthreading.Timer\n('timeout',)"]
-        hold["Hold timer\nthreading.Timer\nSCHED_FIFO 72\n('hold', target, next_state, expected)"]
-        clk["Click-player thread\naudio done\n('clicks_done',)"]
-        wd["Watchdog timer\nthreading.Timer\n('watchdog',)"]
-        stp["stop() / abort()\nexternal TCP command\n('stop',)"]
-    end
-
-    queue[/"_event_queue\nqueue.Queue"/]
-
-    fsm["engine.py · FSM thread\nSCHED_FIFO 70 — sole consumer\nstate transitions · hardware writes · event log"]
-
-    buf[/"_event_buffer\nprotected by _event_lock"/]
-
-    cam["streamer.py\npicamera2 encoder thread\npop_frame_events(frame_ts_us)"]
-
-    udp["UDP packet\n(events bundled per frame)"]
-
-    gpio & tmt & hold & clk & wd & stp --> queue
-    queue --> fsm
-    fsm -->|"append each event"| buf
-    buf -->|"drain up to frame timestamp"| cam
-    cam --> udp
-```
 
 Because state transitions, hardware writes, and event logging all happen inside the FSM thread, no lock is needed on `_current_state_id` or transition logic. The only shared state requiring a lock is `_event_buffer` (written by the FSM thread, read by the picamera2 encoder thread via `pop_frame_events()`).
 
