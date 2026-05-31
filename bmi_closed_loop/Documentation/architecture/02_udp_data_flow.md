@@ -2,42 +2,6 @@
 
 Every cage streams video and hardware state to the PC over UDP. This page explains exactly what gets bundled into each packet, how it travels, and where it ends up on the PC.
 
-```mermaid
-flowchart LR
-    subgraph Pi["Raspberry Pi"]
-        cam["picamera2\nencoder"]
-        gpio_c["gpio_controller.py\nGPIO snapshot"]
-        eng["engine.py\nFSM events"]
-        strm["streamer.py\nbundle assembly"]
-        dq[/"data_queue"/]
-        udps["udp_sender_pi.py"]
-    end
-
-    subgraph PC["PC (Linux Master)"]
-        recv["udp_receiver.py\nlistener thread"]
-        rq[/"queue.Queue\nmaxsize 60"/]
-        pp["packet_parser.py\nparse_packet()"]
-        fw["frame_writer.py\nFrameWriter"]
-
-        subgraph out["Fan-out"]
-            direction TB
-            vk[("Valkey\nSET latest_frame\nPUBLISH h264_stream")]
-            nas[("NAS\ncage_N.bin\nraw packet")]
-            pg[("Postgres\nrecordings\nevery 1000 frames")]
-        end
-
-        ws["stream.py\nWebSocket"]
-        br["Browser\nWebCodecs"]
-    end
-
-    cam & gpio_c & eng --> strm
-    strm -->|put_nowait| dq --> udps
-    udps -->|"UDP  port 5000+cage_id"| recv
-    recv -->|put_nowait| rq --> pp --> fw
-    fw --> vk
-    fw -->|"recording = 1"| nas & pg
-    vk -->|"pub/sub"| ws --> br
-```
 
 ---
 
