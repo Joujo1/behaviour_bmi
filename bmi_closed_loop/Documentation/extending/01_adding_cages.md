@@ -34,23 +34,31 @@ That is literally the only line you need to touch on the software side. Everythi
 
 ---
 
-## Step 2 — Set up the new Pi on the network
+## Step 2 — Set up the new Pi
 
-The software expects the new Pi to be reachable at `192.168.1.{100 + cage_id}`.
-
-For example, if you are adding cage 13, the Pi must have the static IP `192.168.1.113`.
-
-How to assign a static IP on the Pi: see [Network Setup](../setup/05_network_setup.md).
-
----
-
-## Step 3 — Check that the Pi hostname matches
-
-The Pi's hostname should match its cage ID so that logs are easy to read. Set it with:
+Run `setup.sh` on the new Pi. It will ask for the Pi number and then take care of everything automatically:
 
 ```bash
-sudo hostnamectl set-hostname cage13
+sudo bash RPi_main/setup.sh
 ```
+
+What `setup.sh` does:
+- Asks which Pi number this is, then sets `UDP_STREAM_PORT` in `RPi_main/config.py` to `5000 + cage_id`
+- Installs and enables the `cage_controller` systemd service (so the Pi software starts on boot)
+- Sets the CPU governor to performance mode
+- Disables the real-time scheduling throttle (needed for the SCHED_FIFO threads)
+- Configures chrony for NTP time sync
+- Optionally isolates CPU core 3 for the real-time threads (requires a reboot)
+
+The static IP is **not** set by `setup.sh` — you need to set it manually using `nmtui` in the terminal on the Pi:
+
+```bash
+sudo nmtui
+```
+
+Go to **Edit a connection → your Ethernet connection → IPv4 configuration**. Set it to **Manual** and enter `192.168.1.{100 + cage_id}` (e.g. cage 13 → `192.168.1.113`). Save and reboot.
+
+For the full Pi setup guide including flashing the OS and installing dependencies, see [Setting Up New Pis](../setup/02_setting_up_pis.md).
 
 ---
 
