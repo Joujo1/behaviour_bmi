@@ -11,7 +11,7 @@ There is no ORM and no migration framework (like Alembic). Everything is plain S
 **First time (empty database):**
 
 ```bash
-psql <your-connection-string> -f db/schema.sql
+psql postgresql://bmi:yaniklab@localhost/bmi_closed_loop -f db/schema.sql
 ```
 
 **After adding something to the schema file (existing database, keep data):**
@@ -19,7 +19,7 @@ psql <your-connection-string> -f db/schema.sql
 Run the exact same command again. All `CREATE TABLE` and `CREATE INDEX` statements use `IF NOT EXISTS`, and new columns are added with `ADD COLUMN IF NOT EXISTS`, so nothing breaks if the table already exists.
 
 ```bash
-psql <your-connection-string> -f db/schema.sql
+psql postgresql://bmi:yaniklab@localhost/bmi_closed_loop -f db/schema.sql
 ```
 
 **Full reset (wipe everything and start fresh):**
@@ -56,7 +56,7 @@ The `IF NOT EXISTS` part means if the column is already there (because you ran t
 **3. Re-run the schema file against your database:**
 
 ```bash
-psql <your-connection-string> -f db/schema.sql
+psql postgresql://bmi:yaniklab@localhost/bmi_closed_loop -f db/schema.sql
 ```
 
 The new column now exists. Any old rows will have `NULL` in that column unless you set a default.
