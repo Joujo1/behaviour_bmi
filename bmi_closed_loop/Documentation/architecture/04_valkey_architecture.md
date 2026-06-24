@@ -1,6 +1,6 @@
 # Valkey Architecture
 
-Valkey is a Redis-compatible in-memory store. Think of it as a shared whiteboard that both processes on the PC — the UI process and the Acquisition process — can read and write.
+Valkey is a Redis-compatible in-memory store. The UI process and the Acquisition process can read and write.
 
 The two processes can't share Python variables directly because they're separate OS processes. Valkey is how they talk to each other without direct IPC.
 

@@ -22,28 +22,16 @@
 ## Hardware & Setup
 - [Wiring and Setting Up All Hardware](setup/01_hardware_wiring.md)
 - [Setting Up New Pis](setup/02_setting_up_pis.md)
-- [Wiring the NAS](setup/03_wiring_the_nas.md)
 - [Connecting New ItsyBitsy MCU](setup/04_itsybitsy_mcu.md)
-- [Network Setup](setup/05_network_setup.md)
-- [Camera Setup](setup/06_camera_setup.md)
 
 ## Operations
-- [A First Session in 20 Min](operations/01_first_session.md)
-- [Daily Workflow](operations/02_daily_workflow.md)
+- [A First Session](operations/01_first_session.md)
 - [Daily Welfare Scoresheet Handling](operations/03_welfare_scoresheet.md)
 - [Dashboard, Curriculum & Subjects Page Walkthrough](operations/04_ui_pages_walkthrough.md)
 - [How Click Rates Are Calculated](operations/05_click_rates.md)
 - [Reading Per-Frame Packages from NAS](operations/06_reading_per_frame_packages.md)
 - [How to Read Trial Events](operations/07_reading_trial_events.md)
 - [Regenerating a Stimulus](operations/08_regenerating_stimulus.md)
-
-## Troubleshooting
-- [Camera Failures](troubleshooting/01_camera_failures.md)
-- [Pi Disconnects & Reconnection](troubleshooting/02_pi_disconnects.md)
-- [Valkey Unreachable or Stale Keys](troubleshooting/03_valkey_issues.md)
-- [NAS Mount Failures](troubleshooting/04_nas_mount_failures.md)
-- [Click Detection Dropout](troubleshooting/05_click_detection_dropout.md)
-- [General Debugging: Logs & Systemd](troubleshooting/06_general_debugging.md)
 
 ## Extending the System
 - [Adding Cages to the Dashboard](extending/01_adding_cages.md)

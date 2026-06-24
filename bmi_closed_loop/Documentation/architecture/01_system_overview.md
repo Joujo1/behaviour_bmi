@@ -13,10 +13,10 @@ That one program starts several threads that all run at the same time:
 | Thread | File | What it does |
 |---|---|---|
 | FSM | `engine.py` | Runs the trial state machine — the brain of the trial. Reads events from a queue and decides what happens next. |
-| GPIO monitor | `gpio_handler.py` | Watches for beam breaks. When a beam is broken, it puts an event into the FSM's queue. |
+| GPIO monitor | `gpio_handler.py` | Watches for beam breaks. When a beam is broken, it puts an event into the FSM's queue. Also drives other peripherals such as LEDs.|
 | Hold timers | `engine.py` | When a beam-break transition requires the beam to stay broken for X ms, these timers enforce that wait. |
-| Click trigger | `actions.py` | Fires click sounds at precise times. Has the highest priority because click timing is experimentally critical. |
-| Camera / encoder | `streamer.py` | Captures H.264 video via picamera2. Once per frame, it also grabs the current GPIO state and any FSM events, and bundles everything together. |
+| Click trigger | `actions.py` | Fires click sounds at precise times. Has the highest priority. |
+| Camera | `streamer.py` | Captures H.264 video via picamera2. Once per frame, it also grabs the current GPIO state and any FSM events, and bundles everything together. |
 | UDP sender | `udp_sender_pi.py` | Takes the bundles from the camera thread and sends them to the PC as UDP packets. |
 | TCP receiver | `tcp_command_receiver.py` | Listens for commands from the PC (e.g. "run this trial"). Sends back trial results when a trial finishes. |
 | NTP reporter | `main.py` | Every 5 seconds, asks the Pi's clock daemon how well-synced the clock is, and reports that to the PC over TCP. |

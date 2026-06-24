@@ -29,7 +29,6 @@ class FrameWriter:
         self._valkey    = None
         self._db_conn   = None
         self._db_cursor = None
-        self._ts_csv    = None
 
         self._chunk_frame_count  = 0
         self._chunk_start_frame  = None
@@ -53,16 +52,10 @@ class FrameWriter:
         self._db_conn   = psycopg2.connect(config.POSTGRES_DSN)
         self._db_cursor = self._db_conn.cursor()
 
-        csv_path = os.path.join(session_dir, f"cage_{self._cage_id}_timestamps.csv")
-        self._ts_csv = open(csv_path, "w", buffering=1)
-        self._ts_csv.write("cage_id,pi_seq,timestamp_us\n")
-
         self._log.info("Writer started → %s", filepath)
 
     def stop(self) -> None:
         self._flush_chunk()
-        if self._ts_csv:
-            self._ts_csv.close()
         if self._db_conn:
             self._db_conn.commit()
             self._db_conn.close()
@@ -71,9 +64,6 @@ class FrameWriter:
         self._log.info("Writer stopped (cage %d)", self._cage_id)
 
     def write_frame(self, frame: ParsedFrame) -> None:
-        if self._ts_csv:
-            self._ts_csv.write(f"{self._cage_id},{frame.pi_seq},{frame.timestamp}\n")
-
         self._write_valkey(frame)
 
         now = time.time()
