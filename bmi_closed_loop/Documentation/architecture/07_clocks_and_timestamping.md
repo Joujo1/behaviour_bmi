@@ -50,19 +50,6 @@ For example, if a beam break happened at `t = 0.841` seconds, and `trial_start_r
 
 ---
 
-## How well does timing work?
-
-| Event type | Precision | Why |
-|---|---|---|
-| Beam break | < 1 µs | The Linux kernel timestamps the GPIO interrupt before Python even runs |
-| Hardware output (LED, valve) | ~10–100 µs | Stamped just after the GPIO pin changes |
-| State transition | ~10–100 µs | Stamped in the FSM thread at decision time |
-| Frame timestamp | ~1 frame (16.7 ms at 60 fps) | Converted from camera sensor PTS |
-| `trial_start_us` | < 1 µs | Captured after the thread has reached RT priority |
-| `trial_start_real` | ~1 ms | Limited by NTP accuracy |
-| `completed_at` | 10–100 ms | Includes network latency and PC processing time |
-
----
 
 ## NTP clock sync between Pi and PC
 
