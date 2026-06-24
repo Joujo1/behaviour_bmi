@@ -20,9 +20,10 @@ import psycopg2
 conn = psycopg2.connect("postgresql://bmi:yaniklab@localhost/bmi_closed_loop")
 cur  = conn.cursor()
 cur.execute("""
-    SELECT click_seed, trial_definition
-    FROM trial_results
-    WHERE id = %s
+    SELECT tr.click_seed, ts.task_config
+    FROM trial_results tr
+    JOIN training_substages ts ON ts.id = tr.substage_id
+    WHERE tr.id = %s
 """, (trial_id,))
 seed, trial_def = cur.fetchone()
 

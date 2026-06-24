@@ -61,8 +61,8 @@ All three event types are appended to `self._event_buffer` inside the trial engi
 | Event type | Location in engine.py |
 |---|---|
 | Beam | `_on_beam_event()` — around line 283 |
-| Transition | `_transition_to()` — around line 404 |
-| Output | `_log_output_event()` — around line 431 |
+| Transition | `transition_to()` — around line 386 |
+| Output | `_log_output()` — around line 426 |
 
 The buffer is drained each frame by `pop_frame_events()` and handed to the UDP sender, which serialises the list to JSON and packs it into the packet.
 

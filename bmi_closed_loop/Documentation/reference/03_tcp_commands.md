@@ -28,7 +28,10 @@ The Pi pushes one-way event messages to the PC without a prior command. These ar
 
 | Event JSON | When sent |
 |---|---|
-| `{"event": "trial_complete", "outcome": "correct"\|"wrong"\|"aborted", "trial_id": "...", "n_events": N, "events": [...]}` | After every trial ends. `events` is the full list of FSM events collected during the trial. |
+| `{"event": "trial_complete", "trial_id": "...", "outcome": "correct"\|"wrong", "events": [...], "trial_start_us": N, "trial_start_real": F}` | After a trial ends with a non-aborted outcome. |
+| `{"event": "trial_aborted",  "trial_id": "...", "outcome": "aborted",         "events": [...], "trial_start_us": N, "trial_start_real": F}` | After a trial is aborted (e.g. via `STOP_TRIAL`). |
+
+`events` is the full list of FSM events collected during the trial. `trial_start_us` is the Pi's `CLOCK_MONOTONIC` timestamp in microseconds at trial start; `trial_start_real` is the corresponding wall-clock time as a float. Both fields are always present.
 
 ---
 

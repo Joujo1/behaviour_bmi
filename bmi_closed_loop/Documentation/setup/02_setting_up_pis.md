@@ -36,7 +36,7 @@ sudo bash /home/pi/behaviour_bmi/bmi_closed_loop/RPi_main/setup.sh
 The script will ask which Pi number this is (1, 2, 3, …) and then automatically:
 
 - Sets `UDP_STREAM_PORT` in `RPi_main/config.py` to `5000 + Pi number`
-- Installs and enables `cage_controller.service` (the main trial process)
+- Installs and enables `cage_controller.service` (the main trial process — starts on next boot; a reboot is required after the script finishes)
 - Installs and enables `cpu-governor.service` (locks CPUs to performance frequency)
 - Disables the RT scheduling throttle via `/etc/sysctl.d/99-rt.conf`
 - Optionally patches `/boot/firmware/cmdline.txt` to isolate CPU core 3 and reboots

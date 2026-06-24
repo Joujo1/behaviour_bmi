@@ -72,8 +72,8 @@ Open [RPi_main/engine.py](../../RPi_main/engine.py) and find `_dispatch_action()
 
 ```python
 elif action_type == "puff_air":
-    self._log_output_event("puff_air", active=True)
-    dispatch(action_dict, on_complete=lambda: self._log_output_event("puff_air", active=False), ...)
+    self._log_output("puff_air", True)
+    dispatch(action_dict, on_complete=lambda: self._log_output("puff_air", False), ...)
 ```
 
 Without this, the action still works but will not appear in the stored trial events.

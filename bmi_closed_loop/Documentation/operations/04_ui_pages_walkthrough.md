@@ -41,7 +41,7 @@ Buttons to truncate individual database tables. Only use in development.
 
 ---
 
-## Curriculum (`/curriculum-page`)
+## Curriculum (`/curriculum`)
 
 The trial definition and training progression editor.
 

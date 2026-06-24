@@ -67,7 +67,7 @@ BEAM_ACTIVE_LOW = {
 `gpio_handler.start_monitoring()` is called once at startup with all pins from `BEAM_PINS`. Restart the service to pick up the new pin:
 
 ```bash
-sudo systemctl restart pi_bmi_rig
+sudo systemctl restart cage_controller
 ```
 
 ### Step 4 — Use the sensor in trial definitions

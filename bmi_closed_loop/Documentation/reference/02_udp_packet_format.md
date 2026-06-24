@@ -11,7 +11,7 @@ Source: [RPi_main/udp_sender_pi.py](../../RPi_main/udp_sender_pi.py) (packing) a
 ```
 Offset   Size   Type     Field
 ------   ----   ----     -----
-0        4      uint32   frame_counter      — Pi's per-stream sequence number
+0        4      uint32   pi_seq             — Pi's per-stream sequence number
 4        8      uint64   timestamp_us       — CLOCK_MONOTONIC microseconds (Pi clock)
 12       4      uint32   jpeg_size          — byte count of the H264 frame section
 16       4      uint32   events_size        — byte count of the events JSON section
@@ -36,13 +36,13 @@ All multi-byte integers are **little-endian**.
 
 ## Field notes
 
-**`frame_counter`** — increments by 1 for every packet sent. Gaps in this sequence on the PC side indicate dropped packets (network loss or oversized frame silently discarded by the sender).
+**`pi_seq`** — increments by 1 for every packet sent. Gaps in this sequence on the PC side indicate dropped packets (network loss or oversized frame silently discarded by the sender).
 
 **`timestamp_us`** — `CLOCK_MONOTONIC` microseconds captured by the Pi's camera thread at frame capture time. This clock is disciplined by chrony (see [architecture/07_clocks_and_timestamping.md](../architecture/07_clocks_and_timestamping.md)) but is not wall-clock time.
 
 **`jpeg_size`** / **`events_size`** — used by the parser to slice the payload. A packet is considered malformed and dropped if `jpeg_size` is 0 or exceeds 10 MB, or if the total byte count is less than `29 + events_size + jpeg_size`.
 
-**GPIO state fields** (offsets 20–28) — snapshot of hardware output/input state at the moment the frame was captured. `1` = active. These are convenience fields; the same information is also available event-by-event in the events JSON for inputs and via `_log_output_event` for outputs.
+**GPIO state fields** (offsets 20–28) — snapshot of hardware output/input state at the moment the frame was captured. `1` = active. These are convenience fields; the same information is also available event-by-event in the events JSON for inputs and via `_log_output` for outputs.
 
 **`trial_state`** — reserved for future use. Always 0 in current firmware.
 

@@ -45,7 +45,7 @@ A rough check: at `CAMERA_BITRATE = 2_000_000` bps and 60 fps, the average frame
 ## How to change resolution
 
 1. Edit `CAMERA_WIDTH` and `CAMERA_HEIGHT` in [RPi_main/config.py](../../RPi_main/config.py).
-2. Restart the Pi service (`sudo systemctl restart pi_bmi_rig`) for the change to take effect — the camera is initialised at startup.
+2. Restart the Pi service (`sudo systemctl restart cage_controller`) for the change to take effect — the camera is initialised at startup.
 3. If frame drops appear in the acquisition logs, lower `CAMERA_BITRATE` proportionally.
 
 No changes are needed on the PC side: the packet parser reads `jpeg_size` from the header and extracts exactly that many bytes regardless of resolution.

@@ -9,7 +9,7 @@ A trial definition is a JSON object that fully describes one trial — its state
 | Field | Type | Description |
 |---|---|---|
 | `trial_id` | string | Identifier for this trial template (e.g. `"sample"`, `"easy_left"`). Stored in `trial_results` for traceability. |
-| `side_mode` | string | How the correct side is determined. `"random"` = drawn independently each trial; `"fixed_left"` / `"fixed_right"` = always that side. |
+| `side_mode` | string | How the correct side is determined. `"random"` = coin flip each trial (rates may swap sides); `"fixed"` = rates are used as written, high-rate side is always whichever side has the higher rate in the definition; `"weighted"` = biased coin flip using `left_probability` from the trial definition (set by the active bias algorithm). |
 | `base_iti_s` | float | Inter-trial interval (seconds) after a correct outcome. |
 | `fail_iti_s` | float | Inter-trial interval (seconds) after a wrong or aborted outcome. |
 | `initial_state` | string | The `id` of the state the FSM enters at trial start. |

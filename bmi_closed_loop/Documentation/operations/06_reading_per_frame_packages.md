@@ -9,10 +9,10 @@ When recording is active, every received UDP packet is written to a binary `.bin
 Files are written to:
 
 ```
-<NAS_BASE_PATH>/session_<session_id>/cage_<cage_id>.bin
+<NAS_BASE_PATH>/<session_dir>/cage_<cage_id>.bin
 ```
 
-`NAS_BASE_PATH` is defined in [bmi_closed_loop/config.py](../../config.py).
+`NAS_BASE_PATH` is defined in [bmi_closed_loop/config.py](../../config.py). `<session_dir>` is a directory name passed as a command-line argument when starting the acquisition process — by convention it is `session_<session_id>`, but this is not enforced by the code.
 
 ---
 

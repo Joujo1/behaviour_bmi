@@ -98,4 +98,4 @@ The endpoint `GET /criteria-types` in [ui/endpoints/curriculum.py](../../ui/endp
 
 ## Where criteria are evaluated
 
-After every trial completes, `CageRunner` (in [cage_runner.py](../../ui/cage_runner.py)) calls `advancement.py` to evaluate both the advance and fallback criteria for the current substage. If either returns `True`, the subject is moved to the target substage in the database and a Valkey notification is published to update the UI.
+After every trial completes, `handle_trial_event()` in [ui/event_handler.py](../../ui/event_handler.py) writes the trial result to the database and then calls `advancement.evaluate()` to check both the advance and fallback criteria for the current substage. If a transition is triggered, `advancement.apply()` updates the substage in the database, and — if a session is open — calls `runner.switch_substage()` on the relevant `CageRunner` to swap the task config for the next trial without interrupting the current one. A Valkey notification is then published to update the UI.

@@ -16,9 +16,46 @@ The curriculum UI lets the operator pick one algorithm per substage from a dropd
 
 | Registry key | Window | What it does |
 |---|---|---|
-| `brody` | 20 | Calculates the rat's recent left bias and counteracts it — if the rat chose left 60 % of the time, future trials are pushed toward more right-heavy click ratios. |
-| `ibl` | 10 | Calculates the same bias but accommodates it, making the correct side match the animal's current preference slightly more often. |
-| `rebalance` | 20 | Forces equal left/right trial presentations regardless of the rat's choices. |
+| `brody` | 20 | Performance equalisation: computes per-side accuracy and pushes more trials toward the side the animal performs worse on. |
+| `ibl` | 10 | Layup on preferred side: after a wrong trial, presents the side the animal responds to most often, skipping the correction on ambiguous stimuli. |
+| `rebalance` | 20 | Presentation rebalance: pushes trials toward whichever side has been shown less often, regardless of outcome. |
+
+### `brody` — performance equalisation
+
+Computes the fraction correct separately for left trials and right trials over the last `window` completed trials. Sets the left probability so that the harder side is presented more often:
+
+```
+fc_l  = (correct left trials) / (total left trials in window)
+fc_r  = (correct right trials) / (total right trials in window)
+P(left) = fc_r / (fc_l + fc_r)
+```
+
+If `fc_l + fc_r == 0`, or if there are no trials on one side, returns `None` (no adjustment). The formula ensures that when the animal is worse on the right (`fc_r < fc_l`), `P(left)` falls below 0.5, giving the animal more right trials.
+
+### `ibl` — layup on preferred side
+
+Only fires when the most recent trial was wrong. Computes each trial's *actual response side* (the side the animal went to, regardless of which was correct) and finds the average right-response rate over the last `window` trials:
+
+```
+responded[i] = correct_side[i]            if outcome[i] == "correct"
+             = opposite(correct_side[i])  if outcome[i] == "wrong"
+
+avg_right = count("right" in responded) / len(responded)
+P(left)   = 1 − avg_right
+```
+
+An optional difficulty gate skips the correction when the previous trial's click ratio was below `ibl_easy_min_ratio` (default `2.5` — configurable per trial definition). The idea is not to give a layup on an already-ambiguous stimulus. Returns `None` if the last trial was not wrong, or if there are no sided trials in the window.
+
+### `rebalance` — presentation rebalance
+
+Counts left and right presentations (by `correct_side`) in the recent window and sets the left probability so that the under-presented side is favoured:
+
+```
+n_left, n_right = presentations per side in window
+P(left) = n_right / (n_left + n_right)
+```
+
+Returns `None` if there are no sided trials in the window.
 
 ---
 

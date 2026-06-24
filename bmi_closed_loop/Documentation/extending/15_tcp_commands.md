@@ -24,7 +24,10 @@ The Pi-side handler is `handle_command()` in [RPi_main/main.py](../../RPi_main/m
 
 | Event | When sent |
 |---|---|
-| `{"event": "trial_complete", "outcome": "...", "trial_id": "...", "events": [...]}` | After every trial ends |
+| `{"event": "trial_complete", "trial_id": "...", "outcome": "...", "events": [...], "trial_start_us": ..., "trial_start_real": ...}` | After a trial ends with any non-aborted outcome |
+| `{"event": "trial_aborted",  "trial_id": "...", "outcome": "aborted", "events": [...], "trial_start_us": ..., "trial_start_real": ...}` | After a trial is aborted |
+
+`trial_start_us` is the Pi's `CLOCK_MONOTONIC` timestamp (microseconds) at trial start. `trial_start_real` is the corresponding wall-clock time. Both fields are always present.
 
 ---
 
@@ -53,7 +56,7 @@ Return `(True, message)` for success, `(False, reason)` for failure. The receive
 Wherever you need to send the command from the PC (typically a Flask endpoint), get the `TCPCommandSender` for the relevant cage and call `send()`:
 
 ```python
-sender = current_app.cage_runners[cage_id]._sender  # or however the sender is exposed
+sender = current_app.config["COMMAND_SENDERS"].get(cage_id)
 ok, msg = sender.send("MY_COMMAND")
 if not ok:
     return jsonify({"ok": False, "msg": msg}), 500

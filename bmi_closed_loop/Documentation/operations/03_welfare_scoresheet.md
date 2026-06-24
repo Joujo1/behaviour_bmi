@@ -24,7 +24,7 @@ The main table has one row per day a session was opened. Rows are created **auto
 | Procedure | Procedure details (editable) |
 | Weight (g) | Body weight measured that day (editable) |
 | Δ Weight | Percentage change from reference weight — calculated automatically when you enter the weight |
-| A, B, C, D | Welfare score fields (0–3 each) — click the cell to change the value |
+| A, B, C, D | Welfare score fields (0–2 each) — click the cell to change the value |
 | Total | Sum of A+B+C+D — colour-coded: green (0–2), yellow (3–5), red (6+) |
 | Medication | Free text (editable) |
 | Remarks | Free text (editable) |
@@ -41,7 +41,7 @@ Water intake (ml) is **not automatically calculated** at this time. The session 
 
 ## Exporting
 
-Click **Export .xlsx** to download the scoresheet for the selected subject as an Excel file, formatted from the scoresheet template at the path defined by `SCORESHEET_TEMPLATE_PATH` in `config.py`.
+Click **Export .xlsx** to fill the scoresheet template and save it as an Excel file to `<NAS_BASE_PATH>/scoresheets/<subject_code>.xlsx` on the server. The template path is defined by `SCORESHEET_TEMPLATE_PATH` in `config.py`. The endpoint returns `{"ok": true, "path": "..."}` with the saved path — the file is not streamed to the browser.
 
 ---
 

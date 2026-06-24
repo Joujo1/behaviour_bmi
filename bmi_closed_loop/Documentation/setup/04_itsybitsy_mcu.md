@@ -6,14 +6,14 @@ The ItsyBitsy M4 Express (SAMD51) is the audio peripheral for the click stimulus
 
 ## How it works
 
-The Pi fires a 100 µs TTL HIGH pulse on BCM GPIO 9 (right) or BCM GPIO 10 (left) at each scheduled click time. The ItsyBitsy detects the rising edge via interrupt and immediately resets the DAC playback position to zero. A TC3 timer ISR running at 192 kHz clocks out one 12-bit sample per channel per period, playing the pre-baked 3 ms waveform from the `CLICK_WAV` array. When both channels finish, the timer stops to eliminate DAC switching noise during silence.
+The Pi fires a 50 µs TTL HIGH pulse on BCM GPIO 9 (left) or BCM GPIO 10 (right) at each scheduled click time. The ItsyBitsy detects the rising edge via interrupt and immediately resets the DAC playback position to zero. A TC3 timer ISR running at 192 kHz clocks out one 12-bit sample per channel per period, playing the pre-baked 3 ms waveform from the `CLICK_WAV` array. When both channels finish, the timer stops to eliminate DAC switching noise during silence.
 
 Pinout on the ItsyBitsy:
 
 | ItsyBitsy pin | Connected to | Function |
 |---|---|---|
-| D9 | Pi BCM GPIO 10 | Left trigger input |
-| D10 | Pi BCM GPIO 9 | Right trigger input |
+| D9 | Pi BCM GPIO 9 | Left trigger input |
+| D10 | Pi BCM GPIO 10 | Right trigger input |
 | A0 | Left amplifier (via 10 µF cap) | Left DAC output |
 | A1 | Right amplifier (via 10 µF cap) | Right DAC output |
 

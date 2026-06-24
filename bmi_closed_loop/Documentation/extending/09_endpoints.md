@@ -89,12 +89,13 @@ app.register_blueprint(my_feature_bp)
 
 | Resource | How to get it |
 |---|---|
-| Database connection | `current_app.db_pool.getconn()` — return it with `db_pool.putconn(conn)` after use |
-| Valkey client | `current_app.valkey` |
-| `CageRunner` instances | `current_app.cage_runners[cage_id]` |
+| Database connection | Call a local `_get_db()` helper: `conn = psycopg2.connect(config.POSTGRES_DSN)`. Always close it in a `finally` block. There is no connection pool. |
+| Valkey client | Create a module-level client: `_valkey = valkey.Valkey(host=config.VALKEY_HOST, port=config.VALKEY_PORT)`. There is no `app.valkey`. |
+| `CageRunner` instances | `from ui.cage_runner import runners; runner = runners.get(cage_id)`. Runners are not on the app object. |
+| TCP command sender | `sender = current_app.config["COMMAND_SENDERS"].get(cage_id)` — this is the only resource attached to the app config. |
 | Configuration | `import config` — module-level constants are safe to read from any thread |
 
-All of these are attached to the Flask app object in `ui_main.py` during startup.
+Only `COMMAND_SENDERS` is stored on the Flask app object (`app.config["COMMAND_SENDERS"]`). Database connections, Valkey clients, and `CageRunner` instances are accessed via module-level helpers or imports, following the pattern used in every existing endpoint.
 
 ---
 

@@ -10,16 +10,16 @@ A subject is a database row in the `subjects` table. Its fields define the anima
 |---|---|---|
 | `id` | serial | Auto-assigned primary key |
 | `code` | text (unique) | Short identifier used everywhere (e.g. `"R001"`) |
-| `sex` | text | `"M"` or `"F"` |
+| `sex` | CHAR(1) | `"M"` or `"F"` |
 | `dob` | date | Date of birth |
-| `weight_g` | float | Body weight in grams |
-| `reference_weight_g` | float | Baseline weight for water restriction calculations |
+| `weight_g` | NUMERIC(6,1) | Body weight in grams |
+| `reference_weight_g` | NUMERIC | Baseline weight for water restriction calculations |
 | `water_restricted` | bool | Whether the animal is on water restriction |
 | `species` | text | e.g. `"rat"` |
 | `strain` | text | e.g. `"Wistar"` |
 | `experiment_nr` | text | Lab experiment tracking number |
 | `notes` | text | Free-text notes |
-| `enrolled_at` | timestamp | When the subject was created |
+| `enrolled_at` | TIMESTAMPTZ | When the subject was created |
 | `current_substage_id` | int (FK) | Which training substage the animal is on |
 | `substage_entered_at` | timestamp | When the current substage was assigned |
 | `side_bias_alg` | text | Active bias algorithm key (see [04_bias_algorithms.md](04_bias_algorithms.md)) |
