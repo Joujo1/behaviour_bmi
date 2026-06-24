@@ -2,7 +2,7 @@
 
 The database schema lives in one file: [bmi_closed_loop/db/schema.sql](../../db/schema.sql).
 
-There is no ORM and no migration framework (like Alembic). Everything is plain SQL. The schema file is written so that you can safely re-run it against an existing database — it will add any missing pieces without destroying data.
+Everything is plain SQL. The schema file is written so that you can safely re-run it against an existing database — it will add any missing pieces without destroying data.
 
 ---
 
@@ -13,6 +13,7 @@ There is no ORM and no migration framework (like Alembic). Everything is plain S
 ```bash
 psql postgresql://bmi:yaniklab@localhost/bmi_closed_loop -f db/schema.sql
 ```
+The PW is the same as the PC's.
 
 **After adding something to the schema file (existing database, keep data):**
 
